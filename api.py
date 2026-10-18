@@ -20,15 +20,21 @@ Em produção, valide o `initData` assinado do Telegram (HMAC com o token do bot
 e extraia o telegram_id dele, senão qualquer pessoa pode agir por outro jogador.
 """
 
+import hashlib
+import hmac
+import json
 import logging
 import os
 import random
+import time
+from contextvars import ContextVar
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Iterator, Literal, Optional
+from urllib.parse import parse_qsl
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
@@ -58,6 +64,9 @@ logger = logging.getLogger("ninja_api")
 # Banco de dados / sessão
 # ─────────────────────────────────────────────────────────────
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./ninja_rpg.db")
+# Alguns provedores entregam "postgres://", que o SQLAlchemy 2 não aceita
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 _connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
 engine = create_engine(DATABASE_URL, pool_pre_ping=True, connect_args=_connect_args)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
@@ -340,12 +349,68 @@ class WarAttackResponse(BaseModel):
 # ─────────────────────────────────────────────────────────────
 # Helpers de acesso a dados
 # ─────────────────────────────────────────────────────────────
+# ───────── Autenticação (initData assinado do Telegram) ─────────
+# Defina BOT_TOKEN no servidor para ativar. Sem ele (desenvolvimento), a validação fica desligada.
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+AUTH_ID: ContextVar = ContextVar("auth_id", default=None)
+
+
+def verify_init_data(init_data: str, token: str, max_age: int = 86400):
+    """Valida a assinatura HMAC do initData e devolve o id do usuário (ou None se inválido/expirado)."""
+    try:
+        pairs = dict(parse_qsl(init_data, keep_blank_values=True))
+        received = pairs.pop("hash", "")
+        check = "\n".join(f"{k}={v}" for k, v in sorted(pairs.items()))
+        secret = hmac.new(b"WebAppData", token.encode(), hashlib.sha256).digest()
+        expected = hmac.new(secret, check.encode(), hashlib.sha256).hexdigest()
+        if not received or not hmac.compare_digest(expected, received):
+            return None
+        if time.time() - int(pairs.get("auth_date", 0)) > max_age:
+            return None
+        return int(json.loads(pairs["user"])["id"])
+    except (ValueError, KeyError, TypeError):
+        return None
+
+
+async def require_auth(x_telegram_init_data: str = Header(default="")):
+    """Dependência global: só aceita requisições com initData válido e guarda o id autenticado."""
+    if not BOT_TOKEN:
+        return
+    uid = verify_init_data(x_telegram_init_data, BOT_TOKEN)
+    if uid is None:
+        raise HTTPException(401, "Sessão do Telegram inválida ou expirada. Reabra o app pelo bot.")
+    AUTH_ID.set(uid)
+
+
+# ───────── Regeneração passiva ─────────
+CHAKRA_REGEN_SECS = 20  # 1 de chakra a cada 20 s
+HP_REGEN_SECS = 30      # 1 de vida a cada 30 s
+
+
+def regen(player: Player) -> None:
+    """Regenera vida/chakra conforme o tempo parado, calculado sob demanda (sem tarefa em segundo plano)."""
+    now = datetime.now(timezone.utc)
+    if player.regen_at is None:
+        player.regen_at = now
+        return
+    secs = (now - as_utc(player.regen_at)).total_seconds()
+    chakra, hp = int(secs // CHAKRA_REGEN_SECS), int(secs // HP_REGEN_SECS)
+    if chakra:
+        player.chakra_atual = min(player.chakra_max, player.chakra_atual + chakra)
+    if hp:
+        player.vida_atual = min(player.vida_max, player.vida_atual + hp)
+    if chakra or hp:
+        player.regen_at = now
+
+
 def get_player(db: Session, telegram_id: int, lock: bool = False) -> Player:
     """
     Busca o jogador com tudo que as regras precisam (selectinload evita N+1).
     lock=True aplica SELECT ... FOR UPDATE na linha do jogador: impede que duas
     requisições simultâneas gastem o mesmo chakra/ryos (ignorado no SQLite).
     """
+    if BOT_TOKEN and AUTH_ID.get() != telegram_id:
+        raise HTTPException(403, "Você não pode agir em nome de outro jogador.")
     stmt = (
         select(Player)
         .where(Player.telegram_id == telegram_id)
@@ -362,6 +427,7 @@ def get_player(db: Session, telegram_id: int, lock: bool = False) -> Player:
     player = db.execute(stmt).scalar_one_or_none()
     if player is None:
         raise HTTPException(status_code=404, detail="Jogador não encontrado.")
+    regen(player)
     return player
 
 
@@ -450,7 +516,7 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="RPG Ninja API", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="RPG Ninja API", version="1.0.0", lifespan=lifespan, dependencies=[Depends(require_auth)])
 
 app.add_middleware(
     CORSMiddleware,
@@ -488,6 +554,8 @@ def setup_options(db: Session = Depends(get_db)):
 @app.post("/api/register", response_model=PlayerOut, status_code=201)
 def register(payload: RegisterRequest, db: Session = Depends(get_db)):
     """Cria o perfil: nome, classe e vila. Começa sem clã, como Estudante, nível 1, com 500 ryos."""
+    if BOT_TOKEN and AUTH_ID.get() != payload.telegram_id:
+        raise HTTPException(403, "Você não pode criar personagem para outro usuário.")
     if db.scalar(select(Player.id).where(Player.telegram_id == payload.telegram_id)):
         raise HTTPException(409, "Este usuário do Telegram já possui um personagem.")
     if db.scalar(select(Player.id).where(Player.ninja_name == payload.ninja_name)):

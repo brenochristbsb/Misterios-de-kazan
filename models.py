@@ -160,6 +160,8 @@ class Player(TimestampMixin, Base):
     # Jornada: missões concluídas e fim da missão em andamento (se houver)
     journey: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     journey_ends_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    # Última vez em que vida/chakra foram regenerados (cálculo sob demanda)
+    regen_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
     # Recursos de combate
     chakra_max: Mapped[int] = mapped_column(Integer, default=100, nullable=False)

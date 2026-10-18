@@ -163,13 +163,16 @@ function showTab(name) {
 document.querySelectorAll('nav button').forEach(b => b.onclick = () => showTab(b.dataset.tab));
 
 /* ───────── Renderização ───────── */
-function render() {
+function renderHeader() {
   $('hName').textContent = P.ninja_name; $('hRank').textContent = P.rank; $('hLvl').textContent = P.level;
   $('hSub').textContent = `${P.village.name}, ${P.clan.name === 'Sem clã' ? 'sem clã' : P.clan.name}`;
   $('hRyos').textContent = fmt(P.ryos);
   $('tHp').textContent = `${P.vida.atual}/${P.vida.max}`; $('tCk').textContent = `${P.chakra.atual}/${P.chakra.max}`;
   $('bHp').style.width = pct(P.vida.atual, P.vida.max); $('bCk').style.width = pct(P.chakra.atual, P.chakra.max);
   const lo = expFloor(P.level); $('bXp').style.width = pct(P.exp - lo, P.exp_proximo_nivel - lo);
+}
+function render() {
+  renderHeader();
   renderPerfil(); renderJornada(); renderMapas(); renderVila(); renderGuilda();
 }
 
@@ -334,6 +337,12 @@ async function register() {
     toast(`Bem-vindo, ${P.ninja_name}!`);
   } catch (e) { $('rInfo').textContent = e.message; }
 }
+// Vida e chakra regeneram com o tempo: atualiza só o cabeçalho, sem refazer as telas (preserva o que está sendo digitado)
+setInterval(async () => {
+  if (!P || document.hidden) return;
+  try { P = await api('/api/player/' + tgUser.id); renderHeader(); } catch {}
+}, 30000);
+
 (async function init() {
   showTab('perfil');
   if (!tgUser.id) return fatal('Abra este app pelo Telegram. Para testar no navegador, use ?tid=123 no endereço.');
