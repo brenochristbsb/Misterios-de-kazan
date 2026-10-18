@@ -49,192 +49,587 @@
 </head>
 <body class="pb-28 max-w-md mx-auto p-4 min-h-screen relative">
 
-  <!-- TOP PROFILE HEADER (FIEL AO LAYOUT ORIGINAL) -->
-  <div class="app-card p-4 mb-4 shadow-xl">
-    <div class="flex items-center space-x-3 mb-3">
-      <!-- AVATAR DO PERSONAGEM -->
-      <div class="relative">
-        <div id="ui-avatar-box" class="w-14 h-14 rounded-2xl bg-gradient-to-br from-amber-600 to-red-700 p-0.5 shadow-lg flex items-center justify-center">
-          <div class="w-full h-full bg-gray-900 rounded-[14px] flex items-center justify-center overflow-hidden">
-            <i id="ui-avatar-icon" class="fa-solid fa-user-ninja text-amber-500 text-2xl"></i>
-          </div>
-        </div>
-        <span id="ui-level" class="absolute -bottom-1 -right-1 bg-red-700 text-white font-bold text-[10px] px-1.5 py-0.2 rounded-md border border-red-500">1</span>
-      </div>
-
-      <!-- INFORMAÇÕES DO JOGADOR -->
-      <div class="flex-1">
-        <div class="flex justify-between items-baseline">
-          <h2 id="ui-name" class="font-serif-title text-base font-bold text-gray-100 tracking-wide">teste1</h2>
-          <span class="text-xs font-bold text-amber-400">Ryos <span id="ui-ryos" class="text-white">500</span></span>
-        </div>
-        <div class="flex items-center space-x-2 mt-0.5">
-          <span id="ui-rank" class="text-[10px] border border-amber-500/40 text-amber-300 bg-amber-950/30 px-2 py-0.5 rounded-full font-medium">Estudante</span>
-          <span id="ui-guild" class="text-[10px] text-gray-400">Sem guilda</span>
-        </div>
-      </div>
+  <!-- ==================== TELA DE CADASTRO INICIAL (Criação de Ninja) ==================== -->
+  <div id="register-screen" class="space-y-4">
+    <div class="text-center py-4">
+      <h1 class="font-serif-title text-2xl font-bold text-amber-500 tracking-wider">SHADOW CLAN RPG</h1>
+      <p class="text-xs text-gray-400">Crie o seu Shinobi para iniciar a jornada</p>
     </div>
 
-    <!-- BARRAS DE VIDA E CHAKRA -->
-    <div class="space-y-2 pt-1 border-t border-gray-800/60">
+    <div class="app-card p-5 space-y-4">
+      <!-- 1. Nome -->
       <div>
-        <div class="flex justify-between text-[11px] text-gray-400 mb-1">
-          <span>Vida</span>
-          <span id="txt-hp" class="text-gray-200 font-medium">100/100</span>
-        </div>
-        <div class="w-full bg-gray-950 h-2 rounded-full overflow-hidden border border-gray-800">
-          <div id="bar-hp" class="status-bar-hp h-full w-full transition-all duration-300"></div>
+        <label class="block text-xs font-bold text-amber-400 mb-1">Nome do Shinobi</label>
+        <input type="text" id="reg-name" placeholder="Ex: Hayate" class="w-full bg-gray-950 border border-gray-800 rounded-xl p-2.5 text-xs text-white outline-none focus:border-amber-500">
+      </div>
+
+      <!-- 2. Sexo -->
+      <div>
+        <label class="block text-xs font-bold text-amber-400 mb-1">Gênero / Sexo</label>
+        <div class="grid grid-cols-2 gap-2">
+          <button type="button" onclick="selectGender('Masculino')" id="btn-gender-m" class="bg-gray-950 p-2.5 rounded-xl border border-amber-500 text-xs font-bold text-white flex items-center justify-center space-x-2">
+            <i class="fa-solid fa-mars text-blue-400"></i>
+            <span>Masculino</span>
+          </button>
+          <button type="button" onclick="selectGender('Feminino')" id="btn-gender-f" class="bg-gray-950 p-2.5 rounded-xl border border-gray-800 text-xs font-bold text-gray-400 flex items-center justify-center space-x-2">
+            <i class="fa-solid fa-venus text-pink-400"></i>
+            <span>Feminino</span>
+          </button>
         </div>
       </div>
 
+      <!-- 3. Atributo Especializado -->
       <div>
-        <div class="flex justify-between text-[11px] text-gray-400 mb-1">
-          <span>Chakra</span>
-          <span id="txt-mp" class="text-gray-200 font-medium">130/130</span>
-        </div>
-        <div class="w-full bg-gray-950 h-2 rounded-full overflow-hidden border border-gray-800">
-          <div id="bar-mp" class="status-bar-mp h-full w-full transition-all duration-300"></div>
-        </div>
+        <label class="block text-xs font-bold text-amber-400 mb-1">Foco Inicial de Atributo</label>
+        <select id="reg-focus" class="w-full bg-gray-950 border border-gray-800 rounded-xl p-2.5 text-xs text-white outline-none">
+          <option value="taijutsu">Taijutsu (Força Física & Dano Corpora)</option>
+          <option value="ninjutsu">Ninjutsu (Poder Elemental & Chakra)</option>
+          <option value="genjutsu">Genjutsu (Ilusões & Dano Mental)</option>
+        </select>
       </div>
+
+      <!-- 4. Seleção das 7 Vilas -->
+      <div>
+        <label class="block text-xs font-bold text-amber-400 mb-1">Vila de Origem (7 Opções)</label>
+        <select id="reg-village" class="w-full bg-gray-950 border border-gray-800 rounded-xl p-2.5 text-xs text-white outline-none">
+          <option value="Vila das Chamas">🔥 Vila das Chamas (Bônus +10% Ninjutsu)</option>
+          <option value="Vila da Névoa">🌊 Vila da Névoa (Bônus +10% Genjutsu)</option>
+          <option value="Vila dos Trovões">⚡ Vila dos Trovões (Bônus +10% Agilidade)</option>
+          <option value="Vila da Rocha">🪨 Vila da Rocha (Bônus +15% Defesa Física)</option>
+          <option value="Vila dos Ventos">🌪️ Vila dos Ventos (Bônus +10% Crítico)</option>
+          <option value="Vila das Sombras">🌑 Vila das Sombras (Bônus +15% Furtividade)</option>
+          <option value="Vila da Folha">🍃 Vila da Folha (Bônus +10% Vida/Chakra)</option>
+        </select>
+      </div>
+
+      <button onclick="finishRegistration()" class="w-full bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 text-gray-950 font-bold py-3 rounded-xl text-xs border border-amber-400 shadow-lg mt-2">
+        Criar Ninja & Iniciar Aventura
+      </button>
     </div>
   </div>
 
-  <!-- CONTEÚDO DAS ABAS DA NAVEGAÇÃO -->
+  <!-- ==================== INTERFACE PRINCIPAL (PÓS-CADASTRO) ==================== -->
+  <div id="main-app" class="hidden">
+    
+    <!-- TOP PROFILE HEADER -->
+    <div class="app-card p-4 mb-4 shadow-xl">
+      <div class="flex items-center space-x-3 mb-3">
+        <div class="relative">
+          <div id="ui-avatar-box" class="w-14 h-14 rounded-2xl bg-gradient-to-br from-amber-600 to-red-700 p-0.5 shadow-lg flex items-center justify-center">
+            <div class="w-full h-full bg-gray-900 rounded-[14px] flex items-center justify-center overflow-hidden">
+              <i id="ui-avatar-icon" class="fa-solid fa-user-ninja text-amber-500 text-2xl"></i>
+            </div>
+          </div>
+          <span id="ui-level" class="absolute -bottom-1 -right-1 bg-red-700 text-white font-bold text-[10px] px-1.5 py-0.2 rounded-md border border-red-500">1</span>
+        </div>
 
-  <!-- 1. PERFIL & SKINS/TRAJES -->
-  <div id="tab-profile" class="tab-content space-y-4">
-    <!-- ATRIBUTOS -->
-    <div class="app-card p-4">
-      <h3 class="font-serif-title text-sm font-bold text-amber-500 mb-3 border-b border-gray-800 pb-2">Atributos Shinobi</h3>
-      <div class="grid grid-cols-2 gap-2 text-xs">
-        <div class="bg-gray-950/80 p-2.5 rounded-xl border border-gray-800">
-          <span class="text-gray-400 block text-[10px]">Taijutsu</span>
-          <span id="stat-taijutsu" class="text-gray-100 font-bold text-sm">10</span>
+        <div class="flex-1">
+          <div class="flex justify-between items-baseline">
+            <h2 id="ui-name" class="font-serif-title text-base font-bold text-gray-100 tracking-wide">Hayate</h2>
+            <span class="text-xs font-bold text-amber-400">Ryos <span id="ui-ryos" class="text-white">500</span></span>
+          </div>
+          <div class="flex items-center space-x-2 mt-0.5">
+            <span id="ui-rank" class="text-[10px] border border-amber-500/40 text-amber-300 bg-amber-950/30 px-2 py-0.5 rounded-full font-medium">Estudante</span>
+            <span id="ui-village" class="text-[10px] text-gray-400">Vila das Chamas</span>
+          </div>
+          <p class="text-[10px] text-gray-400 mt-0.5">Guilda: <strong id="ui-guild" class="text-blue-400">Sem guilda</strong></p>
         </div>
-        <div class="bg-gray-950/80 p-2.5 rounded-xl border border-gray-800">
-          <span class="text-gray-400 block text-[10px]">Ninjutsu</span>
-          <span id="stat-ninjutsu" class="text-gray-100 font-bold text-sm">12</span>
+      </div>
+
+      <!-- BARRAS DE VIDA E CHAKRA -->
+      <div class="space-y-2 pt-1 border-t border-gray-800/60">
+        <div>
+          <div class="flex justify-between text-[11px] text-gray-400 mb-1">
+            <span>Vida</span>
+            <span id="txt-hp" class="text-gray-200 font-medium">100/100</span>
+          </div>
+          <div class="w-full bg-gray-950 h-2 rounded-full overflow-hidden border border-gray-800">
+            <div id="bar-hp" class="status-bar-hp h-full w-full transition-all duration-300"></div>
+          </div>
         </div>
-        <div class="bg-gray-950/80 p-2.5 rounded-xl border border-gray-800">
-          <span class="text-gray-400 block text-[10px]">Genjutsu</span>
-          <span id="stat-genjutsu" class="text-gray-100 font-bold text-sm">8</span>
-        </div>
-        <div class="bg-gray-950/80 p-2.5 rounded-xl border border-gray-800">
-          <span class="text-gray-400 block text-[10px]">Agilidade</span>
-          <span id="stat-agilidade" class="text-gray-100 font-bold text-sm">5</span>
+
+        <div>
+          <div class="flex justify-between text-[11px] text-gray-400 mb-1">
+            <span>Chakra</span>
+            <span id="txt-mp" class="text-gray-200 font-medium">130/130</span>
+          </div>
+          <div class="w-full bg-gray-950 h-2 rounded-full overflow-hidden border border-gray-800">
+            <div id="bar-mp" class="status-bar-mp h-full w-full transition-all duration-300"></div>
+          </div>
         </div>
       </div>
     </div>
 
-    <!-- SELEÇÃO DE TRAJES / SKINS (SÓBRIO E VISUAL) -->
-    <div class="app-card p-4">
-      <h3 class="font-serif-title text-sm font-bold text-amber-500 mb-2">Trajes & Personalização (Skins)</h3>
-      <p class="text-[11px] text-gray-400 mb-3">Selecione a sua vestimenta e aparência em batalha:</p>
+    <!-- ABAS DA NAVEGAÇÃO -->
 
-      <div class="grid grid-cols-2 gap-2">
-        <button onclick="setSkin('ninja', 'Traje de Estudante', 'fa-user-ninja')" class="bg-gray-950 p-3 rounded-xl border border-amber-500/50 flex items-center space-x-3 text-left hover:border-amber-500">
-          <div class="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
-            <i class="fa-solid fa-user-ninja text-base"></i>
+    <!-- 1. PERFIL & SKINS & PATENTES & MESTRES -->
+    <div id="tab-profile" class="tab-content space-y-4">
+      <!-- MATRIZ DE ATRIBUTOS -->
+      <div class="app-card p-4">
+        <h3 class="font-serif-title text-sm font-bold text-amber-500 mb-3 border-b border-gray-800 pb-2">Atributos Shinobi</h3>
+        <div class="grid grid-cols-2 gap-2 text-xs">
+          <div class="bg-gray-950/80 p-2.5 rounded-xl border border-gray-800">
+            <span class="text-gray-400 block text-[10px]">Taijutsu</span>
+            <span id="stat-taijutsu" class="text-gray-100 font-bold text-sm">10</span>
           </div>
-          <div>
-            <p class="text-xs font-bold text-gray-200">Traje Inicial</p>
-            <p class="text-[9px] text-gray-400">Padrão da Academia</p>
+          <div class="bg-gray-950/80 p-2.5 rounded-xl border border-gray-800">
+            <span class="text-gray-400 block text-[10px]">Ninjutsu</span>
+            <span id="stat-ninjutsu" class="text-gray-100 font-bold text-sm">12</span>
           </div>
+          <div class="bg-gray-950/80 p-2.5 rounded-xl border border-gray-800">
+            <span class="text-gray-400 block text-[10px]">Genjutsu</span>
+            <span id="stat-genjutsu" class="text-gray-100 font-bold text-sm">8</span>
+          </div>
+          <div class="bg-gray-950/80 p-2.5 rounded-xl border border-gray-800">
+            <span class="text-gray-400 block text-[10px]">Agilidade</span>
+            <span id="stat-agilidade" class="text-gray-100 font-bold text-sm">5</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- PROMOÇÃO DE PATENTE -->
+      <div class="app-card p-4">
+        <h3 class="font-serif-title text-sm font-bold text-amber-500 mb-1">Exame de Graduação / Patente</h3>
+        <p id="rank-promo-desc" class="text-[11px] text-gray-400 mb-3">Requisito para Genin: Nível 5 e 200 Ryos.</p>
+        <button onclick="tryRankPromotion()" class="w-full bg-amber-600 hover:bg-amber-700 text-gray-950 font-bold py-2 rounded-xl text-xs border border-amber-500">
+          Prestar Exame de Patente
         </button>
+      </div>
 
-        <button onclick="setSkin('anbu', 'Mecanismo Anbu', 'fa-mask')" class="bg-gray-950 p-3 rounded-xl border border-gray-800 flex items-center space-x-3 text-left hover:border-amber-500">
-          <div class="w-8 h-8 rounded-lg bg-red-500/10 border border-red-500/30 flex items-center justify-center text-red-400">
-            <i class="fa-solid fa-mask text-base"></i>
-          </div>
-          <div>
-            <p class="text-xs font-bold text-gray-200">Máscara Anbu</p>
-            <p class="text-[9px] text-gray-400">Exige Rank Chunin</p>
-          </div>
+      <!-- TRAJES / SKINS -->
+      <div class="app-card p-4">
+        <h3 class="font-serif-title text-sm font-bold text-amber-500 mb-2">Trajes & Personalização (Skins)</h3>
+        <div class="grid grid-cols-2 gap-2">
+          <button onclick="setSkin('ninja', 'Traje Inicial', 'fa-user-ninja')" class="bg-gray-950 p-2.5 rounded-xl border border-amber-500/50 flex items-center space-x-2 text-left">
+            <i class="fa-solid fa-user-ninja text-amber-400"></i>
+            <span class="text-xs font-bold text-gray-200">Traje Inicial</span>
+          </button>
+          <button onclick="setSkin('anbu', 'Máscara Anbu', 'fa-mask')" class="bg-gray-950 p-2.5 rounded-xl border border-gray-800 flex items-center space-x-2 text-left">
+            <i class="fa-solid fa-mask text-red-400"></i>
+            <span class="text-xs font-bold text-gray-200">Anbu</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- SISTEMA DE MESTRES -->
+      <div class="app-card p-4">
+        <h3 class="font-serif-title text-sm font-bold text-amber-500 mb-1">Mestre & Doutrinação</h3>
+        <p class="text-[11px] text-gray-400 mb-2">Sensei Atual: <strong id="sensei-name" class="text-amber-400">Nenhum</strong></p>
+        <button onclick="requestSensei()" class="w-full bg-gray-800 hover:bg-gray-700 text-white font-bold py-1.5 rounded-lg text-xs border border-gray-600">
+          Solicitar Mestre Jonin (+15% XP)
         </button>
+      </div>
 
-        <button onclick="setSkin('renegade', 'Manto do Renegado', 'fa-user-secret')" class="bg-gray-950 p-3 rounded-xl border border-gray-800 flex items-center space-x-3 text-left hover:border-amber-500">
-          <div class="w-8 h-8 rounded-lg bg-purple-500/10 border border-purple-500/30 flex items-center justify-center text-purple-400">
-            <i class="fa-solid fa-user-secret text-base"></i>
+      <!-- CÓDIGO DE RECRUTAMENTO / INDICAÇÃO -->
+      <div class="app-card-gold p-4">
+        <h3 class="font-serif-title text-sm font-bold text-amber-400 mb-1">Recrutamento de Ninjas</h3>
+        <div class="bg-gray-950/90 p-2.5 rounded-xl border border-amber-900/50 flex justify-between items-center">
+          <span id="ref-code" class="text-xs font-mono font-bold text-amber-400 tracking-wider">REF-SHADOW-883</span>
+          <button onclick="copyRefLink()" class="bg-amber-600 text-gray-950 text-[10px] font-bold px-3 py-1.5 rounded-lg border border-amber-400">
+            Copiar Link
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2. TREINO & ARENA DE COMBATE -->
+    <div id="tab-train" class="tab-content hidden space-y-4">
+      <div class="app-card p-4">
+        <h3 class="font-serif-title text-sm font-bold text-amber-500 mb-1">Arena de Treino & Duelo</h3>
+        
+        <!-- ARENA -->
+        <div class="bg-gray-950 p-3.5 rounded-xl border border-gray-800 mb-3">
+          <div class="flex justify-between items-center mb-1.5">
+            <span id="enemy-name" class="font-bold text-red-400 text-xs">Boneco de Treino</span>
+            <span id="enemy-rank" class="text-[9px] bg-red-950 text-red-300 border border-red-800 px-1.5 py-0.5 rounded">Inimigo</span>
           </div>
-          <div>
-            <p class="text-xs font-bold text-gray-200">Manto Sombrio</p>
-            <p class="text-[9px] text-gray-400">Alinhamento Nukenin</p>
+          <div class="w-full bg-gray-900 h-2 rounded-full overflow-hidden border border-gray-800 mb-1">
+            <div id="enemy-hp-bar" class="status-bar-hp h-full w-full transition-all duration-300"></div>
           </div>
+          <div class="text-right text-[10px] text-gray-400" id="enemy-hp-txt">80/80 HP</div>
+        </div>
+
+        <!-- LOG DE BATALHA -->
+        <div id="battle-log" class="log-box p-3 rounded-xl mb-3 h-28 overflow-y-auto space-y-1 text-gray-300">
+          <div class="text-amber-400">⚔️ Duelo iniciado. Escolha a sua técnica!</div>
+        </div>
+
+        <!-- BOTÕES DE AÇÃO -->
+        <div class="grid grid-cols-2 gap-2">
+          <button onclick="executeAction('taijutsu')" class="bg-amber-900/60 hover:bg-amber-800 text-amber-200 font-bold p-2.5 rounded-xl text-xs border border-amber-700/60 flex items-center justify-center space-x-1.5">
+            <i class="fa-solid fa-fist-raised text-amber-400"></i>
+            <span>Taijutsu</span>
+          </button>
+          <button onclick="executeAction('ninjutsu')" class="bg-blue-900/60 hover:bg-blue-800 text-blue-200 font-bold p-2.5 rounded-xl text-xs border border-blue-700/60 flex items-center justify-center space-x-1.5">
+            <i class="fa-solid fa-fire text-blue-400"></i>
+            <span>Jutsu (-15 MP)</span>
+          </button>
+          <button onclick="executeAction('heal')" class="bg-emerald-900/60 hover:bg-emerald-800 text-emerald-200 font-bold p-2.5 rounded-xl text-xs border border-emerald-700/60 flex items-center justify-center space-x-1.5">
+            <i class="fa-solid fa-heart-pulse text-emerald-400"></i>
+            <span>Curar (-20 MP)</span>
+          </button>
+          <button onclick="executeAction('defend')" class="bg-gray-800 hover:bg-gray-700 text-gray-200 font-bold p-2.5 rounded-xl text-xs border border-gray-600 flex items-center justify-center space-x-1.5">
+            <i class="fa-solid fa-shield text-gray-400"></i>
+            <span>Defender</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3. MISSÕES & ARCOS NARRATIVOS -->
+    <div id="tab-quests" class="tab-content hidden space-y-3">
+      <div class="app-card p-4">
+        <h3 class="font-serif-title text-sm font-bold text-amber-500 mb-1">Mural de Missões & Arcos</h3>
+        <div class="space-y-2.5 mt-3">
+          <div class="bg-gray-950 p-3 rounded-xl border border-gray-800">
+            <div class="flex justify-between items-center mb-1">
+              <span class="font-bold text-gray-200 text-xs">Arco 1: O Resgate do Comerciante</span>
+              <span class="text-[9px] bg-amber-950 text-amber-400 border border-amber-800 px-1.5 py-0.5 rounded">Rank D</span>
+            </div>
+            <p class="text-[10px] text-gray-400 mb-2">Recompensa: +30 XP, +80 Ryos</p>
+            <button onclick="startQuest('Resgate do Comerciante', 30, 80)" class="w-full bg-red-900/80 hover:bg-red-800 text-white font-bold py-2 rounded-lg text-xs border border-red-700">
+              Executar Missão
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4. MAPAS POR LVL, DROPS & MASMORRA -->
+    <div id="tab-maps" class="tab-content hidden space-y-3">
+      <div class="app-card p-4">
+        <h3 class="font-serif-title text-sm font-bold text-amber-500 mb-1">Mapas de Exploração por Nível</h3>
+        
+        <div class="space-y-2.5 mt-3">
+          <!-- MAPA LVL 1 -->
+          <div class="bg-gray-950 p-3.5 rounded-xl border border-gray-800 flex justify-between items-center">
+            <div>
+              <p class="text-xs font-bold text-gray-200">Floresta do Treino (Lvl 1+)</p>
+              <p class="text-[10px] text-gray-400">Drop: Kunai, Erva Medicinal</p>
+            </div>
+            <button onclick="exploreMap('Floresta', 'Lobo Alfa', 90, 12)" class="bg-red-900/80 hover:bg-red-800 text-white text-xs font-bold px-3 py-2 rounded-lg border border-red-700">
+              Explorar (15 MP)
+            </button>
+          </div>
+
+          <!-- MASMORRA / ABISMO NINJA -->
+          <div class="bg-purple-950/40 p-3.5 rounded-xl border border-purple-800/60 flex justify-between items-center">
+            <div>
+              <p class="text-xs font-bold text-purple-300">⛩️ Masmorra: Abismo Ninja</p>
+              <p class="text-[10px] text-gray-400">Desafio de Andares & Tesouros</p>
+            </div>
+            <button onclick="enterDungeon()" class="bg-purple-700 hover:bg-purple-600 text-white text-xs font-bold px-3 py-2 rounded-lg border border-purple-500">
+              Entrar na Masmorra
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 5. VILA, HOSPITAL, LOJA & PETS -->
+    <div id="tab-village" class="tab-content hidden space-y-3">
+      <!-- LOJA SHINOBI & ITEMIZAÇÕES -->
+      <div class="app-card p-4">
+        <h3 class="font-serif-title text-sm font-bold text-amber-500 mb-2">Mercado Shinobi (Loja)</h3>
+        <div class="grid grid-cols-2 gap-2 text-xs">
+          <div class="bg-gray-950 p-2.5 rounded-xl border border-gray-800">
+            <p class="font-bold text-gray-200">Katana de Aço</p>
+            <p class="text-[9px] text-gray-400">+5 Taijutsu • 150 Ryos</p>
+            <button onclick="buyItem('Katana de Aço', 150)" class="w-full mt-1.5 bg-amber-600 text-gray-950 font-bold py-1 rounded text-[10px]">Comprar</button>
+          </div>
+          <div class="bg-gray-950 p-2.5 rounded-xl border border-gray-800">
+            <p class="font-bold text-gray-200">Pílula de Ração</p>
+            <p class="text-[9px] text-gray-400">Restaura 50 MP • 40 Ryos</p>
+            <button onclick="buyItem('Pílula de Ração', 40)" class="w-full mt-1.5 bg-amber-600 text-gray-950 font-bold py-1 rounded text-[10px]">Comprar</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- INVOCAÇÃO & PETS -->
+      <div class="app-card p-4">
+        <h3 class="font-serif-title text-sm font-bold text-amber-500 mb-1">Contratos de Invocação (Pets)</h3>
+        <p class="text-[11px] text-gray-400 mb-2">Pet Ativo: <strong id="pet-name" class="text-amber-400">Nenhum</strong></p>
+        <button onclick="summonPet('Sapo Guerreiro')" class="w-full bg-emerald-800 hover:bg-emerald-700 text-white font-bold py-2 rounded-xl text-xs border border-emerald-600">
+          Invocar Sapo Guerreiro (200 Ryos)
         </button>
+      </div>
 
-        <button onclick="setSkin('kage', 'Manto do Mestre', 'fa-hat-wizard')" class="bg-gray-950 p-3 rounded-xl border border-gray-800 flex items-center space-x-3 text-left hover:border-amber-500">
-          <div class="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-300">
-            <i class="fa-solid fa-hat-wizard text-base"></i>
-          </div>
-          <div>
-            <p class="text-xs font-bold text-gray-200">Manto de Kage</p>
-            <p class="text-[9px] text-gray-400">Exige Nível 30</p>
-          </div>
+      <!-- HOSPITAL SHINOBI -->
+      <div class="app-card p-4">
+        <h3 class="font-serif-title text-sm font-bold text-amber-500 mb-1">Hospital & Casa de Chá</h3>
+        <button onclick="restTea()" class="w-full bg-amber-600 hover:bg-amber-700 text-gray-950 font-bold py-2 rounded-xl text-xs border border-amber-500">
+          Tratar Lesões e Recuperar TUDO (50 Ryos)
         </button>
       </div>
     </div>
 
-    <!-- CÓDIGO DE RECRUTAMENTO / INDICAÇÃO -->
-    <div class="app-card-gold p-4">
-      <h3 class="font-serif-title text-sm font-bold text-amber-400 mb-1">Recrutamento de Ninjas</h3>
-      <p class="text-[11px] text-gray-300 mb-3">Convide aliados para a sua vila. Receba +100 Ryos por cada registo e +500 Ryos ao atingirem o Rank Genin.</p>
+    <!-- 6. GUILDA & GUERRA & RANKING -->
+    <div id="tab-guild" class="tab-content hidden space-y-4">
+      <div class="app-card p-4">
+        <h3 class="font-serif-title text-sm font-bold text-amber-500 mb-1">Sua Guilda</h3>
+        <div class="bg-gray-950 p-3 rounded-xl border border-gray-800 mb-3">
+          <p class="text-xs font-bold text-gray-200 mb-1">Criar Nova Guilda</p>
+          <div class="flex space-x-2">
+            <input type="text" id="guild-input" placeholder="Nome da guilda..." class="bg-gray-900 border border-gray-700 rounded-lg p-2 text-xs text-white flex-1 outline-none">
+            <button onclick="createGuild()" class="bg-amber-600 text-gray-950 font-bold text-xs px-3 rounded-lg border border-amber-500">Criar</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- GUERRA & BOSS DA GUILDA -->
+      <div class="app-card p-4 space-y-2">
+        <h3 class="font-serif-title text-sm font-bold text-amber-500">Guerra & Boss da Guilda</h3>
+        <button onclick="startBossFight()" class="w-full bg-red-800 hover:bg-red-700 text-white font-bold py-2.5 rounded-xl text-xs border border-red-600">
+          Atacar Boss da Guilda (20 MP)
+        </button>
+      </div>
+
+      <!-- RANKING DAS GUILDAS & JOGADORES -->
+      <div class="app-card p-4">
+        <h3 class="font-serif-title text-sm font-bold text-amber-500 mb-2">Ranking Geral das Guildas</h3>
+        <div class="space-y-1.5 text-xs">
+          <div class="flex justify-between bg-gray-950 p-2 rounded-lg border border-gray-800">
+            <span class="font-bold text-amber-400">1. Sombra do Dragão</span>
+            <span class="text-gray-400">Nível 12 • 4.500 Pts</span>
+          </div>
+          <div class="flex justify-between bg-gray-950 p-2 rounded-lg border border-gray-800">
+            <span class="font-bold text-gray-300">2. Akatsuki Oculta</span>
+            <span class="text-gray-400">Nível 10 • 3.800 Pts</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- BARRAS DE NAVEGAÇÃO INFERIOR -->
+    <div class="fixed bottom-0 left-0 right-0 bg-[#07090e]/95 backdrop-blur border-t border-gray-800/80 py-3 px-2 flex justify-around text-center max-w-md mx-auto z-50">
+      <button onclick="switchTab('profile')" id="btn-profile" class="nav-btn active flex flex-col items-center flex-1">
+        <i class="fa-solid fa-user-ninja text-lg mb-1"></i>
+        <span class="text-[10px] font-medium">Perfil</span>
+      </button>
+      <button onclick="switchTab('train')" id="btn-train" class="nav-btn flex flex-col items-center flex-1">
+        <i class="fa-solid fa-dumbbell text-lg mb-1"></i>
+        <span class="text-[10px] font-medium">Treino</span>
+      </button>
+      <button onclick="switchTab('quests')" id="btn-quests" class="nav-btn flex flex-col items-center flex-1">
+        <i class="fa-solid fa-scroll text-lg mb-1"></i>
+        <span class="text-[10px] font-medium">Missões</span>
+      </button>
+      <button onclick="switchTab('maps')" id="btn-maps" class="nav-btn flex flex-col items-center flex-1">
+        <i class="fa-solid fa-map-marked-alt text-lg mb-1"></i>
+        <span class="text-[10px] font-medium">Mapas</span>
+      </button>
+      <button onclick="switchTab('village')" id="btn-village" class="nav-btn flex flex-col items-center flex-1">
+        <i class="fa-solid fa-gopuram text-lg mb-1"></i>
+        <span class="text-[10px] font-medium">Vila e clã</span>
+      </button>
+      <button onclick="switchTab('guild')" id="btn-guild" class="nav-btn flex flex-col items-center flex-1">
+        <i class="fa-solid fa-shield-cat text-lg mb-1"></i>
+        <span class="text-[10px] font-medium">Guilda</span>
+      </button>
+    </div>
+  </div>
+
+  <script>
+    // ESTADO DO JOGADOR
+    let player = {
+      registered: false,
+      name: "",
+      gender: "Masculino",
+      village: "Vila das Chamas",
+      rank: "Estudante",
+      level: 1,
+      ryos: 500,
+      guild: "Sem guilda",
+      pet: "Nenhum",
+      sensei: "Nenhum",
+      hp: 100, hpMax: 100,
+      mp: 130, mpMax: 130,
+      taijutsu: 10, ninjutsu: 10, genjutsu: 10, agilidade: 5,
+      skin: "Traje Inicial",
+      defending: false
+    };
+
+    let enemy = { name: "Boneco de Treino", hp: 80, hpMax: 80, atk: 8, rank: "Treino" };
+
+    function selectGender(g) {
+      player.gender = g;
+      document.getElementById('btn-gender-m').className = g === 'Masculino' ? 'bg-gray-950 p-2.5 rounded-xl border border-amber-500 text-xs font-bold text-white flex items-center justify-center space-x-2' : 'bg-gray-950 p-2.5 rounded-xl border border-gray-800 text-xs font-bold text-gray-400 flex items-center justify-center space-x-2';
+      document.getElementById('btn-gender-f').className = g === 'Feminino' ? 'bg-gray-950 p-2.5 rounded-xl border border-amber-500 text-xs font-bold text-white flex items-center justify-center space-x-2' : 'bg-gray-950 p-2.5 rounded-xl border border-gray-800 text-xs font-bold text-gray-400 flex items-center justify-center space-x-2';
+    }
+
+    function finishRegistration() {
+      const nameInput = document.getElementById('reg-name').value.trim();
+      if (!nameInput) return alert('Por favor, insira o nome do seu ninja!');
+
+      player.name = nameInput;
+      player.village = document.getElementById('reg-village').value;
+      const focus = document.getElementById('reg-focus').value;
+
+      if (focus === 'taijutsu') player.taijutsu += 5;
+      else if (focus === 'ninjutsu') player.ninjutsu += 5;
+      else if (focus === 'genjutsu') player.genjutsu += 5;
+
+      player.registered = true;
+
+      // ATUALIZAR UI PRINCIPAL
+      document.getElementById('ui-name').innerText = player.name;
+      document.getElementById('ui-village').innerText = player.village;
+      document.getElementById('stat-taijutsu').innerText = player.taijutsu;
+      document.getElementById('stat-ninjutsu').innerText = player.ninjutsu;
+      document.getElementById('stat-genjutsu').innerText = player.genjutsu;
+
+      document.getElementById('register-screen').classList.add('hidden');
+      document.getElementById('main-app').classList.remove('hidden');
+    }
+
+    function updateBars() {
+      document.getElementById('txt-hp').innerText = `${Math.max(0, player.hp)}/${player.hpMax}`;
+      document.getElementById('bar-hp').style.width = Math.max(0, (player.hp / player.hpMax) * 100) + '%';
+
+      document.getElementById('txt-mp').innerText = `${Math.max(0, player.mp)}/${player.mpMax}`;
+      document.getElementById('bar-mp').style.width = Math.max(0, (player.mp / player.mpMax) * 100) + '%';
+
+      document.getElementById('enemy-hp-txt').innerText = `${Math.max(0, enemy.hp)}/${enemy.hpMax} HP`;
+      document.getElementById('enemy-hp-bar').style.width = Math.max(0, (enemy.hp / enemy.hpMax) * 100) + '%';
+
+      document.getElementById('ui-ryos').innerText = player.ryos;
+      document.getElementById('ui-guild').innerText = player.guild;
+    }
+
+    function switchTab(tabName) {
+      document.querySelectorAll('.tab-content').forEach(tab => tab.classList.add('hidden'));
+      document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active'));
       
-      <div class="bg-gray-950/90 p-2.5 rounded-xl border border-amber-900/50 flex justify-between items-center">
-        <span id="ref-code" class="text-xs font-mono font-bold text-amber-400 tracking-wider">REF-SHADOW-883</span>
-        <button onclick="copyRefLink()" class="bg-amber-600 hover:bg-amber-700 text-gray-950 text-[10px] font-bold px-3 py-1.5 rounded-lg border border-amber-400">
-          Copiar Link
-        </button>
-      </div>
-    </div>
-  </div>
+      document.getElementById('tab-' + tabName).classList.remove('hidden');
+      document.getElementById('btn-' + tabName).classList.add('active');
+    }
 
-  <!-- 2. TREINO & ARENA DE COMBATE -->
-  <div id="tab-train" class="tab-content hidden space-y-4">
-    <div class="app-card p-4">
-      <h3 class="font-serif-title text-sm font-bold text-amber-500 mb-1">Arena de Treino & Duelo</h3>
-      <p class="text-[11px] text-gray-400 mb-4">Enfrente oponentes em batalhas por turnos para evoluir os seus atributos.</p>
+    function tryRankPromotion() {
+      if (player.level >= 5 && player.ryos >= 200) {
+        player.ryos -= 200;
+        player.rank = "Genin";
+        document.getElementById('ui-rank').innerText = "Genin";
+        document.getElementById('rank-promo-desc').innerText = "Requisito para Chunin: Nível 15 e 500 Ryos.";
+        updateBars();
+        alert('Parabéns! Você passou no Exame e agora é um GENIN!');
+      } else {
+        alert('Requisitos insuficientes para o exame!');
+      }
+    }
 
-      <!-- ARENA -->
-      <div class="bg-gray-950 p-3.5 rounded-xl border border-gray-800 mb-3">
-        <div class="flex justify-between items-center mb-1.5">
-          <span id="enemy-name" class="font-bold text-red-400 text-xs">Boneco de Treino</span>
-          <span id="enemy-rank" class="text-[9px] bg-red-950 text-red-300 border border-red-800 px-1.5 py-0.5 rounded">Inimigo</span>
-        </div>
-        <div class="w-full bg-gray-900 h-2 rounded-full overflow-hidden border border-gray-800 mb-1">
-          <div id="enemy-hp-bar" class="status-bar-hp h-full w-full transition-all duration-300"></div>
-        </div>
-        <div class="text-right text-[10px] text-gray-400" id="enemy-hp-txt">80/80 HP</div>
-      </div>
+    function setSkin(id, skinName, iconClass) {
+      player.skin = skinName;
+      document.getElementById('ui-avatar-icon').className = `fa-solid ${iconClass} text-amber-500 text-2xl`;
+      alert(`Skin alterada para: ${skinName}`);
+    }
 
-      <!-- LOG DE BATALHA -->
-      <div id="battle-log" class="log-box p-3 rounded-xl mb-3 h-28 overflow-y-auto space-y-1 text-gray-300">
-        <div class="text-amber-400">⚔️ Duelo iniciado. Escolha a sua técnica!</div>
-      </div>
+    function requestSensei() {
+      player.sensei = "Kakashi Sensei";
+      document.getElementById('sensei-name').innerText = player.sensei;
+      alert('Agora você é discípulo do Kakashi Sensei (+15% XP)!');
+    }
 
-      <!-- BOTÕES DE AÇÃO DO COMBATE -->
-      <div class="grid grid-cols-2 gap-2">
-        <button onclick="executeAction('taijutsu')" class="bg-amber-900/60 hover:bg-amber-800 text-amber-200 font-bold p-2.5 rounded-xl text-xs border border-amber-700/60 flex items-center justify-center space-x-1.5">
-          <i class="fa-solid fa-fist-raised text-amber-400"></i>
-          <span>Taijutsu</span>
-        </button>
-        <button onclick="executeAction('ninjutsu')" class="bg-blue-900/60 hover:bg-blue-800 text-blue-200 font-bold p-2.5 rounded-xl text-xs border border-blue-700/60 flex items-center justify-center space-x-1.5">
-          <i class="fa-solid fa-fire text-blue-400"></i>
-          <span>Jutsu (-15 MP)</span>
-        </button>
-        <button onclick="executeAction('heal')" class="bg-emerald-900/60 hover:bg-emerald-800 text-emerald-200 font-bold p-2.5 rounded-xl text-xs border border-emerald-700/60 flex items-center justify-center space-x-1.5">
-          <i class="fa-solid fa-heart-pulse text-emerald-400"></i>
-          <span>Curar (-20 MP)</span>
-        </button>
-        <button onclick="executeAction('defend')" class="bg-gray-800 hover:bg-gray-700 text-gray-200 font-bold p-2.5 rounded-xl text-xs border border-gray-600 flex items-center justify-center space-x-1.5">
-          <i class="fa-solid fa-shield text-gray-400"></i>
-          <span>Defender</span>
-        </button>
-      </div>
-    </div>
-  </div>
+    function exploreMap(mapName, enemyName, hp, atk) {
+      if (player.mp < 15) return alert('Chakra insuficiente!');
+      player.mp -= 15;
+      enemy = { name: enemyName, hp: hp, hpMax: hp, atk: atk, rank: mapName };
+      document.getElementById('enemy-name').innerText = enemyName;
+      document.getElementById('enemy-rank').innerText = mapName;
+      updateBars();
+      switchTab('train');
+    }
 
-  <!-- 3. MISSÕES NARRATIVAS -->
-  <div id="tab-quests" class="tab-content hidden space-y-3">
-    <div class="app-card p-4">
-      <h3 class="font-serif-title text-sm font-bold text-amber-500 mb-1">Mural de Missões</h3>
-      <p class="text-[11px] text-gray-400 mb-3">Conclua tarefas
+    function enterDungeon() {
+      exploreMap('Masmorra Andar 1', 'Guardião de Pedra', 150, 18);
+    }
+
+    function executeAction(type) {
+      if (player.hp <= 0 || enemy.hp <= 0) return;
+      player.defending = false;
+
+      if (type === 'taijutsu') {
+        let dmg = Math.max(5, player.taijutsu + Math.floor(Math.random() * 5));
+        enemy.hp -= dmg;
+      } else if (type === 'ninjutsu') {
+        if (player.mp >= 15) {
+          player.mp -= 15;
+          let dmg = Math.max(12, (player.ninjutsu * 1.5) + Math.floor(Math.random() * 6));
+          enemy.hp -= dmg;
+        } else {
+          return alert('Chakra insuficiente!');
+        }
+      } else if (type === 'heal') {
+        if (player.mp >= 20) {
+          player.mp -= 20;
+          player.hp = Math.min(player.hpMax, player.hp + 35);
+        } else {
+          return alert('Chakra insuficiente!');
+        }
+      } else if (type === 'defend') {
+        player.defending = true;
+      }
+
+      updateBars();
+
+      if (enemy.hp <= 0) {
+        player.ryos += 60;
+        updateBars();
+        alert(`Vitória! Derrotou ${enemy.name}.`);
+        return;
+      }
+
+      setTimeout(() => {
+        let dmg = Math.max(2, enemy.atk + Math.floor(Math.random() * 3));
+        if (player.defending) dmg = Math.floor(dmg / 2);
+        player.hp -= dmg;
+        updateBars();
+      }, 500);
+    }
+
+    function startQuest(name, xp, ryos) {
+      player.ryos += ryos;
+      updateBars();
+      alert(`Missão "${name}" concluída! Ganhou +${ryos} Ryos.`);
+    }
+
+    function buyItem(item, cost) {
+      if (player.ryos < cost) return alert('Ryos insuficientes!');
+      player.ryos -= cost;
+      if (item === 'Katana de Aço') player.taijutsu += 5;
+      updateBars();
+      alert(`Comprou ${item} com sucesso!`);
+    }
+
+    function summonPet(petName) {
+      if (player.ryos < 200) return alert('Ryos insuficientes!');
+      player.ryos -= 200;
+      player.pet = petName;
+      document.getElementById('pet-name').innerText = petName;
+      updateBars();
+      alert(`Contrato firmado com ${petName}!`);
+    }
+
+    function createGuild() {
+      const name = document.getElementById('guild-input').value.trim();
+      if (!name) return alert('Digite o nome da guilda!');
+      player.guild = name;
+      updateBars();
+      alert(`Guilda ${name} criada!`);
+    }
+
+    function restTea() {
+      if (player.ryos < 50) return alert('Ryos insuficientes!');
+      player.ryos -= 50;
+      player.hp = player.hpMax;
+      player.mp = player.mpMax;
+      updateBars();
+      alert('Totalmente curado no Hospital Shinobi!');
+    }
+
+    function copyRefLink() {
+      navigator.clipboard.writeText(`https://t.me/ShadowClanRpgBot?start=REF-SHADOW-883`);
+      alert('Link copiado!');
+    }
+  </script>
+</body>
+</html>
