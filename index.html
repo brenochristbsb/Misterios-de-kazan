@@ -43,16 +43,17 @@
 <!-- Cabeçalho fixo: identidade, vida, chakra e XP (única fonte do status do personagem) -->
 <header class="sticky top-0 z-20 px-4 pb-3 bg-sumi/90 backdrop-blur border-b border-line" style="padding-top:calc(env(safe-area-inset-top,0px) + .75rem)">
   <div class="flex items-center gap-3">
-    <div class="seal w-11 h-11 text-xl" id="hLvl">1</div>
+    <div class="seal w-11 h-11 text-2xl" id="hAv">🥷</div>
     <div class="flex-1 min-w-0">
       <div class="flex items-center gap-2"><h1 id="hName" class="font-jp font-extrabold text-lg truncate">Carregando</h1><span id="hRank" class="tag gold"></span></div>
       <div class="lbl" id="hSub"></div>
     </div>
     <div class="text-right"><div class="font-bold text-gold" id="hRyos">0</div><div class="lbl">ryos</div></div>
   </div>
-  <div class="grid grid-cols-2 gap-3 mt-3 text-xs">
+  <div class="grid grid-cols-3 gap-2.5 mt-3 text-xs">
     <div><div class="flex justify-between mb-1"><span>Vida</span><span id="tHp"></span></div><div class="bar"><i id="bHp" class="bg-vermil"></i></div></div>
     <div><div class="flex justify-between mb-1"><span>Chakra</span><span id="tCk"></span></div><div class="bar"><i id="bCk" class="bg-chakra"></i></div></div>
+    <div><div class="flex justify-between mb-1"><span>Energia</span><span id="tEn"></span></div><div class="bar"><i id="bEn" class="bg-gold"></i></div></div>
   </div>
   <div class="bar mt-2" style="height:.2rem"><i id="bXp" class="bg-gold"></i></div>
 </header>
@@ -63,27 +64,26 @@
   <section id="tab-mapas" class="tab space-y-3 hidden"></section>
   <section id="tab-vila" class="tab space-y-3 hidden"></section>
   <section id="tab-guilda" class="tab space-y-3 hidden"></section>
+  <section id="tab-ranking" class="tab space-y-3 hidden"></section>
 </main>
 
-<nav class="fixed bottom-0 inset-x-0 z-30 grid grid-cols-5 bg-sumi/95 backdrop-blur border-t border-line" style="padding-bottom:env(safe-area-inset-bottom,0px)">
+<nav class="fixed bottom-0 inset-x-0 z-30 grid grid-cols-6 bg-sumi/95 backdrop-blur border-t border-line" style="padding-bottom:env(safe-area-inset-bottom,0px)">
   <button data-tab="perfil"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>Perfil</button>
   <button data-tab="jornada"><svg viewBox="0 0 24 24"><path d="M4 4h12a4 4 0 0 1 4 4v12H8a4 4 0 0 1-4-4z"/><path d="M8 9h8M8 13h6"/></svg>Jornada</button>
   <button data-tab="mapas"><svg viewBox="0 0 24 24"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2z"/><path d="M9 4v14M15 6v14"/></svg>Mapas</button>
   <button data-tab="vila"><svg viewBox="0 0 24 24"><path d="M3 11 12 3l9 8"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/></svg>Vila</button>
   <button data-tab="guilda"><svg viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z"/></svg>Guilda</button>
+  <button data-tab="ranking"><svg viewBox="0 0 24 24"><path d="M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M7 6H4v2a3 3 0 0 0 3 3M17 6h3v2a3 3 0 0 1-3 3M12 14v4M8 20h8"/></svg>Ranking</button>
 </nav>
 
 <div id="regBox" class="hidden fixed inset-0 z-40 bg-sumi overflow-y-auto p-5">
   <div class="max-w-md mx-auto space-y-4 pt-6">
     <h2 style="font-size:1.6rem">Crie seu ninja</h2>
-    <p class="text-sm text-paper/60">Escolha o nome, a classe e a vila. Você começa como Estudante, sem clã, com 500 ryos.</p>
+    <p class="text-sm text-paper/60">Escolha o nome e a vila e distribua 5 pontos de atributo. Você começa como Estudante, sem clã, com 500 ryos.</p>
     <input id="rName" class="inp" maxlength="32" placeholder="Nome ninja (3 a 32 letras)">
-    <select id="rClasse" class="inp">
-      <option value="taijutsu">Taijutsu: mais vida e força</option>
-      <option value="ninjutsu">Ninjutsu: mais chakra e ataque elemental</option>
-      <option value="genjutsu">Genjutsu: mais agilidade e ataque mental</option>
-    </select>
+    <div id="rPts" class="space-y-3"></div>
     <select id="rVillage" class="inp"></select>
+    <p id="rDesc" class="text-xs text-paper/60 min-h-[2rem]"></p>
     <p id="rInfo" class="text-xs text-gold min-h-[1rem]"></p>
     <button class="btn btn-gold w-full" onclick="register()">Criar personagem</button>
   </div>
@@ -114,7 +114,7 @@ const ATTRS = [['taijutsu', 'Taijutsu'], ['ninjutsu', 'Ninjutsu'], ['genjutsu', 
 const TIPOS = { Arma: 'Armas', Armadura: 'Armaduras', Pergaminho: 'Pergaminhos' };
 const bonusTxt = b => Object.entries(b).map(([k, v]) => `+${v} ${k}`).join(', ');
 const dur = s => s >= 60 ? Math.round(s / 60) + ' min' : s + ' s';
-let P, X, J, G, battle = null, reps = 1, endsAt = 0;
+let P, X, J, G, K, R, VILS, battle = null, reps = 1;
 
 function toast(msg, ok = true) {
   const t = $('toast');
@@ -134,14 +134,14 @@ async function api(path, body) {
   const d = await r.json().catch(() => ({}));
   if (!r.ok) {
     const det = d.detail, e = new Error((Array.isArray(det) ? det.map(x => x.msg).join('; ') : det) || `Erro ${r.status}`);
-    e.status = r.status; throw e;
+    e.message = e.message.replace('Value error, ', ''); e.status = r.status; throw e;
   }
   return d;
 }
 async function refresh() {
   const id = tgUser.id;
-  [P, X, J, G] = await Promise.all([api('/api/player/' + id), api(`/api/player/${id}/extras`), api(`/api/player/${id}/jornada`), api(`/api/player/${id}/guilda`)]);
-  endsAt = J.em_andamento ? Date.now() + J.restante * 1000 : 0;
+  [P, X, J, G, K] = await Promise.all([api('/api/player/' + id), api(`/api/player/${id}/extras`), api(`/api/player/${id}/jornada`),
+    api(`/api/player/${id}/guilda`), api(`/api/player/${id}/kage`)]);
   render();
 }
 // Ação: chama a API, mostra um aviso e recarrega o estado
@@ -156,6 +156,7 @@ async function act(path, body, msg) {
 
 /* ───────── Abas ───────── */
 function showTab(name) {
+  if (name === 'ranking') loadRanking();
   document.querySelectorAll('.tab').forEach(s => s.classList.toggle('hidden', s.id !== 'tab-' + name));
   document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.tab === name));
   tg?.HapticFeedback?.selectionChanged?.();
@@ -164,11 +165,12 @@ document.querySelectorAll('nav button').forEach(b => b.onclick = () => showTab(b
 
 /* ───────── Renderização ───────── */
 function renderHeader() {
-  $('hName').textContent = P.ninja_name; $('hRank').textContent = P.rank; $('hLvl').textContent = P.level;
-  $('hSub').textContent = `${P.village.name}, ${P.clan.name === 'Sem clã' ? 'sem clã' : P.clan.name}`;
+  $('hName').textContent = P.ninja_name; $('hRank').textContent = P.rank; $('hAv').textContent = P.avatar;
+  $('hSub').textContent = `Nível ${P.level}, fama ${fmt(P.fama)}, ${P.village.name}`;
   $('hRyos').textContent = fmt(P.ryos);
   $('tHp').textContent = `${P.vida.atual}/${P.vida.max}`; $('tCk').textContent = `${P.chakra.atual}/${P.chakra.max}`;
   $('bHp').style.width = pct(P.vida.atual, P.vida.max); $('bCk').style.width = pct(P.chakra.atual, P.chakra.max);
+  $('tEn').textContent = `${P.energia}/25`; $('bEn').style.width = pct(P.energia, 25);
   const lo = expFloor(P.level); $('bXp').style.width = pct(P.exp - lo, P.exp_proximo_nivel - lo);
 }
 function render() {
@@ -202,41 +204,38 @@ function renderPerfil() {
   $('tab-perfil').innerHTML = `
     <div class="card space-y-4"><div class="flex items-center justify-between"><h2>Atributos</h2>
       <div class="flex gap-1.5">${[1, 5, 10].map(n => `<button class="chip ${n === reps ? 'on' : ''}" onclick="setReps(${n})">×${n}</button>`).join('')}</div></div>
-      ${rows}<p class="lbl">Cada treino custa ${10 * reps} de chakra e ${25 * reps} ryos e rende ${15 * reps} de XP.</p></div>
+      ${rows}<p class="lbl">Cada treino custa ${25 * reps} ryos e rende ${15 * reps} de XP.</p></div>
     <div class="card"><h2 class="mb-3">Equipamento</h2><div class="grid grid-cols-3 gap-2">${slots}</div>${bag ? `<div class="mt-3">${bag}</div>` : '<p class="lbl mt-3">Nada na mochila. Explore mapas para conseguir itens.</p>'}</div>
+    <div class="card"><h2>Avatar</h2><div class="grid grid-cols-6 gap-2 mt-3">${X.avatares.map(a => `<button class="round !w-full !h-11 !text-2xl ${a === P.avatar ? 'bg-gold/20' : ''}" aria-label="Avatar ${a}" onclick="act('/api/avatar', { avatar: '${a}' })">${a}</button>`).join('')}</div></div>
     <div class="card"><h2>Invocações</h2>${pets || '<p class="lbl mt-2">Nenhuma ainda. Chefes de mapa podem soltar contratos.</p>'}</div>`;
 }
 const train = k => act('/api/train', { atributo: k, repeticoes: reps }, r => `${k} subiu para ${r.novo_valor}` + (r.niveis_ganhos ? `. Nível ${r.level}!` : ''));
 const equip = (id, on) => act('/api/inventory/equip', { item_id: id, equipar: on });
 const activateSummon = id => act('/api/summon/activate', { summon_id: id });
 
-/* Jornada: uma missão por vez, infinita. As concluídas não aparecem. */
+/* Jornada: tarefas por missão (coleta, caçada e procurado do Livro Bingo). Sem tempo; as concluídas não aparecem. */
+const TIPO_J = { coleta: 'Coleta', caca: 'Caçada', busca: 'Procurado' };
 function renderJornada() {
-  const m = J;
-  const action = m.em_andamento
-    ? `<div id="jTimer" class="text-center text-sm text-paper/70"></div>
-       <div id="jDone" class="hidden grid grid-cols-2 gap-2 mt-3"><button class="btn btn-gold" onclick="concluir('honra')">Com honra</button><button class="btn" onclick="concluir('sombra')">Vender informações</button></div>`
-    : m.bloqueada
-      ? `<button class="btn w-full" disabled>Exige nível ${m.req_nivel}</button><p class="lbl mt-2 text-center">Explore os mapas para ganhar nível.</p>`
-      : `<button class="btn w-full" onclick="act('/api/jornada/iniciar', {})">Iniciar missão</button>`;
+  const m = J, mapa = X.mapas.find(x => x.id === m.mapa);
+  const acao = m.bloqueada
+    ? `<button class="btn w-full" disabled>Exige nível ${m.req_nivel}</button><p class="lbl mt-2 text-center">Explore os mapas para ganhar nível.</p>`
+    : m.pronta
+      ? `<div class="grid grid-cols-2 gap-2"><button class="btn btn-gold" onclick="entregar('honra')">Com honra</button><button class="btn" onclick="entregar('sombra')">Vender informações</button></div>`
+      : `<button class="btn w-full" onclick="showTab('mapas')">Ir para ${esc(mapa ? mapa.nome : 'o mapa')}</button>`;
   $('tab-jornada').innerHTML = `<div class="card"><div class="flex items-center gap-3">
       <div class="seal w-12 h-12 text-2xl">${m.rank}</div>
-      <div class="flex-1 min-w-0"><div class="lbl">${m.exame ? `Exame de promoção para ${m.exame.replace('Exame ', '')}` : 'Missão atual'}</div><h2>${esc(m.titulo)}</h2></div></div>
-    <div class="grid grid-cols-3 gap-2 mt-4 text-center"><div><div class="font-bold">${dur(m.duracao)}</div><div class="lbl">duração</div></div>
-      <div><div class="font-bold">${fmt(m.exp)}</div><div class="lbl">XP</div></div><div><div class="font-bold text-gold">${fmt(m.ryos)}</div><div class="lbl">ryos</div></div></div>
-    <div class="mt-4">${action}</div></div>
-    <p class="lbl text-center px-4">Entregar com honra sobe sua reputação. Vender informações rende 30% a mais de ryos, mas a derruba.</p>`;
-  tick();
+      <div class="flex-1 min-w-0"><div class="flex gap-1.5 mb-1"><span class="tag gold">${TIPO_J[m.tipo]}</span>${m.exame ? `<span class="tag red">Exame de promoção</span>` : ''}</div><h2>${esc(m.titulo)}</h2></div></div>
+    <p class="text-sm text-paper/75 mt-3 leading-relaxed">${esc(m.historia)}</p>
+    <div class="mt-4 text-sm font-semibold">${esc(m.objetivo)}</div>
+    <div class="flex justify-between lbl mt-2"><span>Progresso</span><span>${m.progresso} de ${m.qtd}</span></div>
+    <div class="bar mt-1"><i class="bg-gold" style="width:${pct(m.progresso, m.qtd)}"></i></div>
+    <div class="grid grid-cols-3 gap-2 mt-4 text-center"><div><div class="font-bold">${fmt(m.exp)}</div><div class="lbl">XP</div></div>
+      <div><div class="font-bold text-gold">${fmt(m.ryos)}</div><div class="lbl">ryos</div></div><div><div class="font-bold">${fmt(m.fama)}</div><div class="lbl">fama</div></div></div>
+    <div class="mt-4">${acao}</div></div>
+    <p class="lbl text-center px-4">O progresso vem da exploração do mapa indicado. Entregar com honra sobe a reputação; vender informações rende 30% a mais de ryos, mas a derruba.</p>`;
 }
-function tick() {
-  const t = $('jTimer'); if (!t) return;
-  const left = Math.ceil((endsAt - Date.now()) / 1000);
-  if (left <= 0) { t.textContent = 'Missão concluída'; $('jDone').classList.remove('hidden'); }
-  else t.textContent = `Faltam ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
-}
-setInterval(tick, 1000);
-const concluir = escolha => act('/api/jornada/concluir', { escolha }, r =>
-  `+${fmt(r.exp)} XP e +${fmt(r.ryos)} ryos` + (r.promovido ? `. Você agora é ${r.promovido}!` : r.niveis_ganhos ? '. Subiu de nível!' : ''));
+const entregar = escolha => act('/api/jornada/entregar', { escolha }, r =>
+  `+${fmt(r.exp)} XP, +${fmt(r.ryos)} ryos e +${r.fama} de fama` + (r.promovido ? `. Você agora é ${r.promovido}!` : r.niveis_ganhos ? '. Subiu de nível!' : ''));
 
 /* Mapas: cada um tem faixa de nível ideal e um tipo de drop */
 function renderMapas() {
@@ -245,6 +244,7 @@ function renderMapas() {
       <h2>${battle.vitoria ? 'Vitória' : 'Derrota'} contra ${esc(battle.inimigo)}</h2>${battle.chefe ? '<span class="tag red">Chefe</span>' : ''}</div>
       <div class="text-xs text-paper/70 mt-2 max-h-28 overflow-y-auto">${battle.log.map(esc).join('<br>')}</div>
       <div class="text-sm mt-2">+${battle.exp} XP${battle.ryos ? `, +${fmt(battle.ryos)} ryos` : ''}${battle.drops.length ? `. Itens: ${battle.drops.map(esc).join(', ')}` : ''}${battle.novo_pet ? `. Nova invocação: ${esc(battle.novo_pet)}` : ''}${battle.niveis_ganhos ? '. Subiu de nível!' : ''}</div>
+      ${battle.missao ? `<div class="text-xs text-gold mt-1">Missão: ${battle.missao.progresso} de ${battle.missao.qtd}</div>` : ''}
       ${battle.xp_reduzido ? '<p class="text-xs text-vermil mt-1">Você já passou da faixa deste mapa: o XP é reduzido.</p>' : ''}</div>` : '';
   $('tab-mapas').innerHTML = bt + X.mapas.map(m => {
     const locked = P.level < m.min_level, over = P.level > m.max_level;
@@ -254,19 +254,20 @@ function renderMapas() {
     return `<div class="card ${locked ? 'opacity-60' : ''}"><div class="flex items-start justify-between gap-2"><div><h2>${esc(m.nome)}</h2>
       <div class="lbl mt-0.5">Níveis ${m.min_level} a ${m.max_level}. Drops: ${TIPOS[m.tipo]}</div></div>${state}</div>
       <p class="text-xs text-paper/60 mt-2">${m.itens.map(esc).join(', ')}. Chefe: ${esc(m.chefe)}.</p>${hint}
-      <button class="btn w-full mt-3" ${locked ? 'disabled' : ''} onclick="explore(${m.id})">Explorar (15 de chakra)</button></div>`;
+      <button class="btn w-full mt-3" ${locked || P.energia < 1 ? 'disabled' : ''} onclick="explore(${m.id})">Explorar (1 de energia)</button></div>`;
   }).join('');
 }
 const explore = id => act('/api/maps/explore', { map_id: id }, r => { battle = r; tg?.HapticFeedback?.impactOccurred?.(r.vitoria ? 'heavy' : 'light'); return r.vitoria ? 'Vitória!' : 'Derrota.'; });
 
 /* Vila: reputação, clã e descanso */
 function renderVila() {
+  const kageHtml = kageCard();
   const c = P.clan, noClan = c.name === 'Sem clã', rep = X.reputacao;
   const clans = noClan ? X.clas.map(cl => {
     const ok = P.level >= cl.min_level && RANKS.indexOf(P.rank) >= RANKS.indexOf(cl.min_rank);
     return `<div class="card ${ok ? '' : 'opacity-60'}"><h2>${esc(cl.nome)}</h2>
       <p class="text-sm text-paper/70 mt-1">+${Math.round(cl.bonus * 100)}% de ${esc(cl.passiva)}</p>
-      <p class="lbl mt-1">Exige nível ${cl.min_level} e rank ${esc(cl.min_rank)}. O teste é um duelo e custa 20 de chakra.</p>
+      <p class="lbl mt-1">Exige nível ${cl.min_level} e rank ${esc(cl.min_rank)}. O teste é um duelo e exige 20 de chakra.</p>
       <button class="btn w-full mt-3" ${ok ? '' : 'disabled'} onclick="joinClan(${cl.id})">Fazer teste de admissão</button></div>`;
   }).join('') : `<div class="card"><div class="lbl">Seu clã</div><h2>${esc(c.name)}</h2>
       <p class="text-sm text-paper/70 mt-1">+${Math.round(c.bonus_val * 100)}% de ${esc(c.passiva_atributo)}, já somado aos atributos.</p></div>`;
@@ -274,9 +275,20 @@ function renderVila() {
     <div class="card"><div class="lbl">Sua vila</div><h2>${esc(P.village.name)}</h2><p class="text-sm text-paper/70 mt-1">${esc(P.village.description) || ''}</p>
       <div class="flex justify-between mt-4 text-sm"><span>Reputação</span><b>${esc(X.titulo)}</b></div>
       <div class="bar mt-2"><i class="${rep >= 0 ? 'bg-gold' : 'bg-vermil'}" style="width:${Math.abs(rep) / 2}%;margin-left:${rep >= 0 ? 50 : 50 - Math.abs(rep) / 2}%"></i></div></div>
+    ${kageHtml}
     ${clans}
     <div class="card"><h2>Casa de chá</h2><p class="lbl mt-1">Restaura toda a vida e o chakra por 50 ryos.</p>
       <button class="btn btn-ghost w-full mt-3" onclick="act('/api/rest', {}, () => 'Vida e chakra restaurados.')">Descansar</button></div>`;
+}
+function kageCard() {
+  const k = K, ch = k.desafiante;
+  return `<div class="card"><div class="lbl">Kage da vila</div>
+    <h2>${esc(k.kage.nome)} ${k.voce_e_kage ? '<span class="tag gold">Você</span>' : k.kage.npc ? '<span class="tag">NPC</span>' : ''}</h2>
+    <div class="text-sm text-paper/70 mt-1">Fama do Kage: ${fmt(k.kage.fama)}. A sua: ${fmt(P.fama)}.</div>
+    ${ch ? `<div class="text-sm mt-3">Desafiante: <b>${esc(ch.nome)}</b>, fama ${fmt(ch.fama)}. Assume o cargo em ${ch.dias_restantes} dia(s) se a fama dele seguir acima.</div>` : ''}
+    ${k.voce_e_kage ? '<p class="lbl mt-3">Mantenha sua fama acima da dos outros jogadores da vila para não perder o cargo.</p>'
+      : `<button class="btn btn-ghost w-full mt-3" ${k.pode_desafiar ? '' : 'disabled'} onclick="act('/api/kage/desafiar', {}, () => 'Disputa aberta!')">Disputar o cargo de Kage</button>
+         <p class="lbl mt-2">Exige rank Anbu e fama maior que a do Kage por 7 dias seguidos.</p>`}</div>`;
 }
 const joinClan = id => act('/api/clan/join', { clan_id: id }, r => r.mensagem);
 
@@ -319,19 +331,45 @@ async function atacar() {
   } catch (e) { toast(e.message, false); }
 }
 
+/* Ranking: Kages de cada vila e os melhores jogadores */
+async function loadRanking() {
+  try { R = await api('/api/ranking'); } catch (e) { return toast(e.message, false); }
+  const row = (m, i, val) => `<div class="flex items-center gap-3 py-2 border-t border-line"><span class="w-6 text-center font-bold ${i < 3 ? 'text-gold' : 'text-paper/50'}">${i + 1}</span>
+    <span class="text-xl">${esc(m.avatar)}</span><div class="flex-1 min-w-0"><div class="text-sm font-semibold truncate">${esc(m.nome)}</div>
+    <div class="lbl truncate">${esc(m.vila)}, ${esc(m.rank)}</div></div><b class="text-sm">${val}</b></div>`;
+  $('tab-ranking').innerHTML = `<div class="card"><h2>Kages</h2>${R.kages.map(k => `<div class="flex items-center justify-between py-2 border-t border-line text-sm">
+      <div class="min-w-0"><div class="font-semibold truncate">${esc(k.nome)} ${k.jogador ? '' : '<span class="tag">NPC</span>'}</div><div class="lbl">${esc(k.vila)}</div></div><b>${fmt(k.fama)}</b></div>`).join('')}</div>
+    <div class="card"><h2>Mais famosos</h2>${R.fama.map((m, i) => row(m, i, fmt(m.fama))).join('') || '<p class="lbl mt-2">Sem jogadores ainda.</p>'}</div>
+    <div class="card"><h2>Maiores níveis</h2>${R.nivel.map((m, i) => row(m, i, 'Nv ' + m.nivel)).join('')}</div>`;
+}
+
 /* ───────── Cadastro e inicialização ───────── */
+const pts = { taijutsu: 0, ninjutsu: 0, genjutsu: 0, agilidade: 0 };
+const ptsLeft = () => 5 - Object.values(pts).reduce((x, y) => x + y, 0);
+function renderPts() {
+  $('rPts').innerHTML = `<p class="text-sm">Distribua <b class="text-gold">${ptsLeft()}</b> pontos (todos começam em 5)</p>` + ATTRS.map(([k, n]) =>
+    `<div class="flex items-center justify-between"><span>${n}</span><div class="flex items-center gap-3"><button class="round" aria-label="Menos ${n}" onclick="addPt('${k}', -1)">−</button>
+     <b class="w-6 text-center">${5 + pts[k]}</b><button class="round" aria-label="Mais ${n}" onclick="addPt('${k}', 1)">+</button></div></div>`).join('');
+}
+function addPt(k, d) { if ((d > 0 && !ptsLeft()) || (d < 0 && !pts[k])) return; pts[k] += d; renderPts(); }
+
 async function showRegister() {
+  renderPts();
   try {
     const o = await api('/api/setup/options');
-    $('rVillage').innerHTML = o.villages.map(v => `<option value="${v.id}">${esc(v.name)}</option>`).join('');
+    VILS = o.villages;
+    $('rVillage').innerHTML = VILS.map(v => `<option value="${v.id}">${esc(v.name)}</option>`).join('');
+    const desc = () => { $('rDesc').textContent = (VILS.find(v => v.id === Number($('rVillage').value)) || {}).description || ''; };
+    $('rVillage').onchange = desc; desc();
     $('regBox').classList.remove('hidden');
   } catch (e) { fatal(e.message); }
 }
 async function register() {
+  if (ptsLeft()) return ($('rInfo').textContent = 'Distribua todos os 5 pontos.');
   $('rInfo').textContent = '';
   try {
     await api('/api/register', { telegram_id: tgUser.id, username: tgUser.username || null, ninja_name: $('rName').value.trim(),
-      village_id: Number($('rVillage').value), classe: $('rClasse').value });
+      village_id: Number($('rVillage').value), ...pts });
     $('regBox').classList.add('hidden');
     await refresh();
     toast(`Bem-vindo, ${P.ninja_name}!`);

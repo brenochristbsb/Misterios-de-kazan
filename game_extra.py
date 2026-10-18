@@ -15,7 +15,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from api import ATTRS, NO_CLAN_NAME, active_summon_link, apply_exp, as_utc, effective_stats, get_db, get_player
-from models import Clan, Guild, InventoryItem, ItemType, NinjaRank, Player, PlayerSummon, Summon
+from models import Clan, Guild, InventoryItem, ItemType, NinjaRank, Player, PlayerSummon, Summon, Village
 
 router = APIRouter()
 
@@ -23,6 +23,7 @@ RANKS = list(NinjaRank)  # Estudante -> Kage
 EXPLORE_CHAKRA = 15
 CLAN_TEST_CHAKRA = 20
 REST_COST = 50
+AVATARS = ["🥷", "🦊", "🐺", "🐉", "🦅", "🐍", "🐻", "🐯", "🦉", "🐸", "🌙", "🔥"]
 
 # Mapas: faixa de nível ideal (min a max), tema de drop (tipo) e itens possíveis, cada um com o atributo que reforça.
 # Acima do nível máximo o mapa rende só 25% do XP: é hora de seguir para o próximo.
@@ -60,26 +61,30 @@ def _hit(att: dict, dfn: dict) -> int:
     return max(1, int(base * random.uniform(0.8, 1.2)))
 
 
-def duel(me: dict, my_hp: int, foe: dict, foe_hp: int, max_rounds: int = 15):
-    """Duelo por turnos (quem tem mais agilidade começa). Retorna (venceu, vida_restante, log)."""
+def duel(me: dict, my_hp: int, foe: dict, foe_hp: int, chakra: int = 0, max_rounds: int = 15):
+    """
+    Duelo por turnos (quem tem mais agilidade começa). O chakra só é gasto aqui: com 3 ou mais,
+    o jogador usa uma técnica (golpe 50% mais forte). Retorna (venceu, vida_restante, log, chakra_restante).
+    """
     log = []
     my_first = me["agilidade"] >= foe["agilidade"]
     for rd in range(1, max_rounds + 1):
         for mine in ((True, False) if my_first else (False, True)):
             att, dfn = (me, foe) if mine else (foe, me)
-            dmg = _hit(att, dfn)
+            dmg, tech = _hit(att, dfn), False
+            if mine and chakra >= 3:
+                chakra, tech, dmg = chakra - 3, True, int(dmg * 1.5)
             if mine:
                 foe_hp -= dmg
             else:
                 my_hp -= dmg
             who = "Você" if mine else "Inimigo"
-            log.append(f"Rodada {rd}: {who} " + (f"causou {dmg} de dano" if dmg else "errou o golpe"))
+            log.append(f"Rodada {rd}: {who} " + ((f"usou uma técnica e causou {dmg}" if tech else f"causou {dmg} de dano") if dmg else "errou o golpe"))
             if foe_hp <= 0 or my_hp <= 0:
                 break
         if foe_hp <= 0 or my_hp <= 0:
             break
-    # Sem nocaute em 15 rodadas, vence quem tiver mais vida. Nunca deixa o jogador em 0.
-    return my_hp > foe_hp, max(my_hp, 1), log
+    return my_hp > foe_hp, max(my_hp, 1), log, chakra
 
 
 # ───────── Schemas ─────────
@@ -115,6 +120,7 @@ def extras(telegram_id: int, db: Session = Depends(get_db)):
     p = get_player(db, telegram_id)
     clans = db.scalars(select(Clan).where(Clan.name != NO_CLAN_NAME).order_by(Clan.name)).all()
     return {
+        "avatares": AVATARS,
         "reputacao": p.reputation,
         "titulo": reputation_title(p.reputation),
         "inventario": [{"id": i.id, "nome": i.item_name, "tipo": i.item_type.value,
@@ -132,38 +138,45 @@ def extras(telegram_id: int, db: Session = Depends(get_db)):
 
 @router.post("/api/maps/explore")
 def explore(payload: ExploreReq, db: Session = Depends(get_db)):
-    """Explora um mapa: batalha PvE com XP, ryos e drops temáticos. Acima da faixa de nível, o XP cai."""
+    """Explorar gasta 1 de energia; o chakra só é gasto na luta. Alimenta a missão atual da Jornada e rende fama."""
     player = get_player(db, payload.telegram_id, lock=True)
     mp = MAPS_BY_ID.get(payload.map_id)
     if mp is None:
         raise HTTPException(404, "Mapa não encontrado.")
     if player.level < mp["min_level"]:
         raise HTTPException(403, f"Mapa bloqueado: exige nível {mp['min_level']}.")
-    if player.chakra_atual < EXPLORE_CHAKRA:
-        raise HTTPException(400, f"Chakra insuficiente: precisa de {EXPLORE_CHAKRA}.")
+    if player.energia < 1:
+        raise HTTPException(400, "Sem energia. Ela recupera 1 a cada 3 minutos.")
 
-    boss = random.random() < 0.15
+    mis = mission_for(player.journey + 1)
+    on_mission = mis["mapa"] == mp["id"] and player.level >= mis["req_nivel"] and player.journey_prog < mis["qtd"]
+    boss = random.random() < (0.5 if on_mission and mis["tipo"] == "busca" else 0.15)
     power = 3 * mp["perigo"] + 2
     foe = {a: int(power * (1.4 if boss else 1)) for a in ATTRS}
     foe_hp = int((60 + 30 * mp["perigo"]) * (1.6 if boss else 1))
-    won, hp_left, log = duel(effective_stats(player), player.vida_atual, foe, foe_hp)
+    won, hp_left, log, chakra_left = duel(effective_stats(player), player.vida_atual, foe, foe_hp, chakra=player.chakra_atual)
 
-    player.chakra_atual -= EXPLORE_CHAKRA
+    player.energia -= 1
+    player.chakra_atual = chakra_left
     player.vida_atual = min(player.vida_atual, hp_left)
     mult = 2 if boss else 1
     over = player.level > mp["max_level"]
-    exp, ryos, drops, novo_pet = 5, 0, [], None
+    exp, ryos, drops, novo_pet, missao = 5, 0, [], None, None
 
     if won:
         exp = int(25 * mp["perigo"] * mult * (0.25 if over else 1))
         ryos = 40 * mp["perigo"] * mult
         player.ryos += ryos
-        # Drops temáticos: cada mapa solta só o tipo de item dele
-        for nome, attr in mp["itens"]:
+        player.fama += 5 if boss else 1
+        for nome, attr in mp["itens"]:  # drops temáticos: cada mapa solta só o tipo dele
             if random.random() < 0.25 * mult:
                 db.add(InventoryItem(player_id=player.id, item_name=nome, item_type=ItemType(mp["tipo"]),
                                      status_bonus={attr: 2 * mp["perigo"]}))
                 drops.append(nome)
+        if on_mission:  # coleta: 70% por vitória; caçada: 1 por vitória; procurado: só ao vencer o chefe
+            gain = {"coleta": int(random.random() < 0.7), "caca": 1, "busca": int(boss)}[mis["tipo"]]
+            player.journey_prog = min(mis["qtd"], player.journey_prog + gain)
+            missao = {"progresso": player.journey_prog, "qtd": mis["qtd"]}
         link = active_summon_link(player)
         if link and link.level < 10 and random.random() < 0.3:
             link.level += 1
@@ -178,7 +191,7 @@ def explore(payload: ExploreReq, db: Session = Depends(get_db)):
     db.commit()
     return {"vitoria": won, "chefe": boss, "inimigo": mp["chefe"] if boss else mp["inimigo"], "log": log,
             "exp": exp, "ryos": ryos, "drops": drops, "novo_pet": novo_pet, "niveis_ganhos": levels,
-            "xp_reduzido": over}
+            "xp_reduzido": over, "missao": missao}
 
 
 @router.post("/api/inventory/equip")
@@ -225,9 +238,9 @@ def join_clan(payload: ClanReq, db: Session = Depends(get_db)):
         raise HTTPException(400, f"Chakra insuficiente: precisa de {CLAN_TEST_CHAKRA}.")
 
     power = int(3 + min_level * 1.5)  # o examinador acompanha a exigência do clã
-    won, hp_left, log = duel(effective_stats(player), player.vida_atual,
-                             {a: power for a in ATTRS}, 80 + 10 * min_level)
-    player.chakra_atual -= CLAN_TEST_CHAKRA
+    won, hp_left, log, ck = duel(effective_stats(player), player.vida_atual,
+                                 {a: power for a in ATTRS}, 80 + 10 * min_level, chakra=player.chakra_atual)
+    player.chakra_atual = ck
     player.vida_atual = min(player.vida_atual, hp_left)
     if won:
         player.clan_id = clan.id
@@ -249,23 +262,40 @@ def rest(payload: RestReq, db: Session = Depends(get_db)):
     return {"ok": True}
 
 
-# ───────── Jornada: missões infinitas com exames de promoção ─────────
+# ───────── Jornada: missões por tarefa (coleta, caçada, procurado), sem tempo ─────────
 EXAMES = {6: ("Exame Genin", 5, "Genin"), 16: ("Exame Chunin", 12, "Chunin"),
           32: ("Exame Jonin", 20, "Jonin"), 54: ("Exame Anbu", 30, "Anbu")}
-ARCOS = ["Academia", "Fronteira", "Mercado das Sombras", "Rota dos Ventos", "Templo Esquecido", "Porto Nebuloso"]
-FASES = ["Reconhecimento", "Escolta", "Resgate", "Emboscada", "Chefe do arco"]
+RECURSOS = {1: "Ervas de Treino", 2: "Brotos de Bambu Lunar", 3: "Cristais de Eco", 4: "Lodo Negro", 5: "Cacos de Geada"}
+# História do primeiro arco: o Corvo Cinzento e o pergaminho partido
+STORY = {
+    1: ("O Pergaminho Partido", "Na biblioteca da academia, o selo de um pergaminho da vila foi encontrado partido. O mestre pede ervas para restaurá-lo."),
+    2: ("Rastros no Bosque", "Lobos famintos rondam o bosque ao lado da academia. Alguém os está atraindo para longe da floresta."),
+    3: ("O Procurado Cinzento", "O Livro Bingo da vila registra um nome novo: um chefe que serve ao misterioso Corvo Cinzento."),
+    4: ("Penas Negras", "Penas negras surgem nos dormitórios. Reúna amostras para o mestre rastrear o mensageiro."),
+    5: ("Voz na Neblina", "O Corvo mandou recrutas testar as defesas da academia. Detenha-os antes que cheguem lá."),
+    6: ("Exame Genin", "O diretor reúne os melhores alunos. Provem que merecem o protetor de testa de Genin."),
+    7: ("Além dos Muros", "Como Genin, sua primeira ordem é seguir a trilha do Corvo até os bambuzais."),
+    8: ("Ecos do Bambuzal", "Os bambus guardam fragmentos de um mapa. Colete o que puder antes que o Corvo o faça."),
+}
+TIPO_NOME = {"coleta": "Coleta", "caca": "Caçada", "busca": "Procurado"}
 
 
 def mission_for(seq: int) -> dict:
-    """Missão nº `seq` da jornada (infinita). Concluir um exame promove o rank do jogador."""
+    """Missão nº `seq` (infinita). Tipos em rodízio: coleta, caçada e procurado do Livro Bingo. Exames promovem o rank."""
     exame = EXAMES.get(seq)
-    if exame:
-        titulo, req, promove = exame
-    else:
-        titulo = f"{ARCOS[((seq - 1) // 5) % len(ARCOS)]}: {FASES[(seq - 1) % 5]}"
-        req, promove = max(1, int(seq * 0.55)), None
-    return {"seq": seq, "titulo": titulo, "rank": "DCBAS"[min(4, seq // 12)], "req_nivel": req, "exame": promove,
-            "duracao": min(1800, 30 + 15 * seq) * (2 if exame else 1), "exp": 20 + 12 * seq, "ryos": 40 + 25 * seq}
+    req = exame[1] if exame else max(1, int(seq * 0.55))
+    tipo = "caca" if exame else ("busca", "coleta", "caca")[seq % 3]
+    mp = next((m for m in reversed(MAPS) if m["min_level"] <= req), MAPS[0])
+    qtd = {"coleta": 4 + seq // 4, "caca": 5 + seq // 3, "busca": 1}[tipo]
+    objetivo = {"coleta": f"Colete {qtd} {RECURSOS[mp['id']]} em {mp['nome']}",
+                "caca": f"Derrote {qtd} inimigos em {mp['nome']}",
+                "busca": f"Capture {mp['chefe']}, procurado em {mp['nome']}"}[tipo]
+    titulo, historia = STORY.get(seq) or (
+        (exame[0], f"O conselho avaliou seus feitos e abriu o {exame[0].lower()}.") if exame else
+        (f"{TIPO_NOME[tipo]}: {mp['nome']}", "Novos rumores chegam à vila. Cumpra a tarefa e descubra o que o Corvo Cinzento planeja."))
+    return {"seq": seq, "titulo": titulo, "historia": historia, "tipo": tipo, "mapa": mp["id"], "objetivo": objetivo,
+            "qtd": qtd, "req_nivel": req, "exame": exame[2] if exame else None, "rank": "DCBAS"[min(4, seq // 12)],
+            "exp": 20 + 12 * seq, "ryos": 40 + 25 * seq, "fama": (10 + seq) * (3 if tipo == "busca" else 1)}
 
 
 class JornadaDone(BaseModel):
@@ -276,49 +306,31 @@ class JornadaDone(BaseModel):
 
 @router.get("/api/player/{telegram_id}/jornada")
 def jornada(telegram_id: int, db: Session = Depends(get_db)):
-    """Missão atual da jornada. Missões já concluídas não são listadas."""
+    """Missão atual e progresso. Missões já concluídas não são listadas."""
     p = get_player(db, telegram_id)
     m = mission_for(p.journey + 1)
-    left = None
-    if p.journey_ends_at:
-        left = max(0, int((as_utc(p.journey_ends_at) - datetime.now(timezone.utc)).total_seconds()))
-    return {**m, "bloqueada": p.level < m["req_nivel"], "em_andamento": p.journey_ends_at is not None, "restante": left}
+    return {**m, "progresso": p.journey_prog, "bloqueada": p.level < m["req_nivel"], "pronta": p.journey_prog >= m["qtd"]}
 
 
-@router.post("/api/jornada/iniciar")
-def jornada_iniciar(payload: RestReq, db: Session = Depends(get_db)):
+@router.post("/api/jornada/entregar")
+def jornada_entregar(payload: JornadaDone, db: Session = Depends(get_db)):
     p = get_player(db, payload.telegram_id, lock=True)
     m = mission_for(p.journey + 1)
-    if p.journey_ends_at is not None:
-        raise HTTPException(409, "Você já tem uma missão em andamento.")
-    if p.level < m["req_nivel"]:
-        raise HTTPException(403, f"Exige nível {m['req_nivel']}.")
-    p.journey_ends_at = datetime.now(timezone.utc) + timedelta(seconds=m["duracao"])
-    db.commit()
-    return {"ok": True}
-
-
-@router.post("/api/jornada/concluir")
-def jornada_concluir(payload: JornadaDone, db: Session = Depends(get_db)):
-    p = get_player(db, payload.telegram_id, lock=True)
-    if p.journey_ends_at is None:
-        raise HTTPException(409, "Nenhuma missão em andamento.")
-    left = (as_utc(p.journey_ends_at) - datetime.now(timezone.utc)).total_seconds()
-    if left > 0:
-        raise HTTPException(409, f"A missão ainda não terminou: faltam {int(left) + 1}s.")
-    m = mission_for(p.journey + 1)
+    if p.journey_prog < m["qtd"]:
+        raise HTTPException(409, "O objetivo ainda não foi cumprido.")
     sombra = payload.escolha == "sombra"
     ryos = int(m["ryos"] * (1.3 if sombra else 1))
     p.ryos += ryos
+    p.fama += m["fama"]
     p.reputation = max(-100, min(100, p.reputation + (-8 if sombra else 5)))
     p.journey += 1
-    p.journey_ends_at = None
+    p.journey_prog = 0
     promovido = None
     if m["exame"] and RANKS.index(p.rank) < RANKS.index(NinjaRank(m["exame"])):
         p.rank, promovido = NinjaRank(m["exame"]), m["exame"]
     levels = apply_exp(p, m["exp"])
     db.commit()
-    return {"exp": m["exp"], "ryos": ryos, "niveis_ganhos": levels, "promovido": promovido}
+    return {"exp": m["exp"], "ryos": ryos, "fama": m["fama"], "niveis_ganhos": levels, "promovido": promovido}
 
 
 # ───────── Guildas: criar, entrar, doar, sair ─────────
@@ -427,3 +439,97 @@ def guild_donate(payload: DonateReq, db: Session = Depends(get_db)):
     g.level = max(g.level, 1 + int((g.recursos_doados / 500) ** 0.5))
     db.commit()
     return {"nivel": g.level}
+
+
+# ───────── Avatar ─────────
+class AvatarReq(BaseModel):
+    telegram_id: int = Field(gt=0)
+    avatar: str = Field(max_length=8)
+
+
+@router.post("/api/avatar")
+def set_avatar(payload: AvatarReq, db: Session = Depends(get_db)):
+    p = get_player(db, payload.telegram_id, lock=True)
+    if payload.avatar not in AVATARS:
+        raise HTTPException(400, "Avatar inválido.")
+    p.avatar = payload.avatar
+    db.commit()
+    return {"ok": True}
+
+
+# ───────── Kage: cargo disputado por fama ─────────
+KAGE_DAYS = 7
+
+
+def kage_tick(db: Session, v: Village) -> None:
+    """
+    Resolve a disputa do cargo. O desafiante precisa ser da vila e manter fama MAIOR que a do Kage atual
+    por 7 dias seguidos; se a fama dele cair ao nível do Kage, a disputa zera. Cumprido o prazo, assume o cargo.
+    """
+    leader = db.get(Player, v.leader_kage_id) if v.leader_kage_id else None
+    atual = leader.fama if leader else v.npc_fama
+    ch = db.get(Player, v.challenger_id) if v.challenger_id else None
+    if ch and (ch.village_id != v.id or ch.fama <= atual):
+        v.challenger_id = v.challenger_since = None
+        ch = None
+    if ch and datetime.now(timezone.utc) - as_utc(v.challenger_since) >= timedelta(days=KAGE_DAYS):
+        if leader:
+            leader.rank = NinjaRank.ANBU
+        ch.rank = NinjaRank.KAGE
+        v.leader_kage_id = ch.id
+        v.challenger_id = v.challenger_since = None
+
+
+def _kage_view(db: Session, p: Player) -> dict:
+    v = p.village
+    leader = db.get(Player, v.leader_kage_id) if v.leader_kage_id else None
+    atual = leader.fama if leader else v.npc_fama
+    ch = db.get(Player, v.challenger_id) if v.challenger_id else None
+    days = None
+    if ch:
+        days = max(1, KAGE_DAYS - (datetime.now(timezone.utc) - as_utc(v.challenger_since)).days)
+    sou = leader is not None and leader.id == p.id
+    pode = (not sou and RANKS.index(p.rank) >= RANKS.index(NinjaRank.ANBU) and p.fama > atual
+            and (ch is None or ch.id == p.id or p.fama > ch.fama))
+    return {"kage": {"nome": leader.ninja_name if leader else v.npc_kage, "fama": atual, "npc": leader is None},
+            "desafiante": {"nome": ch.ninja_name, "fama": ch.fama, "dias_restantes": days} if ch else None,
+            "voce_e_kage": sou, "pode_desafiar": pode}
+
+
+@router.get("/api/player/{telegram_id}/kage")
+def kage_info(telegram_id: int, db: Session = Depends(get_db)):
+    p = get_player(db, telegram_id)
+    kage_tick(db, p.village)
+    db.commit()
+    return _kage_view(db, p)
+
+
+@router.post("/api/kage/desafiar")
+def kage_desafiar(payload: RestReq, db: Session = Depends(get_db)):
+    """Abre (ou assume) a disputa pelo cargo de Kage da sua vila. Exige rank Anbu e fama maior que a do Kage."""
+    p = get_player(db, payload.telegram_id, lock=True)
+    v = p.village
+    kage_tick(db, v)
+    if not _kage_view(db, p)["pode_desafiar"]:
+        raise HTTPException(403, "Exige rank Anbu e fama maior que a do Kage (e a do desafiante atual).")
+    if v.challenger_id != p.id:
+        v.challenger_id, v.challenger_since = p.id, datetime.now(timezone.utc)
+    db.commit()
+    return {"ok": True}
+
+
+# ───────── Ranking ─────────
+@router.get("/api/ranking")
+def ranking(db: Session = Depends(get_db)):
+    """Top 20 por fama e por nível, e o Kage de cada vila."""
+    def top(order):
+        rows = db.execute(select(Player, Village.name).join(Village, Village.id == Player.village_id)
+                          .order_by(*order).limit(20)).all()
+        return [{"nome": p.ninja_name, "avatar": p.avatar, "vila": v, "rank": p.rank.value,
+                 "nivel": p.level, "fama": p.fama} for p, v in rows]
+    kages = []
+    for v in db.scalars(select(Village).order_by(Village.id)):
+        leader = db.get(Player, v.leader_kage_id) if v.leader_kage_id else None
+        kages.append({"vila": v.name, "nome": leader.ninja_name if leader else v.npc_kage,
+                      "fama": leader.fama if leader else v.npc_fama, "jogador": leader is not None})
+    return {"fama": top([Player.fama.desc()]), "nivel": top([Player.level.desc(), Player.exp.desc()]), "kages": kages}

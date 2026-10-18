@@ -37,7 +37,7 @@ from urllib.parse import parse_qsl
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import create_engine, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload, sessionmaker
@@ -93,13 +93,6 @@ RANK_BY_LEVEL = [(1, NinjaRank.ESTUDANTE), (5, NinjaRank.GENIN), (12, NinjaRank.
 # Todo jogador nasce neste "clã" vazio e troca ao passar no teste de admissão
 NO_CLAN_NAME = "Sem clã"
 
-# Bônus da classe inicial escolhida no cadastro
-CLASS_START = {
-    "taijutsu": {"vida_max": 130, "vida_atual": 130, "taijutsu": 8},
-    "ninjutsu": {"chakra_max": 130, "chakra_atual": 130, "ninjutsu": 8},
-    "genjutsu": {"agilidade": 8, "genjutsu": 8},
-}
-
 # Ordem de dificuldade das missões e rank máximo de missão que cada patente pode aceitar
 MISSION_ORDER = [MissionRank.D, MissionRank.C, MissionRank.B, MissionRank.A, MissionRank.S]
 MAX_MISSION_RANK = {
@@ -112,7 +105,7 @@ MAX_MISSION_RANK = {
 }
 
 # Treino (custo e ganho por repetição)
-TRAIN_CHAKRA_COST = 10
+TRAIN_CHAKRA_COST = 0  # chakra só é gasto em luta
 TRAIN_RYOS_COST = 25
 TRAIN_ATTR_GAIN = 1
 TRAIN_EXP_GAIN = 15
@@ -243,6 +236,9 @@ class PlayerOut(BaseModel):
     exp: int
     exp_proximo_nivel: int
     ryos: int
+    fama: int
+    energia: int
+    avatar: str
     chakra: Resource
     vida: Resource
     atributos_base: Attributes
@@ -266,7 +262,17 @@ class RegisterRequest(BaseModel):
     # Letras, números, _ e espaços (aceita acentos)
     ninja_name: str = Field(min_length=3, max_length=32, pattern=r"^[\w ]+$")
     village_id: int = Field(gt=0)
-    classe: Literal["taijutsu", "ninjutsu", "genjutsu"] = "taijutsu"
+    # Distribua exatamente 5 pontos entre os atributos (todos começam em 5)
+    taijutsu: int = Field(default=0, ge=0, le=5)
+    ninjutsu: int = Field(default=0, ge=0, le=5)
+    genjutsu: int = Field(default=0, ge=0, le=5)
+    agilidade: int = Field(default=0, ge=0, le=5)
+
+    @model_validator(mode="after")
+    def check_points(self):
+        if self.taijutsu + self.ninjutsu + self.genjutsu + self.agilidade != 5:
+            raise ValueError("Distribua exatamente 5 pontos entre os atributos.")
+        return self
 
 
 class TrainableAttribute(str, Enum):
@@ -384,12 +390,20 @@ async def require_auth(x_telegram_init_data: str = Header(default="")):
 
 # ───────── Regeneração passiva ─────────
 CHAKRA_REGEN_SECS = 20  # 1 de chakra a cada 20 s
+ENERGY_REGEN_SECS = 180  # 1 de energia a cada 3 min (máximo 25)
 HP_REGEN_SECS = 30      # 1 de vida a cada 30 s
 
 
 def regen(player: Player) -> None:
     """Regenera vida/chakra conforme o tempo parado, calculado sob demanda (sem tarefa em segundo plano)."""
     now = datetime.now(timezone.utc)
+    # Energia tem relógio próprio: preserva o resto do intervalo ao regenerar
+    if player.energia_at is None:
+        player.energia_at = now
+    ticks = int((now - as_utc(player.energia_at)).total_seconds() // ENERGY_REGEN_SECS)
+    if ticks:
+        player.energia = min(25, player.energia + ticks)
+        player.energia_at = now if player.energia >= 25 else as_utc(player.energia_at) + timedelta(seconds=ticks * ENERGY_REGEN_SECS)
     if player.regen_at is None:
         player.regen_at = now
         return
@@ -454,6 +468,9 @@ def build_player_out(player: Player) -> PlayerOut:
         exp=player.exp,
         exp_proximo_nivel=exp_for_level(player.level + 1),
         ryos=player.ryos,
+        fama=player.fama,
+        energia=player.energia,
+        avatar=player.avatar,
         chakra=Resource(atual=player.chakra_atual, max=player.chakra_max),
         vida=Resource(atual=player.vida_atual, max=player.vida_max),
         atributos_base=Attributes(**{a: getattr(player, a) for a in ATTRS}),
@@ -487,9 +504,13 @@ def seed_initial_data() -> None:
         if db.scalar(select(Village.id).limit(1)) is not None:
             return
         db.add_all([
-            Village(name="Vila das Chamas Eternas", description="Especialistas em combate ofensivo e determinação."),
-            Village(name="Vila do Vento Prateado", description="Focados em velocidade, agilidade e esquiva."),
-            Village(name="Vila da Névoa Oculta", description="Mestres no assassinato silencioso e nas táticas."),
+            Village(name="Vila das Chamas Eternas", npc_kage="Ryuko Hanabi", description="Especialistas em combate ofensivo e determinação. Kage: Ryuko Hanabi."),
+            Village(name="Vila da Névoa Oculta", npc_kage="Ayame Neblina", description="Mestres no silêncio e nas táticas. Kage: Ayame Neblina."),
+            Village(name="Vila do Vento Prateado", npc_kage="Kaito Brisa", description="Velocidade, agilidade e esquiva. Kage: Kaito Brisa."),
+            Village(name="Vila da Maré Profunda", npc_kage="Nami Abissal", description="Estrategistas do mar e da paciência. Kage: Nami Abissal."),
+            Village(name="Vila do Trovão Dourado", npc_kage="Raizen Relâmpago", description="Golpes rápidos e disciplina de ferro. Kage: Raizen Relâmpago."),
+            Village(name="Vila da Montanha de Jade", npc_kage="Gensai Pedra", description="Resistência e defesa inabaláveis. Kage: Gensai Pedra."),
+            Village(name="Vila da Lua Cinzenta", npc_kage="Selene Véu", description="Ilusionistas que agem à noite. Kage: Selene Véu."),
             Clan(name="Sem clã", passiva_atributo=AttributeType.TAIJUTSU, bonus_val=0.0),
             Clan(name="Clã do Olho Astral", passiva_atributo=AttributeType.GENJUTSU, bonus_val=0.20),
             Clan(name="Clã das Sombras Abissais", passiva_atributo=AttributeType.AGILIDADE, bonus_val=0.15),
@@ -553,7 +574,7 @@ def setup_options(db: Session = Depends(get_db)):
 # 1) Cadastro ──────────────────────────────────────────────────
 @app.post("/api/register", response_model=PlayerOut, status_code=201)
 def register(payload: RegisterRequest, db: Session = Depends(get_db)):
-    """Cria o perfil: nome, classe e vila. Começa sem clã, como Estudante, nível 1, com 500 ryos."""
+    """Cria o perfil: nome, vila e 5 pontos de atributo. Começa sem clã, como Estudante, nível 1, com 500 ryos."""
     if BOT_TOKEN and AUTH_ID.get() != payload.telegram_id:
         raise HTTPException(403, "Você não pode criar personagem para outro usuário.")
     if db.scalar(select(Player.id).where(Player.telegram_id == payload.telegram_id)):
@@ -573,7 +594,8 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
         ninja_name=payload.ninja_name,
         village_id=payload.village_id,
         clan_id=no_clan.id,
-        **CLASS_START[payload.classe],
+        taijutsu=5 + payload.taijutsu, ninjutsu=5 + payload.ninjutsu,
+        genjutsu=5 + payload.genjutsu, agilidade=5 + payload.agilidade,
     ))
     try:
         db.commit()

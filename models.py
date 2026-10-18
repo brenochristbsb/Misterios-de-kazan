@@ -162,6 +162,12 @@ class Player(TimestampMixin, Base):
     journey_ends_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     # Última vez em que vida/chakra foram regenerados (cálculo sob demanda)
     regen_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    # Fama (ranking e disputa do cargo de Kage), energia de exploração (0 a 25), avatar e progresso da missão atual
+    fama: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    energia: Mapped[int] = mapped_column(Integer, default=25, nullable=False)
+    energia_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    avatar: Mapped[str] = mapped_column(String(8), default="🥷", nullable=False)
+    journey_prog: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     # Recursos de combate
     chakra_max: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
@@ -240,6 +246,12 @@ class Village(Base):
         ForeignKey("players.id", use_alter=True, name="fk_villages_kage", ondelete="SET NULL"),
         unique=True,  # um jogador só pode ser Kage de uma vila
     )
+
+    # Kage NPC enquanto nenhum jogador ocupa o cargo; desafiante e início da disputa (7 dias seguidos com mais fama)
+    npc_kage: Mapped[Optional[str]] = mapped_column(String(64))
+    npc_fama: Mapped[int] = mapped_column(Integer, default=1500, nullable=False)
+    challenger_id: Mapped[Optional[int]] = mapped_column(Integer)
+    challenger_since: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
     leader_kage: Mapped[Optional["Player"]] = relationship(
         foreign_keys=[leader_kage_id], post_update=True
