@@ -3,350 +3,238 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Shadow Clan RPG - Engine MMORPG Completa</title>
+  <title>Shadow Clan RPG</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
   <style>
-    body { background-color: #080c14; color: #cbd5e1; font-family: system-ui, -apple-system, sans-serif; user-select: none; }
-    .ninja-card { background: linear-gradient(145deg, #1e293b, #0f172a); border: 1px solid #334155; }
-    .ninja-card-gold { background: linear-gradient(145deg, #2a1f0a, #0f172a); border: 1px solid #f59e0b; }
-    .tab-btn.active { color: #f59e0b; border-bottom: 2px solid #f59e0b; }
-    .log-box { font-family: monospace; font-size: 11px; }
+    @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Inter:wght@400;500;600;700&display=swap');
+    
+    body { 
+      background-color: #0b0e14; 
+      color: #d1d5db; 
+      font-family: 'Inter', sans-serif; 
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .font-serif-title { font-family: 'Cinzel', serif; }
+
+    .app-card { 
+      background: linear-gradient(180deg, #161b26 0%, #0f131d 100%); 
+      border: 1px solid #232d3f; 
+      border-radius: 16px;
+    }
+
+    .app-card-gold {
+      background: linear-gradient(180deg, #1f1910 0%, #120e09 100%);
+      border: 1px solid #854d0e;
+      border-radius: 16px;
+    }
+
+    .status-bar-hp { background: linear-gradient(90deg, #dc2626 0%, #ef4444 100%); }
+    .status-bar-mp { background: linear-gradient(90deg, #2563eb 0%, #3b82f6 100%); }
+
+    .nav-btn { color: #6b7280; transition: all 0.2s; }
+    .nav-btn.active { color: #d97706; }
+    .nav-btn.active i { transform: translateY(-2px); color: #f59e0b; }
+
+    .log-box {
+      background: #07090e;
+      border: 1px solid #1c2433;
+      font-family: monospace;
+      font-size: 11px;
+    }
   </style>
 </head>
-<body class="pb-24 max-w-md mx-auto p-4">
+<body class="pb-28 max-w-md mx-auto p-4 min-h-screen relative">
 
-  <!-- CABEÇALHO PERMANENTE COM AVATAR -->
-  <div class="ninja-card p-3.5 rounded-2xl mb-4 shadow-xl border-amber-500/20">
-    <div class="flex items-center space-x-3 mb-2">
-      <!-- AVATAR / SKIN SELECIONADA -->
+  <!-- TOP PROFILE HEADER (FIEL AO LAYOUT ORIGINAL) -->
+  <div class="app-card p-4 mb-4 shadow-xl">
+    <div class="flex items-center space-x-3 mb-3">
+      <!-- AVATAR DO PERSONAGEM -->
       <div class="relative">
-        <div id="ui-avatar" class="w-12 h-12 rounded-xl bg-amber-500/20 border border-amber-500 flex items-center justify-center text-2xl shadow-md">
-          🥷
+        <div id="ui-avatar-box" class="w-14 h-14 rounded-2xl bg-gradient-to-br from-amber-600 to-red-700 p-0.5 shadow-lg flex items-center justify-center">
+          <div class="w-full h-full bg-gray-900 rounded-[14px] flex items-center justify-center overflow-hidden">
+            <i id="ui-avatar-icon" class="fa-solid fa-user-ninja text-amber-500 text-2xl"></i>
+          </div>
         </div>
-        <span class="absolute -bottom-1 -right-1 bg-amber-500 text-gray-950 font-black text-[9px] px-1 rounded-full" id="ui-level">Lvl 1</span>
+        <span id="ui-level" class="absolute -bottom-1 -right-1 bg-red-700 text-white font-bold text-[10px] px-1.5 py-0.2 rounded-md border border-red-500">1</span>
       </div>
 
+      <!-- INFORMAÇÕES DO JOGADOR -->
       <div class="flex-1">
-        <div class="flex justify-between items-center">
-          <h2 id="ui-name" class="font-black text-amber-400 text-sm">Hayate Shinobi</h2>
-          <p id="ui-ryos" class="text-[11px] text-yellow-400 font-bold">🪙 500 Ryos</p>
+        <div class="flex justify-between items-baseline">
+          <h2 id="ui-name" class="font-serif-title text-base font-bold text-gray-100 tracking-wide">teste1</h2>
+          <span class="text-xs font-bold text-amber-400">Ryos <span id="ui-ryos" class="text-white">500</span></span>
         </div>
-        <p class="text-[10px] text-gray-400"><span id="ui-rank" class="text-amber-300 font-semibold">Genin</span> • Vila das Chamas</p>
-        <p class="text-[10px] text-gray-400">Guilda: <strong id="ui-guild" class="text-blue-400">Sem Guilda</strong></p>
+        <div class="flex items-center space-x-2 mt-0.5">
+          <span id="ui-rank" class="text-[10px] border border-amber-500/40 text-amber-300 bg-amber-950/30 px-2 py-0.5 rounded-full font-medium">Estudante</span>
+          <span id="ui-guild" class="text-[10px] text-gray-400">Sem guilda</span>
+        </div>
       </div>
     </div>
 
     <!-- BARRAS DE VIDA E CHAKRA -->
-    <div class="space-y-1">
+    <div class="space-y-2 pt-1 border-t border-gray-800/60">
       <div>
-        <div class="flex justify-between text-[9px] text-gray-400 mb-0.5 font-bold">
-          <span>Vida (HP)</span>
-          <span id="txt-hp">120 / 120</span>
+        <div class="flex justify-between text-[11px] text-gray-400 mb-1">
+          <span>Vida</span>
+          <span id="txt-hp" class="text-gray-200 font-medium">100/100</span>
         </div>
         <div class="w-full bg-gray-950 h-2 rounded-full overflow-hidden border border-gray-800">
-          <div id="bar-hp" class="bg-emerald-500 h-full w-full transition-all duration-300"></div>
+          <div id="bar-hp" class="status-bar-hp h-full w-full transition-all duration-300"></div>
         </div>
       </div>
+
       <div>
-        <div class="flex justify-between text-[9px] text-gray-400 mb-0.5 font-bold">
-          <span>Chakra (MP)</span>
-          <span id="txt-mp">80 / 80</span>
+        <div class="flex justify-between text-[11px] text-gray-400 mb-1">
+          <span>Chakra</span>
+          <span id="txt-mp" class="text-gray-200 font-medium">130/130</span>
         </div>
-        <div class="w-full bg-gray-950 h-1.5 rounded-full overflow-hidden border border-gray-800">
-          <div id="bar-mp" class="bg-blue-500 h-full w-full transition-all duration-300"></div>
+        <div class="w-full bg-gray-950 h-2 rounded-full overflow-hidden border border-gray-800">
+          <div id="bar-mp" class="status-bar-mp h-full w-full transition-all duration-300"></div>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- CONTEÚDO DAS ABAS -->
+  <!-- CONTEÚDO DAS ABAS DA NAVEGAÇÃO -->
 
-  <!-- ABA 1: COMBATE & BOSS -->
-  <div id="tab-combat" class="tab-content">
-    <div class="ninja-card p-4 rounded-2xl mb-4 shadow-2xl relative overflow-hidden">
-      <!-- INIMIGO / BOSS -->
-      <div class="mb-3">
-        <div class="flex justify-between items-center mb-1">
-          <span class="font-bold text-red-400 text-xs" id="enemy-name">Lobo Alfa das Sombras</span>
-          <span class="text-[9px] bg-red-950 text-red-300 border border-red-800 px-1.5 py-0.5 rounded font-bold" id="enemy-type">Inimigo Comum</span>
+  <!-- 1. PERFIL & SKINS/TRAJES -->
+  <div id="tab-profile" class="tab-content space-y-4">
+    <!-- ATRIBUTOS -->
+    <div class="app-card p-4">
+      <h3 class="font-serif-title text-sm font-bold text-amber-500 mb-3 border-b border-gray-800 pb-2">Atributos Shinobi</h3>
+      <div class="grid grid-cols-2 gap-2 text-xs">
+        <div class="bg-gray-950/80 p-2.5 rounded-xl border border-gray-800">
+          <span class="text-gray-400 block text-[10px]">Taijutsu</span>
+          <span id="stat-taijutsu" class="text-gray-100 font-bold text-sm">10</span>
         </div>
-        <div class="w-full bg-gray-950 h-2.5 rounded-full overflow-hidden border border-gray-800">
-          <div id="enemy-hp-bar" class="bg-red-600 h-full w-full transition-all duration-300"></div>
+        <div class="bg-gray-950/80 p-2.5 rounded-xl border border-gray-800">
+          <span class="text-gray-400 block text-[10px]">Ninjutsu</span>
+          <span id="stat-ninjutsu" class="text-gray-100 font-bold text-sm">12</span>
         </div>
-        <div class="text-right text-[9px] text-gray-400 mt-0.5" id="enemy-hp-txt">90 / 90 HP</div>
+        <div class="bg-gray-950/80 p-2.5 rounded-xl border border-gray-800">
+          <span class="text-gray-400 block text-[10px]">Genjutsu</span>
+          <span id="stat-genjutsu" class="text-gray-100 font-bold text-sm">8</span>
+        </div>
+        <div class="bg-gray-950/80 p-2.5 rounded-xl border border-gray-800">
+          <span class="text-gray-400 block text-[10px]">Agilidade</span>
+          <span id="stat-agilidade" class="text-gray-100 font-bold text-sm">5</span>
+        </div>
       </div>
+    </div>
 
-      <!-- LOG DE COMBATE -->
-      <div class="bg-gray-950 border border-gray-800 p-2.5 rounded-xl mb-3 h-24 overflow-y-auto log-box space-y-1 text-gray-300" id="battle-log">
-        <div class="text-amber-400">⚔️ Encontro em combate! Escolha sua ação.</div>
-      </div>
+    <!-- SELEÇÃO DE TRAJES / SKINS (SÓBRIO E VISUAL) -->
+    <div class="app-card p-4">
+      <h3 class="font-serif-title text-sm font-bold text-amber-500 mb-2">Trajes & Personalização (Skins)</h3>
+      <p class="text-[11px] text-gray-400 mb-3">Selecione a sua vestimenta e aparência em batalha:</p>
 
-      <!-- AÇÕES DE COMBATE -->
       <div class="grid grid-cols-2 gap-2">
-        <button onclick="executeAction('taijutsu')" class="bg-amber-600 hover:bg-amber-700 text-gray-950 font-bold p-2 rounded-xl text-xs flex items-center justify-center space-x-1">
-          <i class="fa-solid fa-fist-raised"></i>
+        <button onclick="setSkin('ninja', 'Traje de Estudante', 'fa-user-ninja')" class="bg-gray-950 p-3 rounded-xl border border-amber-500/50 flex items-center space-x-3 text-left hover:border-amber-500">
+          <div class="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
+            <i class="fa-solid fa-user-ninja text-base"></i>
+          </div>
+          <div>
+            <p class="text-xs font-bold text-gray-200">Traje Inicial</p>
+            <p class="text-[9px] text-gray-400">Padrão da Academia</p>
+          </div>
+        </button>
+
+        <button onclick="setSkin('anbu', 'Mecanismo Anbu', 'fa-mask')" class="bg-gray-950 p-3 rounded-xl border border-gray-800 flex items-center space-x-3 text-left hover:border-amber-500">
+          <div class="w-8 h-8 rounded-lg bg-red-500/10 border border-red-500/30 flex items-center justify-center text-red-400">
+            <i class="fa-solid fa-mask text-base"></i>
+          </div>
+          <div>
+            <p class="text-xs font-bold text-gray-200">Máscara Anbu</p>
+            <p class="text-[9px] text-gray-400">Exige Rank Chunin</p>
+          </div>
+        </button>
+
+        <button onclick="setSkin('renegade', 'Manto do Renegado', 'fa-user-secret')" class="bg-gray-950 p-3 rounded-xl border border-gray-800 flex items-center space-x-3 text-left hover:border-amber-500">
+          <div class="w-8 h-8 rounded-lg bg-purple-500/10 border border-purple-500/30 flex items-center justify-center text-purple-400">
+            <i class="fa-solid fa-user-secret text-base"></i>
+          </div>
+          <div>
+            <p class="text-xs font-bold text-gray-200">Manto Sombrio</p>
+            <p class="text-[9px] text-gray-400">Alinhamento Nukenin</p>
+          </div>
+        </button>
+
+        <button onclick="setSkin('kage', 'Manto do Mestre', 'fa-hat-wizard')" class="bg-gray-950 p-3 rounded-xl border border-gray-800 flex items-center space-x-3 text-left hover:border-amber-500">
+          <div class="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-300">
+            <i class="fa-solid fa-hat-wizard text-base"></i>
+          </div>
+          <div>
+            <p class="text-xs font-bold text-gray-200">Manto de Kage</p>
+            <p class="text-[9px] text-gray-400">Exige Nível 30</p>
+          </div>
+        </button>
+      </div>
+    </div>
+
+    <!-- CÓDIGO DE RECRUTAMENTO / INDICAÇÃO -->
+    <div class="app-card-gold p-4">
+      <h3 class="font-serif-title text-sm font-bold text-amber-400 mb-1">Recrutamento de Ninjas</h3>
+      <p class="text-[11px] text-gray-300 mb-3">Convide aliados para a sua vila. Receba +100 Ryos por cada registo e +500 Ryos ao atingirem o Rank Genin.</p>
+      
+      <div class="bg-gray-950/90 p-2.5 rounded-xl border border-amber-900/50 flex justify-between items-center">
+        <span id="ref-code" class="text-xs font-mono font-bold text-amber-400 tracking-wider">REF-SHADOW-883</span>
+        <button onclick="copyRefLink()" class="bg-amber-600 hover:bg-amber-700 text-gray-950 text-[10px] font-bold px-3 py-1.5 rounded-lg border border-amber-400">
+          Copiar Link
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. TREINO & ARENA DE COMBATE -->
+  <div id="tab-train" class="tab-content hidden space-y-4">
+    <div class="app-card p-4">
+      <h3 class="font-serif-title text-sm font-bold text-amber-500 mb-1">Arena de Treino & Duelo</h3>
+      <p class="text-[11px] text-gray-400 mb-4">Enfrente oponentes em batalhas por turnos para evoluir os seus atributos.</p>
+
+      <!-- ARENA -->
+      <div class="bg-gray-950 p-3.5 rounded-xl border border-gray-800 mb-3">
+        <div class="flex justify-between items-center mb-1.5">
+          <span id="enemy-name" class="font-bold text-red-400 text-xs">Boneco de Treino</span>
+          <span id="enemy-rank" class="text-[9px] bg-red-950 text-red-300 border border-red-800 px-1.5 py-0.5 rounded">Inimigo</span>
+        </div>
+        <div class="w-full bg-gray-900 h-2 rounded-full overflow-hidden border border-gray-800 mb-1">
+          <div id="enemy-hp-bar" class="status-bar-hp h-full w-full transition-all duration-300"></div>
+        </div>
+        <div class="text-right text-[10px] text-gray-400" id="enemy-hp-txt">80/80 HP</div>
+      </div>
+
+      <!-- LOG DE BATALHA -->
+      <div id="battle-log" class="log-box p-3 rounded-xl mb-3 h-28 overflow-y-auto space-y-1 text-gray-300">
+        <div class="text-amber-400">⚔️ Duelo iniciado. Escolha a sua técnica!</div>
+      </div>
+
+      <!-- BOTÕES DE AÇÃO DO COMBATE -->
+      <div class="grid grid-cols-2 gap-2">
+        <button onclick="executeAction('taijutsu')" class="bg-amber-900/60 hover:bg-amber-800 text-amber-200 font-bold p-2.5 rounded-xl text-xs border border-amber-700/60 flex items-center justify-center space-x-1.5">
+          <i class="fa-solid fa-fist-raised text-amber-400"></i>
           <span>Taijutsu</span>
         </button>
-        <button onclick="executeAction('ninjutsu')" class="bg-blue-600 hover:bg-blue-700 text-white font-bold p-2 rounded-xl text-xs flex items-center justify-center space-x-1">
-          <i class="fa-solid fa-fire"></i>
-          <span>Katon (-15 MP)</span>
+        <button onclick="executeAction('ninjutsu')" class="bg-blue-900/60 hover:bg-blue-800 text-blue-200 font-bold p-2.5 rounded-xl text-xs border border-blue-700/60 flex items-center justify-center space-x-1.5">
+          <i class="fa-solid fa-fire text-blue-400"></i>
+          <span>Jutsu (-15 MP)</span>
         </button>
-        <button onclick="executeAction('heal')" class="bg-emerald-700 hover:bg-emerald-800 text-white font-bold p-2 rounded-xl text-xs flex items-center justify-center space-x-1">
-          <i class="fa-solid fa-heart-pulse"></i>
+        <button onclick="executeAction('heal')" class="bg-emerald-900/60 hover:bg-emerald-800 text-emerald-200 font-bold p-2.5 rounded-xl text-xs border border-emerald-700/60 flex items-center justify-center space-x-1.5">
+          <i class="fa-solid fa-heart-pulse text-emerald-400"></i>
           <span>Curar (-20 MP)</span>
         </button>
-        <button onclick="executeAction('defend')" class="bg-slate-700 hover:bg-slate-800 text-white font-bold p-2 rounded-xl text-xs flex items-center justify-center space-x-1">
-          <i class="fa-solid fa-shield"></i>
+        <button onclick="executeAction('defend')" class="bg-gray-800 hover:bg-gray-700 text-gray-200 font-bold p-2.5 rounded-xl text-xs border border-gray-600 flex items-center justify-center space-x-1.5">
+          <i class="fa-solid fa-shield text-gray-400"></i>
           <span>Defender</span>
         </button>
       </div>
     </div>
   </div>
 
-  <!-- ABA 2: PERFIL & SKINS/AVATARES -->
-  <div id="tab-profile" class="tab-content hidden">
-    <div class="ninja-card p-4 rounded-2xl mb-4">
-      <h3 class="text-xs font-bold text-amber-500 mb-2 border-b border-gray-800 pb-1">Skins & Avatares Shinobi</h3>
-      <p class="text-[10px] text-gray-400 mb-3">Escolha a sua aparência visual no jogo:</p>
-
-      <div class="grid grid-cols-4 gap-2 mb-4">
-        <button onclick="setAvatar('🥷')" class="bg-gray-950 p-2 rounded-xl border border-amber-500 text-2xl text-center hover:bg-amber-500/20">🥷</button>
-        <button onclick="setAvatar('🥷‍♂️')" class="bg-gray-950 p-2 rounded-xl border border-gray-800 text-2xl text-center hover:bg-amber-500/20">🥷‍♂️</button>
-        <button onclick="setAvatar('🥷♀️')" class="bg-gray-950 p-2 rounded-xl border border-gray-800 text-2xl text-center hover:bg-amber-500/20">🥷♀️</button>
-        <button onclick="setAvatar('🦊')" class="bg-gray-950 p-2 rounded-xl border border-gray-800 text-2xl text-center hover:bg-amber-500/20">🦊</button>
-      </div>
-
-      <!-- LINK DE CONVITE & INDICAÇÃO -->
-      <div class="ninja-card-gold p-3 rounded-xl">
-        <h4 class="text-xs font-bold text-amber-400 mb-1">🎁 Convide Amigos & Ganhe Bônus</h4>
-        <p class="text-[10px] text-gray-300 mb-2">Compartilhe seu código com amigos. Ganhe +100 Ryos por cadastro e +500 Ryos quando atingirem o Nível 5!</p>
-        <div class="bg-gray-950 p-2 rounded-lg border border-gray-800 text-center flex justify-between items-center">
-          <span id="ref-code" class="text-xs font-mono font-bold text-amber-400">REF-883921</span>
-          <button onclick="copyRefLink()" class="bg-amber-500 text-gray-950 text-[10px] font-bold px-2 py-1 rounded">Copiar Link</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ABA 3: GUILDAS, BUSCA & GUERRA DE GUILDAS -->
-  <div id="tab-guild" class="tab-content hidden">
-    <div class="ninja-card p-4 rounded-2xl mb-4">
-      <h3 class="text-xs font-bold text-amber-500 mb-1">Salão de Guildas Shinobi</h3>
-      <p class="text-[10px] text-gray-400 mb-3">Junte-se a uma guilda ou crie a sua para participar de Guerras e World Bosses!</p>
-
-      <!-- CRIAR / BUSCAR GUILDA -->
-      <div class="space-y-3">
-        <div class="bg-gray-950 p-3 rounded-xl border border-gray-800">
-          <h4 class="text-xs font-bold text-white mb-1">Criar Nova Guilda</h4>
-          <p class="text-[10px] text-gray-400 mb-2">Custo: 1.000 Ryos. Torne-se o Líder do seu Clã.</p>
-          <div class="flex space-x-2">
-            <input type="text" id="guild-name-input" placeholder="Nome da Guilda..." class="bg-gray-900 border border-gray-700 rounded-lg p-1.5 text-xs text-white flex-1 outline-none">
-            <button onclick="createGuild()" class="bg-amber-500 text-gray-950 font-bold text-xs px-3 rounded-lg">Criar</button>
-          </div>
-        </div>
-
-        <div class="bg-gray-950 p-3 rounded-xl border border-gray-800">
-          <h4 class="text-xs font-bold text-white mb-2">Guildas Recomendadas</h4>
-          <div class="space-y-2">
-            <div class="flex justify-between items-center bg-gray-900 p-2 rounded-lg border border-gray-800 text-xs">
-              <div>
-                <span class="font-bold text-amber-400">Sombra do Dragão</span>
-                <p class="text-[9px] text-gray-400">Membros: 14/20 • Nível Médio: 8</p>
-              </div>
-              <button onclick="joinGuild('Sombra do Dragão')" class="bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-bold px-2 py-1 rounded">Solicitar</button>
-            </div>
-            <div class="flex justify-between items-center bg-gray-900 p-2 rounded-lg border border-gray-800 text-xs">
-              <div>
-                <span class="font-bold text-amber-400">Akatsuki Oculta</span>
-                <p class="text-[9px] text-gray-400">Membros: 18/20 • Nível Médio: 12</p>
-              </div>
-              <button onclick="joinGuild('Akatsuki Oculta')" class="bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-bold px-2 py-1 rounded">Solicitar</button>
-            </div>
-          </div>
-        </div>
-
-        <!-- BOSS DE GUILDA & WORLD BOSS -->
-        <div class="bg-red-950/30 p-3 rounded-xl border border-red-800/60">
-          <span class="text-xs font-bold text-red-400 block mb-0.5">🐉 World Boss Global ( Bijuu Ancestral )</span>
-          <p class="text-[10px] text-gray-300 mb-2">Invasão Global ativa! Ataque com sua guilda para ganhar itens lendários.</p>
-          <button onclick="startBossFight()" class="w-full bg-red-700 hover:bg-red-800 text-white text-xs py-1.5 rounded-lg font-bold">Atacar World Boss</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ABA 4: MAPAS -->
-  <div id="tab-maps" class="tab-content hidden">
-    <div class="ninja-card p-4 rounded-2xl mb-4">
-      <h3 class="text-xs font-bold text-amber-500 mb-1">Regiões de Exploração</h3>
-      <p class="text-[10px] text-gray-400 mb-3">Escolha um território para batalhar e encontrar itens.</p>
-
-      <div class="space-y-2">
-        <div class="bg-gray-950 p-2.5 rounded-xl border border-emerald-800/50 flex justify-between items-center">
-          <div>
-            <p class="text-xs font-bold text-emerald-400">🌲 Floresta do Treino</p>
-            <p class="text-[9px] text-gray-400">Inimigos: Lobos. Drop: Kunai de Ferro.</p>
-          </div>
-          <button onclick="selectEnemy('Lobo Alfa das Sombras', 90, 12, 'Inimigo Comum')" class="bg-emerald-600 text-white text-xs px-2.5 py-1 rounded-lg font-bold">Explorar</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- NAVEGAÇÃO INFERIOR -->
-  <div class="fixed bottom-0 left-0 right-0 bg-gray-950/95 backdrop-blur border-t border-gray-800 py-2.5 px-3 flex justify-around text-center text-[10px] text-gray-400 max-w-md mx-auto">
-    <button onclick="switchTab('combat')" id="btn-combat" class="tab-btn active flex flex-col items-center">
-      <i class="fa-solid fa-swords text-sm mb-0.5"></i>
-      <span>Arena</span>
-    </button>
-    <button onclick="switchTab('profile')" id="btn-profile" class="tab-btn flex flex-col items-center">
-      <i class="fa-solid fa-user-ninja text-sm mb-0.5"></i>
-      <span>Perfil/Skins</span>
-    </button>
-    <button onclick="switchTab('guild')" id="btn-guild" class="tab-btn flex flex-col items-center">
-      <i class="fa-solid fa-shield-halved text-sm mb-0.5"></i>
-      <span>Guilda</span>
-    </button>
-    <button onclick="switchTab('maps')" id="btn-maps" class="tab-btn flex flex-col items-center">
-      <i class="fa-solid fa-map-location-dot text-sm mb-0.5"></i>
-      <span>Mapas</span>
-    </button>
-  </div>
-
-  <script>
-    let player = {
-      name: "Hayate Shinobi",
-      avatar: "🥷",
-      guild: "Sem Guilda",
-      ryos: 500,
-      hp: 120, hpMax: 120,
-      mp: 80, mpMax: 80,
-      taijutsu: 15, ninjutsu: 12,
-      defending: false
-    };
-
-    let enemy = { name: "Lobo Alfa das Sombras", hp: 90, hpMax: 90, atk: 12, type: "Inimigo Comum" };
-
-    function log(msg, color = "text-gray-300") {
-      const logBox = document.getElementById('battle-log');
-      logBox.innerHTML += `<div class="${color}">${msg}</div>`;
-      logBox.scrollTop = logBox.scrollHeight;
-    }
-
-    function updateBars() {
-      document.getElementById('txt-hp').innerText = `${Math.max(0, player.hp)} / ${player.hpMax}`;
-      document.getElementById('bar-hp').style.width = Math.max(0, (player.hp / player.hpMax) * 100) + '%';
-
-      document.getElementById('txt-mp').innerText = `${Math.max(0, player.mp)} / ${player.mpMax}`;
-      document.getElementById('bar-mp').style.width = Math.max(0, (player.mp / player.mpMax) * 100) + '%';
-
-      document.getElementById('enemy-hp-txt').innerText = `${Math.max(0, enemy.hp)} / ${enemy.hpMax} HP`;
-      document.getElementById('enemy-hp-bar').style.width = Math.max(0, (enemy.hp / enemy.hpMax) * 100) + '%';
-
-      document.getElementById('ui-ryos').innerText = `🪙 ${player.ryos} Ryos`;
-      document.getElementById('ui-guild').innerText = player.guild;
-      document.getElementById('ui-avatar').innerText = player.avatar;
-    }
-
-    function switchTab(tabName) {
-      document.querySelectorAll('.tab-content').forEach(tab => tab.classList.add('hidden'));
-      document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
-      
-      document.getElementById('tab-' + tabName).classList.remove('hidden');
-      document.getElementById('btn-' + tabName).classList.add('active');
-    }
-
-    function setAvatar(emoji) {
-      player.avatar = emoji;
-      updateBars();
-      alert('Avatar/Skin alterado com sucesso!');
-    }
-
-    function createGuild() {
-      const name = document.getElementById('guild-name-input').value.trim();
-      if (!name) return alert('Digite o nome da guilda!');
-      if (player.ryos < 1000) return alert('Você precisa de 1.000 Ryos para criar uma guilda!');
-      
-      player.ryos -= 1000;
-      player.guild = name;
-      updateBars();
-      alert(`Guilda "${name}" criada com sucesso!`);
-    }
-
-    function joinGuild(name) {
-      player.guild = name;
-      updateBars();
-      alert(`Solicitação enviada para a guilda ${name}!`);
-    }
-
-    function startBossFight() {
-      selectEnemy('Bijuu Ancestral (World Boss)', 1000, 35, 'World Boss Global');
-    }
-
-    function selectEnemy(name, hp, atk, type) {
-      enemy = { name, hp, hpMax: hp, atk, type };
-      document.getElementById('enemy-name').innerText = name;
-      document.getElementById('enemy-type').innerText = type;
-      updateBars();
-      log(`🔥 Combate iniciado contra ${name}!`, "text-red-400 font-bold");
-      switchTab('combat');
-    }
-
-    function executeAction(type) {
-      if (player.hp <= 0 || enemy.hp <= 0) return;
-      player.defending = false;
-
-      if (type === 'taijutsu') {
-        let dmg = Math.max(4, player.taijutsu + Math.floor(Math.random() * 6));
-        enemy.hp -= dmg;
-        log(`💥 Você atacou e causou ${dmg} de dano!`, "text-amber-400");
-      } else if (type === 'ninjutsu') {
-        if (player.mp >= 15) {
-          player.mp -= 15;
-          let dmg = Math.max(10, (player.ninjutsu * 1.6) + Math.floor(Math.random() * 8));
-          enemy.hp -= dmg;
-          log(`🔥 You disparou Katon e causou ${dmg} de dano!`, "text-blue-400");
-        } else {
-          return log(`❌ Chakra insuficiente!`, "text-red-400");
-        }
-      } else if (type === 'heal') {
-        if (player.mp >= 20) {
-          player.mp -= 20;
-          let heal = 40;
-          player.hp = Math.min(player.hpMax, player.hp + heal);
-          log(`💚 Você curou ${heal} de HP!`, "text-emerald-400");
-        } else {
-          return log(`❌ Chakra insuficiente!`, "text-red-400");
-        }
-      } else if (type === 'defend') {
-        player.defending = true;
-        log(`🛡️ Posição de defesa!`, "text-slate-300");
-      }
-
-      updateBars();
-
-      if (enemy.hp <= 0) {
-        player.ryos += 150;
-        log(`🏆 Derrotou ${enemy.name}! +150 Ryos.`, "text-amber-300 font-bold");
-        updateBars();
-        return;
-      }
-
-      setTimeout(() => {
-        let dmg = Math.max(3, enemy.atk + Math.floor(Math.random() * 4));
-        if (player.defending) dmg = Math.floor(dmg / 2);
-        player.hp -= dmg;
-        log(`🗡️ ${enemy.name} causou ${dmg} de dano!`, "text-red-400");
-        updateBars();
-      }, 600);
-    }
-
-    function copyRefLink() {
-      navigator.clipboard.writeText(`https://t.me/ShadowClanRpgBot?start=REF-883921`);
-      alert('Link de convite copiado para a área de transferência!');
-    }
-  </script>
-</body>
-</html>
+  <!-- 3. MISSÕES NARRATIVAS -->
+  <div id="tab-quests" class="tab-content hidden space-y-3">
+    <div class="app-card p-4">
+      <h3 class="font-serif-title text-sm font-bold text-amber-500 mb-1">Mural de Missões</h3>
+      <p class="text-[11px] text-gray-400 mb-3">Conclua tarefas
