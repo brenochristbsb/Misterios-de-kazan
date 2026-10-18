@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Ninja RPG</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@600;800&display=swap" rel="stylesheet">
+<script>
+  tailwind.config = { theme: { extend: {
+    colors: { sumi:'#0c0b0d', lacq:'#17141a', line:'#2b252b', vermil:'#c8321f', gold:'#d9a93f', paper:'#ece6da', chakra:'#5aa7c7' },
+    fontFamily: { jp: ['"Shippori Mincho"', 'Georgia', 'serif'] }
+  } } };
+</script>
+<style>
+  body{background:radial-gradient(ellipse at 50% -10%,#2a1216 0,#0c0b0d 55%) fixed;color:#ece6da;-webkit-tap-highlight-color:transparent}
+  .card{background:#17141a;border:1px solid #2b252b;border-radius:1rem;box-shadow:0 10px 28px rgba(0,0,0,.5);padding:1rem}
+  .bar{height:.45rem;border-radius:9999px;background:#2b252b;overflow:hidden}
+  .bar>i{display:block;height:100%;border-radius:9999px;transition:width .5s}
+  .seal{background:#c8321f;border:2px solid #d9a93f;border-radius:.6rem;transform:rotate(-4deg);box-shadow:0 0 0 3px #0c0b0d,0 6px 16px rgba(200,50,31,.35)}
+  .btn{border-radius:.75rem;padding:.65rem 1rem;font-weight:700;background:#c8321f;color:#fff;transition:transform .1s,opacity .2s}
+  .btn:active{transform:scale(.96)}
+  .btn:disabled{opacity:.35}
+  .btn-gold{background:#d9a93f;color:#1a1208}
+  .chip{border:1px solid #2b252b;border-radius:9999px;padding:.25rem .9rem;font-size:.85rem}
+  .chip.on{border-color:#d9a93f;color:#d9a93f;background:#d9a93f1a}
+  .inp{width:100%;background:#0c0b0d;border:1px solid #2b252b;border-radius:.7rem;padding:.65rem .8rem;color:#ece6da}
+  .inp:focus,.btn:focus-visible,.chip:focus-visible,nav button:focus-visible{outline:2px solid #d9a93f;outline-offset:2px}
+  h2{font-family:"Shippori Mincho",Georgia,serif;font-weight:800;font-size:1.1rem}
+</style>
+</head>
+<body class="min-h-screen font-sans">
+
+<!-- Cabeçalho: perfil, vida, chakra e experiência -->
+<header class="sticky top-0 z-20 px-4 pb-3 bg-sumi/90 backdrop-blur border-b border-line" style="padding-top:calc(env(safe-area-inset-top,0px) + .75rem)">
+  <div class="flex items-center gap-3">
+    <div class="seal w-12 h-12 grid place-items-center font-jp font-extrabold text-xl" id="hLvl">1</div>
+    <div class="flex-1 min-w-0">
+      <div class="flex items-center gap-2">
+        <h1 id="hName" class="font-jp font-extrabold text-lg truncate">Carregando</h1>
+        <span id="hRank" class="text-xs px-2 py-0.5 rounded-full border border-gold text-gold"></span>
+      </div>
+      <div class="text-xs text-paper/60 mt-0.5">Ryos <b id="hRyos" class="text-gold">0</b></div>
+    </div>
+  </div>
+  <div class="grid grid-cols-2 gap-3 mt-3 text-xs">
+    <div><div class="flex justify-between mb-1"><span>Vida</span><span id="tHp"></span></div><div class="bar"><i id="bHp" class="bg-vermil"></i></div></div>
+    <div><div class="flex justify-between mb-1"><span>Chakra</span><span id="tCk"></span></div><div class="bar"><i id="bCk" class="bg-chakra"></i></div></div>
+  </div>
+  <div class="mt-2"><div class="bar" style="height:.25rem"><i id="bXp" class="bg-gold"></i></div></div>
+</header>
+
+<main class="px-4 pt-4 space-y-3" style="padding-bottom:calc(env(safe-area-inset-bottom,0px) + 6rem)">
+  <section id="tab-perfil" class="tab space-y-3"></section>
+  <section id="tab-treino" class="tab space-y-3 hidden"></section>
+  <section id="tab-missoes" class="tab space-y-3 hidden"></section>
+  <section id="tab-mapas" class="tab space-y-3 hidden"></section>
+  <section id="tab-vila" class="tab space-y-3 hidden"></section>
+  <section id="tab-guilda" class="tab space-y-3 hidden"></section>
+</main>
+
+<!-- Barra de abas inferior -->
+<nav class="fixed bottom-0 inset-x-0 z-30 grid grid-cols-6 bg-sumi/95 backdrop-blur border-t border-line" style="padding-bottom:env(safe-area-inset-bottom,0px)">
+  <button data-tab="perfil" class="py-2 text-xs"><div class="text-xl">🥷</div>Perfil</button>
+  <button data-tab="treino" class="py-2 text-xs"><div class="text-xl">🥋</div>Treino</button>
+  <button data-tab="missoes" class="py-2 text-xs"><div class="text-xl">📜</div>Missões</button>
+  <button data-tab="mapas" class="py-2 text-xs"><div class="text-xl">🗺️</div>Mapas</button>
+  <button data-tab="vila" class="py-2 text-xs"><div class="text-xl">🏯</div>Vila e clã</button>
+  <button data-tab="guilda" class="py-2 text-xs"><div class="text-xl">⚔️</div>Guilda</button>
+</nav>
+
+<!-- Cadastro (aparece se o jogador ainda não existe) -->
+<div id="regBox" class="hidden fixed inset-0 z-40 bg-sumi overflow-y-auto p-5">
+  <div class="max-w-md mx-auto space-y-4 pt-6">
+    <h2 class="text-2xl" style="font-size:1.6rem">Crie seu ninja</h2>
+    <p class="text-sm text-paper/60">Escolha o nome, a classe e a vila. Você começa como Estudante, sem clã, com 500 ryos.</p>
+    <input id="rName" class="inp" maxlength="32" placeholder="Nome ninja (3 a 32 letras)">
+    <select id="rVillage" class="inp"></select>
+    <select id="rClasse" class="inp">
+      <option value="taijutsu">Taijutsu: mais vida e força</option>
+      <option value="ninjutsu">Ninjutsu: mais chakra e ataque elemental</option>
+      <option value="genjutsu">Genjutsu: mais agilidade e ataque mental</option>
+    </select>
+    <p id="rInfo" class="text-xs text-gold min-h-[1rem]"></p>
+    <button class="btn btn-gold w-full" onclick="register()">Criar personagem</button>
+  </div>
+</div>
+
+<!-- Erro fatal -->
+<div id="fatalBox" class="hidden fixed inset-0 z-50 bg-sumi grid place-items-center p-6 text-center">
+  <div class="space-y-4"><div class="text-5xl">🌫️</div><p id="fatalMsg"></p><button class="btn" onclick="location.reload()">Tentar de novo</button></div>
+</div>
+
+<div id="toast" class="hidden fixed left-4 right-4 z-50 rounded-xl px-4 py-3 text-sm font-semibold shadow-xl" style="top:calc(env(safe-area-inset-top,0px) + .75rem)"></div>
+
+<script>
+/* ───────── Configuração ───────── */
+// URL HTTPS do seu backend FastAPI (o Telegram exige HTTPS)
+const API_BASE = 'https://SEU-BACKEND.exemplo.com';
+
+const tg = window.Telegram?.WebApp;
+tg?.ready();
+tg?.expand();
+tg?.setHeaderColor?.('#0c0b0d');
+tg?.setBackgroundColor?.('#0c0b0d');
+
+// Usuário do Telegram. Fora do Telegram, use ?tid=123 para testar no navegador.
+const tgUser = tg?.initDataUnsafe?.user ||
+  { id: Number(new URLSearchParams(location.search).get('tid')) || 0, username: 'dev' };
+
+/* ───────── Utilitários ───────── */
+const $ = id => document.getElementById(id);
+const fmt = n => Number(n).toLocaleString('pt-BR');
+// Escapa texto vindo do servidor (nomes de jogadores) antes de usar em innerHTML
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const parseTs = s => new Date(/Z$|[+-]\d\d:?\d\d$/.test(s) ? s : s + 'Z');
+const expFloor = l => 50 * l * (l - 1); // mesma fórmula do backend
+let P = null, X = null; // P = perfil, X = extras (inventário, mapas, clãs, reputação)
+
+function toast(msg, ok = true) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.className = 'fixed left-4 right-4 z-50 rounded-xl px-4 py-3 text-sm font-semibold shadow-xl ' +
+    (ok ? 'bg-gold text-sumi' : 'bg-vermil text-white');
+  t.style.top = 'calc(env(safe-area-inset-top,0px) + .75rem)';
+  clearTimeout(toast.h);
+  toast.h = setTimeout(() => t.classList.add('hidden'), 3000);
+  tg?.HapticFeedback?.notificationOccurred?.(ok ? 'success' : 'error');
+}
+
+function fatal(msg) { $('fatalMsg').textContent = msg; $('fatalBox').classList.remove('hidden'); }
+
+// Chamada à API. Lança Error com a mensagem do FastAPI (campo "detail").
+async function api(path, body) {
+  const opt = { headers: { 'X-Telegram-Init-Data': tg?.initData || '' } };
+  if (body) { opt.method = 'POST'; opt.headers['Content-Type'] = 'application/json'; opt.body = JSON.stringify(body); }
+  let r;
+  try { r = await fetch(API_BASE + path, opt); }
+  catch { throw new Error('Sem conexão com o servidor.'); }
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    const det = d.detail;
+    const e = new Error((Array.isArray(det) ? det.map(x => x.msg).join('; ') : det) || `Erro ${r.status}`);
+    e.status = r.status;
+    throw e;
+  }
+  return d;
+}
+
+async function refresh() {
+  [P, X] = await Promise.all([api('/api/player/' + tgUser.id), api(`/api/player/${tgUser.id}/extras`)]);
+  render();
+}
+
+/* ───────── Abas ───────── */
+function showTab(name) {
+  document.querySelectorAll('.tab').forEach(s => s.classList.toggle('hidden', s.id !== 'tab-' + name));
+  document.querySelectorAll('nav button').forEach(b => {
+    const on = b.dataset.tab === name;
+    b.classList.toggle('text-gold', on);
+    b.classList.toggle('text-paper/50', !on);
+  });
+  tg?.HapticFeedback?.selectionChanged?.();
+}
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => showTab(b.dataset.tab));
+
+/* ───────── Renderização ───────── */
+const RANK_BADGE = { Estudante:'Estudante', Genin:'Genin', Chunin:'Chunin', Jonin:'Jonin', Anbu:'Anbu', Kage:'Kage' };
+const ATTRS = [['taijutsu','👊','Taijutsu'], ['ninjutsu','🔥','Ninjutsu'], ['genjutsu','👁️','Genjutsu'], ['agilidade','💨','Agilidade']];
+const pct = (a, b) => Math.max(0, Math.min(100, (a / (b || 1)) * 100)) + '%';
+
+function render() {
+  $('hName').textContent = P.ninja_name;
+  $('hRank').textContent = RANK_BADGE[P.rank] || P.rank;
+  $('hLvl').textContent = P.level;
+  $('hRyos').textContent = fmt(P.ryos);
+  $('tHp').textContent = `${P.vida.atual}/${P.vida.max}`;
+  $('tCk').textContent = `${P.chakra.atual}/${P.chakra.max}`;
+  $('bHp').style.width = pct(P.vida.atual, P.vida.max);
+  $('bCk').style.width = pct(P.chakra.atual, P.chakra.max);
+  const lo = expFloor(P.level);
+  $('bXp').style.width = pct(P.exp - lo, P.exp_proximo_nivel - lo);
+  renderPerfil(); renderTreino(); renderMissoes(); renderMapas(); renderVila(); renderGuilda();
+}
+
+const RANK_ORDER = ['Estudante', 'Genin', 'Chunin', 'Jonin', 'Anbu', 'Kage'];
+const bonusTxt = b => Object.entries(b).map(([k, v]) => `+${v} ${k}`).join(', ');
+
+function renderPerfil() {
+  const rows = ATTRS.map(([k, ic, nome]) => {
+    const b = P.atributos_base[k], e = P.atributos_efetivos[k], d = e - b;
+    return `<div><div class="flex justify-between text-sm"><span>${ic} ${nome}</span>
+      <span class="font-bold">${e}${d ? ` <span class="text-gold text-xs font-normal">+${d} de bônus</span>` : ''}</span></div>
+      <div class="bar mt-1"><i class="bg-gradient-to-r from-red-900 to-vermil" style="width:${Math.min(100, e)}%"></i></div></div>`;
+  }).join('');
+  const pets = X.invocacoes.length ? X.invocacoes.map(s => `<div class="flex items-center gap-2 py-2">
+      <div class="flex-1"><div class="text-sm font-semibold">${esc(s.nome)} <span class="text-xs text-paper/50 font-normal">nível ${s.nivel}</span></div>
+      <div class="text-xs text-gold">+${s.bonus_taijutsu} taijutsu e +${s.bonus_ninjutsu} ninjutsu, 20% a mais por nível</div></div>
+      <button class="chip ${s.ativo ? 'on' : ''}" onclick="activateSummon(${s.id})">${s.ativo ? 'Ativa' : 'Ativar'}</button></div>`).join('')
+    : '<p class="text-sm text-paper/60 mt-2">Nenhuma invocação ainda. Chefes de mapa podem soltar contratos.</p>';
+  const inv = X.inventario.length ? X.inventario.map(i => `<div class="flex items-center gap-2 py-2">
+      <div class="flex-1 min-w-0"><div class="text-sm font-semibold truncate">${esc(i.nome)} <span class="text-xs text-paper/50 font-normal">${esc(i.tipo)}</span></div>
+      <div class="text-xs text-gold">${esc(bonusTxt(i.bonus))}</div></div>
+      <button class="chip ${i.equipado ? 'on' : ''}" onclick="equip(${i.id}, ${!i.equipado})">${i.equipado ? 'Equipado' : 'Equipar'}</button></div>`).join('')
+    : '<p class="text-sm text-paper/60 mt-2">Inventário vazio. Explore mapas para conseguir itens.</p>';
+  $('tab-perfil').innerHTML = `
+    <div class="card space-y-3"><h2>Atributos</h2>${rows}</div>
+    <div class="card"><h2>Invocações</h2>${pets}</div>
+    <div class="card"><h2>Inventário</h2>${inv}</div>
+    <div class="card"><h2>Casa de chá</h2><p class="text-xs text-paper/60 mt-1">Restaura toda a vida e o chakra por 50 ryos.</p>
+      <button class="btn btn-gold w-full mt-3" onclick="rest()">Descansar</button></div>`;
+}
+
+/* Treino */
+let reps = 1;
+const setReps = n => { reps = n; renderTreino(); };
+function renderTreino() {
+  const dojo = [['taijutsu','👊','Taijutsu','Golpes e força física'], ['ninjutsu','🔥','Ninjutsu','Técnicas e selos'], ['genjutsu','👁️','Genjutsu','Ilusões e controle mental']];
+  const lack = P.chakra.atual < 10 * reps || P.ryos < 25 * reps;
+  $('tab-treino').innerHTML = `
+    <div class="card"><h2>Dojo</h2>
+      <p class="text-xs text-paper/60 mt-1">Cada repetição custa 10 de chakra e 25 ryos, e rende +1 no atributo e 15 de XP.</p>
+      <div class="flex gap-2 mt-3">${[1,3,5,10].map(n => `<button class="chip ${n === reps ? 'on' : ''}" onclick="setReps(${n})">×${n}</button>`).join('')}</div>
+      <p class="text-xs mt-3">Custo: <b class="text-chakra">${10 * reps} de chakra</b> e <b class="text-gold">${25 * reps} ryos</b></p>
+      ${lack ? '<p class="text-xs text-vermil mt-1">Recursos insuficientes para essa quantidade.</p>' : ''}</div>` +
+    dojo.map(([k, ic, nome, desc]) => `
+      <div class="card flex items-center gap-3"><div class="text-3xl">${ic}</div>
+        <div class="flex-1"><div class="font-bold">${nome} <span class="text-gold text-sm">${P.atributos_base[k]}</span></div>
+          <div class="text-xs text-paper/60">${desc}</div></div>
+        <button class="btn" ${lack ? 'disabled' : ''} onclick="train('${k}')">Treinar</button></div>`).join('');
+}
+
+async function train(attr) {
+  try {
+    const r = await api('/api/train', { telegram_id: tgUser.id, atributo: attr, repeticoes: reps });
+    toast(`${attr} subiu para ${r.novo_valor}. +${r.exp_ganha} XP` + (r.niveis_ganhos ? `. Você subiu para o nível ${r.level}!` : ''));
+    await refresh();
+  } catch (e) { toast(e.message, false); }
+}
+
+/* Missões (lista espelha os dados iniciais do backend, ids 1 a 5) */
+const RANKS = ['D', 'C', 'B', 'A', 'S'];
+const MAX_MISSION = { Estudante:'D', Genin:'C', Chunin:'B', Jonin:'A', Anbu:'S', Kage:'S' };
+const MIN_RANK = { D:'Estudante', C:'Genin', B:'Chunin', A:'Jonin', S:'Anbu' };
+const MISSIONS = [
+  { id:1, rank:'D', title:'Recuperar o gato fujão', secs:60, exp:20, ryos:50 },
+  { id:2, rank:'C', title:'Escoltar um mercador', secs:300, exp:60, ryos:150 },
+  { id:3, rank:'B', title:'Caçar bandidos da estrada', secs:900, exp:150, ryos:400 },
+  { id:4, rank:'A', title:'Infiltrar o forte inimigo', secs:1800, exp:400, ryos:1000 },
+  { id:5, rank:'S', title:'Derrotar o ninja renegado', secs:3600, exp:1000, ryos:3000 },
+];
+const RANK_COLOR = { D:'text-paper/70', C:'text-emerald-400', B:'text-sky-400', A:'text-purple-400', S:'text-gold' };
+
+// A API não lista missões em andamento; guardamos a atual neste aparelho.
+const amKey = () => 'ninja_am_' + tgUser.id;
+const getAM = () => { try { return JSON.parse(localStorage.getItem(amKey())); } catch { return null; } };
+const setAM = v => { try { v ? localStorage.setItem(amKey(), JSON.stringify(v)) : localStorage.removeItem(amKey()); } catch {} };
+
+function renderMissoes() {
+  const am = getAM(), max = RANKS.indexOf(MAX_MISSION[P.rank]);
+  const banner = am ? `<div class="card border-gold/60"><div class="text-sm text-gold font-bold">Missão em andamento</div>
+      <div class="font-semibold mt-1">${esc(am.title)}</div>
+      <div class="flex items-center justify-between mt-2"><span id="mTimer" class="text-sm text-paper/70"></span>
+      <div id="mCollect" class="hidden flex gap-2"><button class="btn btn-gold" onclick="completeMission('honra')">Entregar com honra</button><button class="btn" onclick="completeMission('sombra')">Vender informações</button></div></div></div>` : '';
+  $('tab-missoes').innerHTML = banner + MISSIONS.map(m => {
+    const locked = RANKS.indexOf(m.rank) > max;
+    return `<div class="card flex items-center gap-3 ${locked ? 'opacity-60' : ''}">
+      <div class="font-jp font-extrabold text-2xl w-9 text-center ${RANK_COLOR[m.rank]}">${m.rank}</div>
+      <div class="flex-1 min-w-0"><div class="font-semibold truncate">${m.title}</div>
+        <div class="text-xs text-paper/60">${m.secs >= 60 ? Math.round(m.secs / 60) + ' min' : m.secs + ' s'}, +${m.exp} XP, +${fmt(m.ryos)} ryos</div>
+        ${locked ? `<div class="text-xs text-vermil">Exige o rank ${MIN_RANK[m.rank]}</div>` : ''}</div>
+      <button class="btn" ${locked || am ? 'disabled' : ''} onclick="startMission(${m.id})">Iniciar</button></div>`;
+  }).join('');
+  tickMission();
+}
+
+function tickMission() {
+  const am = getAM(), el = $('mTimer');
+  if (!am || !el) return;
+  const left = Math.ceil((parseTs(am.ends_at) - Date.now()) / 1000);
+  if (left <= 0) { el.textContent = 'Missão concluída!'; $('mCollect').classList.remove('hidden'); }
+  else el.textContent = `Faltam ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
+}
+setInterval(tickMission, 1000);
+
+async function startMission(id) {
+  try {
+    const r = await api('/api/mission/start', { telegram_id: tgUser.id, mission_id: id });
+    setAM({ id: r.player_mission_id, title: r.title, ends_at: r.ends_at });
+    toast('Missão iniciada!');
+    renderMissoes();
+  } catch (e) { toast(e.message, false); }
+}
+
+async function completeMission(escolha) {
+  const am = getAM();
+  if (!am) return;
+  try {
+    const r = await api('/api/mission/complete', { telegram_id: tgUser.id, player_mission_id: am.id, escolha });
+    setAM(null);
+    toast(`Missão concluída: +${r.exp_ganha} XP e +${fmt(r.ryos_ganhos)} ryos` + (r.niveis_ganhos ? `. Nível ${r.level}!` : ''));
+    await refresh();
+  } catch (e) {
+    if (e.status === 404 || /já foi concluída/.test(e.message)) { setAM(null); renderMissoes(); }
+    toast(e.message, false);
+  }
+}
+
+/* Vila e clã */
+function renderVila() {
+  const v = P.village, c = P.clan, rep = X.reputacao;
+  const noClan = c.name === 'Sem clã';
+  const clanHtml = noClan ? X.clas.map(cl => {
+    const ok = P.level >= cl.min_level && RANK_ORDER.indexOf(P.rank) >= RANK_ORDER.indexOf(cl.min_rank);
+    return `<div class="card ${ok ? '' : 'opacity-60'}"><h2>${esc(cl.nome)}</h2>
+      <p class="text-sm text-paper/70 mt-1">Bônus: <b class="text-gold">+${Math.round(cl.bonus * 100)}% de ${esc(cl.passiva)}</b></p>
+      <p class="text-xs text-paper/50 mt-1">Exige nível ${cl.min_level} e rank ${esc(cl.min_rank)}. O teste é um duelo contra um examinador e custa 20 de chakra.</p>
+      <button class="btn w-full mt-3" ${ok ? '' : 'disabled'} onclick="joinClan(${cl.id})">Fazer teste de admissão</button></div>`;
+  }).join('') : `<div class="card"><h2>${esc(c.name)}</h2>
+      <p class="text-sm text-paper/70 mt-2">Bônus: <b class="text-gold">+${Math.round(c.bonus_val * 100)}% de ${esc(c.passiva_atributo)}</b></p>
+      <p class="text-xs text-paper/50 mt-1">O bônus já está somado aos seus atributos efetivos.</p></div>`;
+  $('tab-vila').innerHTML = `
+    <div class="card"><div class="text-3xl">🏯</div><h2 class="mt-1">${esc(v.name)}</h2>
+      <p class="text-sm text-paper/70 mt-2">${esc(v.description) || 'Sem descrição.'}</p></div>
+    <div class="card"><h2>Reputação: ${esc(X.titulo)}</h2>
+      <div class="bar mt-3"><i class="${rep >= 0 ? 'bg-gold' : 'bg-vermil'}" style="width:${Math.abs(rep)}%;margin-left:${rep >= 0 ? 50 : 50 - Math.abs(rep)}%"></i></div>
+      <p class="text-xs text-paper/50 mt-2">Valor ${rep} de -100 a +100. Entregar missões com honra sobe a reputação; vender informações rende mais ryos, mas a derruba.</p></div>
+    ${clanHtml}`;
+}
+
+/* Guilda */
+function renderGuilda() {
+  const g = P.guild;
+  $('tab-guilda').innerHTML = `
+    <div class="card"><h2>Sua guilda</h2>${g
+      ? `<p class="mt-2 font-semibold">${esc(g.name)} <span class="text-xs text-paper/60 font-normal">nível ${g.level}</span></p>`
+      : '<p class="text-sm text-paper/60 mt-2">Você ainda não está em uma guilda. Entre em uma para participar das guerras.</p>'}</div>
+    <div class="card space-y-3"><h2>Guerra</h2>
+      <p class="text-xs text-paper/60">Ataque outra guilda: seu poder de ataque enfrenta a defesa dos melhores membros dela. Custa 20 de chakra.</p>
+      <input id="wTarget" type="number" min="1" inputmode="numeric" class="inp" placeholder="ID da guilda alvo" ${g ? '' : 'disabled'}>
+      <button class="btn w-full" ${g ? '' : 'disabled'} onclick="attack()">Atacar guilda</button>
+      <div id="wResult"></div></div>
+    <div class="card space-y-2"><h2>Doações</h2>
+      <p class="text-xs text-paper/60">As doações para o cofre da guilda ainda não estão disponíveis.</p>
+      <button class="btn btn-gold w-full" disabled>Doar ryos</button></div>`;
+}
+
+async function attack() {
+  const id = Number($('wTarget').value);
+  if (!id) return toast('Informe o ID da guilda alvo.', false);
+  try {
+    const r = await api('/api/guild/war/attack', { telegram_id: tgUser.id, target_guild_id: id });
+    await refresh();
+    showTab('guilda');
+    $('wResult').innerHTML = `<div class="rounded-xl p-3 text-sm border ${r.vitoria ? 'border-gold bg-gold/10' : 'border-vermil bg-vermil/10'}">
+      <b>${esc(r.mensagem)}</b>
+      <div class="mt-2 text-paper/70">Ataque ${r.poder_ataque} contra defesa ${r.poder_defesa}</div>
+      <div class="text-paper/70">+${r.exp_ganha} XP${r.ryos_ganhos ? `, +${fmt(r.ryos_ganhos)} ryos` : ''}${r.dano_sofrido ? `, -${r.dano_sofrido} de vida` : ''}</div></div>`;
+    tg?.HapticFeedback?.impactOccurred?.(r.vitoria ? 'heavy' : 'light');
+  } catch (e) { toast(e.message, false); }
+}
+
+/* Mapas e batalha PvE */
+let battle = null;
+function renderMapas() {
+  const bt = battle ? `<div class="card border ${battle.vitoria ? 'border-gold' : 'border-vermil'}">
+      <b>${battle.vitoria ? 'Vitória' : 'Derrota'} contra ${esc(battle.inimigo)}${battle.chefe ? ' (chefe!)' : ''}</b>
+      <div class="text-xs text-paper/70 mt-2 max-h-32 overflow-y-auto">${battle.log.map(esc).join('<br>')}</div>
+      <div class="text-sm mt-2">+${battle.exp} XP${battle.ryos ? `, +${fmt(battle.ryos)} ryos` : ''}${battle.drops.length ? `, itens: ${battle.drops.map(esc).join(', ')}` : ''}${battle.novo_pet ? `, nova invocação: ${esc(battle.novo_pet)}` : ''}${battle.niveis_ganhos ? `. Subiu de nível!` : ''}</div></div>` : '';
+  $('tab-mapas').innerHTML = bt + X.mapas.map(m => {
+    const ok = P.level >= m.min_level && RANK_ORDER.indexOf(P.rank) >= RANK_ORDER.indexOf(m.min_rank);
+    return `<div class="card ${ok ? '' : 'opacity-60'}"><div class="flex justify-between items-baseline"><h2>${esc(m.nome)}</h2>
+      <span class="text-xs text-vermil">Perigo ${m.perigo} de 5</span></div>
+      <p class="text-xs text-paper/60 mt-1">Chefe local: ${esc(m.chefe)}. Exige nível ${m.min_level} e rank ${esc(m.min_rank)}.</p>
+      <p class="text-xs mt-2">${m.drops.map(d => `${esc(d.nome)} (${Math.round(d.chance * 100)}%)`).join(', ')}</p>
+      <button class="btn w-full mt-3" ${ok ? '' : 'disabled'} onclick="explore(${m.id})">Explorar (15 de chakra)</button></div>`;
+  }).join('');
+}
+
+// Ação genérica: chama a API, mostra o resultado e recarrega o estado do jogador
+async function act(path, body, msg) {
+  try {
+    const r = await api(path, { telegram_id: tgUser.id, ...body });
+    if (msg) toast(msg(r), r.entrou !== false);
+    return r;
+  } catch (e) { toast(e.message, false); }
+}
+async function explore(id) {
+  const r = await act('/api/maps/explore', { map_id: id });
+  if (r) { battle = r; tg?.HapticFeedback?.impactOccurred?.(r.vitoria ? 'heavy' : 'light'); await refresh(); }
+}
+async function equip(id, on) { if (await act('/api/inventory/equip', { item_id: id, equipar: on })) await refresh(); }
+async function activateSummon(id) { if (await act('/api/summon/activate', { summon_id: id })) await refresh(); }
+async function joinClan(id) { if (await act('/api/clan/join', { clan_id: id }, r => r.mensagem)) await refresh(); }
+async function rest() { if (await act('/api/rest', {}, () => 'Vida e chakra restaurados.')) await refresh(); }
+
+/* ───────── Cadastro e inicialização ───────── */
+async function showRegister() {
+  try {
+    const o = await api('/api/setup/options');
+    $('rVillage').innerHTML = o.villages.map(v => `<option value="${v.id}">${esc(v.name)}</option>`).join('');
+    $('regBox').classList.remove('hidden');
+  } catch (e) { fatal(e.message); }
+}
+
+async function register() {
+  $('rInfo').textContent = '';
+  try {
+    P = await api('/api/register', {
+      telegram_id: tgUser.id, username: tgUser.username || null,
+      ninja_name: $('rName').value.trim(),
+      village_id: Number($('rVillage').value), classe: $('rClasse').value,
+    });
+    $('regBox').classList.add('hidden');
+    await refresh();
+    toast(`Bem-vindo, ${P.ninja_name}!`);
+  } catch (e) { $('rInfo').textContent = e.message; }
+}
+
+(async function init() {
+  showTab('perfil');
+  if (!tgUser.id) return fatal('Abra este app pelo Telegram. Para testar no navegador, use ?tid=123 no endereço.');
+  try { await refresh(); }
+  catch (e) { e.status === 404 ? showRegister() : fatal(e.message); }
+})();
+</script>
+</body>
+</html>
