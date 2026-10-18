@@ -132,12 +132,7 @@ def apply_exp(player: Player, amount: int) -> int:
         player.vida_atual += 10
         player.chakra_atual += 5
         gained += 1
-    # Promoção automática por nível
-    if player.rank != NinjaRank.KAGE:
-        for min_level, rank in RANK_BY_LEVEL:
-            if player.level >= min_level:
-                player.rank = rank
-    return gained
+    return gained  # o rank sobe pelos exames da Jornada (game_extra.py)
 
 
 def min_rank_for(mission_rank: MissionRank) -> NinjaRank:

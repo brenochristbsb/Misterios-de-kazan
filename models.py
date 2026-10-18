@@ -157,6 +157,9 @@ class Player(TimestampMixin, Base):
     ryos: Mapped[int] = mapped_column(BigInteger, default=500, nullable=False)
     # Reputação: -100 (renegado) a +100 (herói da vila)
     reputation: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # Jornada: missões concluídas e fim da missão em andamento (se houver)
+    journey: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    journey_ends_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
     # Recursos de combate
     chakra_max: Mapped[int] = mapped_column(Integer, default=100, nullable=False)

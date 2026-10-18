@@ -6,14 +6,16 @@ Mantenha api.py, models.py e game_extra.py na mesma pasta.
 """
 
 import random
+from datetime import datetime, timedelta, timezone
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from api import ATTRS, NO_CLAN_NAME, active_summon_link, apply_exp, effective_stats, get_db, get_player
-from models import Clan, InventoryItem, ItemType, NinjaRank, PlayerSummon, Summon
+from api import ATTRS, NO_CLAN_NAME, active_summon_link, apply_exp, as_utc, effective_stats, get_db, get_player
+from models import Clan, Guild, InventoryItem, ItemType, NinjaRank, Player, PlayerSummon, Summon
 
 router = APIRouter()
 
@@ -22,23 +24,17 @@ EXPLORE_CHAKRA = 15
 CLAN_TEST_CHAKRA = 20
 REST_COST = 50
 
-# Mapas: (nome do drop, tipo, bônus, chance base). Chefes aparecem em 15% das explorações.
-MAPS = [
-    {"id": 1, "nome": "Floresta do Treino", "min_level": 1, "min_rank": "Estudante", "perigo": 1,
-     "inimigo": "Lobo cinzento", "chefe": "Lobo Alfa",
-     "drops": [("Kunai de Ferro", "Arma", {"taijutsu": 2}, 0.30),
-               ("Pergaminho de Chakra", "Pergaminho", {"ninjutsu": 2}, 0.20),
-               ("Traje de Treino", "Armadura", {"agilidade": 1}, 0.20)]},
-    {"id": 2, "nome": "Vale da Névoa", "min_level": 5, "min_rank": "Genin", "perigo": 2,
-     "inimigo": "Bandido mascarado", "chefe": "Líder dos Bandidos",
-     "drops": [("Katana Sombria", "Arma", {"taijutsu": 4, "agilidade": 1}, 0.20),
-               ("Traje Ninja", "Armadura", {"agilidade": 3}, 0.20),
-               ("Pergaminho de Ilusão", "Pergaminho", {"genjutsu": 3}, 0.15)]},
-    {"id": 3, "nome": "Vale da Morte", "min_level": 15, "min_rank": "Chunin", "perigo": 3,
-     "inimigo": "Ninja renegado", "chefe": "Guardião Esquecido",
-     "drops": [("Lâmina das Chamas", "Arma", {"ninjutsu": 6, "taijutsu": 2}, 0.15),
-               ("Manto das Sombras", "Armadura", {"agilidade": 5, "genjutsu": 2}, 0.15)]},
+# Mapas: faixa de nível ideal (min a max), tema de drop (tipo) e itens possíveis, cada um com o atributo que reforça.
+# Acima do nível máximo o mapa rende só 25% do XP: é hora de seguir para o próximo.
+_RAW_MAPS = [
+    (1, "Floresta do Treino", 1, 10, 1, "Arma", [("Kunai de Ferro", "taijutsu"), ("Shuriken Leve", "agilidade")], "Lobo Alfa"),
+    (2, "Vale dos Bambus", 5, 16, 2, "Pergaminho", [("Pergaminho de Selos", "ninjutsu"), ("Pergaminho de Ilusão", "genjutsu")], "Mestre dos Bambus"),
+    (3, "Cavernas do Eco", 10, 22, 3, "Armadura", [("Colete de Couro Negro", "agilidade"), ("Manto de Cristal", "genjutsu")], "Aranha Cristalina"),
+    (4, "Pântano Sombrio", 16, 30, 4, "Arma", [("Katana Sombria", "taijutsu"), ("Lâmina Corrosiva", "ninjutsu")], "Guardião do Pântano"),
+    (5, "Picos Gelados", 24, 40, 5, "Armadura", [("Traje Glacial", "agilidade"), ("Elmo de Geada", "taijutsu")], "Colosso de Gelo"),
 ]
+MAPS = [{"id": i, "nome": n, "min_level": a, "max_level": b, "perigo": p, "tipo": t, "itens": it,
+         "inimigo": "Ninja da região", "chefe": c} for i, n, a, b, p, t, it, c in _RAW_MAPS]
 MAPS_BY_ID = {m["id"]: m for m in MAPS}
 
 # Requisitos de ingresso por clã (nível, rank). Clãs fora da lista usam o padrão.
@@ -126,9 +122,9 @@ def extras(telegram_id: int, db: Session = Depends(get_db)):
         "invocacoes": [{"id": ps.summon_id, "nome": ps.summon.name, "nivel": ps.level, "ativo": ps.is_active,
                         "bonus_taijutsu": ps.summon.bonus_taijutsu, "bonus_ninjutsu": ps.summon.bonus_ninjutsu}
                        for ps in p.player_summons],
-        "mapas": [{"id": m["id"], "nome": m["nome"], "min_level": m["min_level"], "min_rank": m["min_rank"],
-                   "perigo": m["perigo"], "chefe": m["chefe"],
-                   "drops": [{"nome": d[0], "tipo": d[1], "chance": d[3]} for d in m["drops"]]} for m in MAPS],
+        "mapas": [{"id": m["id"], "nome": m["nome"], "min_level": m["min_level"], "max_level": m["max_level"],
+                   "perigo": m["perigo"], "tipo": m["tipo"], "chefe": m["chefe"],
+                   "itens": [i[0] for i in m["itens"]]} for m in MAPS],
         "clas": [{"id": c.id, "nome": c.name, "passiva": c.passiva_atributo.value, "bonus": c.bonus_val,
                   "min_level": clan_req(c)[0], "min_rank": clan_req(c)[1]} for c in clans],
     }
@@ -136,13 +132,13 @@ def extras(telegram_id: int, db: Session = Depends(get_db)):
 
 @router.post("/api/maps/explore")
 def explore(payload: ExploreReq, db: Session = Depends(get_db)):
-    """Explora um mapa: batalha PvE contra um inimigo (ou chefe), com XP, ryos e drops."""
+    """Explora um mapa: batalha PvE com XP, ryos e drops temáticos. Acima da faixa de nível, o XP cai."""
     player = get_player(db, payload.telegram_id, lock=True)
     mp = MAPS_BY_ID.get(payload.map_id)
     if mp is None:
         raise HTTPException(404, "Mapa não encontrado.")
-    if player.level < mp["min_level"] or not rank_ok(player, mp["min_rank"]):
-        raise HTTPException(403, f"Mapa bloqueado: exige nível {mp['min_level']} e rank {mp['min_rank']}.")
+    if player.level < mp["min_level"]:
+        raise HTTPException(403, f"Mapa bloqueado: exige nível {mp['min_level']}.")
     if player.chakra_atual < EXPLORE_CHAKRA:
         raise HTTPException(400, f"Chakra insuficiente: precisa de {EXPLORE_CHAKRA}.")
 
@@ -155,16 +151,19 @@ def explore(payload: ExploreReq, db: Session = Depends(get_db)):
     player.chakra_atual -= EXPLORE_CHAKRA
     player.vida_atual = min(player.vida_atual, hp_left)
     mult = 2 if boss else 1
+    over = player.level > mp["max_level"]
     exp, ryos, drops, novo_pet = 5, 0, [], None
 
     if won:
-        exp, ryos = 25 * mp["perigo"] * mult, 40 * mp["perigo"] * mult
+        exp = int(25 * mp["perigo"] * mult * (0.25 if over else 1))
+        ryos = 40 * mp["perigo"] * mult
         player.ryos += ryos
-        for nome, tipo, bonus, chance in mp["drops"]:
-            if random.random() < chance * mult:
-                db.add(InventoryItem(player_id=player.id, item_name=nome, item_type=ItemType(tipo), status_bonus=bonus))
+        # Drops temáticos: cada mapa solta só o tipo de item dele
+        for nome, attr in mp["itens"]:
+            if random.random() < 0.25 * mult:
+                db.add(InventoryItem(player_id=player.id, item_name=nome, item_type=ItemType(mp["tipo"]),
+                                     status_bonus={attr: 2 * mp["perigo"]}))
                 drops.append(nome)
-        # A invocação ativa pode subir de nível; chefes podem soltar um contrato novo
         link = active_summon_link(player)
         if link and link.level < 10 and random.random() < 0.3:
             link.level += 1
@@ -178,7 +177,8 @@ def explore(payload: ExploreReq, db: Session = Depends(get_db)):
     levels = apply_exp(player, exp)
     db.commit()
     return {"vitoria": won, "chefe": boss, "inimigo": mp["chefe"] if boss else mp["inimigo"], "log": log,
-            "exp": exp, "ryos": ryos, "drops": drops, "novo_pet": novo_pet, "niveis_ganhos": levels}
+            "exp": exp, "ryos": ryos, "drops": drops, "novo_pet": novo_pet, "niveis_ganhos": levels,
+            "xp_reduzido": over}
 
 
 @router.post("/api/inventory/equip")
@@ -247,3 +247,183 @@ def rest(payload: RestReq, db: Session = Depends(get_db)):
     player.vida_atual, player.chakra_atual = player.vida_max, player.chakra_max
     db.commit()
     return {"ok": True}
+
+
+# ───────── Jornada: missões infinitas com exames de promoção ─────────
+EXAMES = {6: ("Exame Genin", 5, "Genin"), 16: ("Exame Chunin", 12, "Chunin"),
+          32: ("Exame Jonin", 20, "Jonin"), 54: ("Exame Anbu", 30, "Anbu")}
+ARCOS = ["Academia", "Fronteira", "Mercado das Sombras", "Rota dos Ventos", "Templo Esquecido", "Porto Nebuloso"]
+FASES = ["Reconhecimento", "Escolta", "Resgate", "Emboscada", "Chefe do arco"]
+
+
+def mission_for(seq: int) -> dict:
+    """Missão nº `seq` da jornada (infinita). Concluir um exame promove o rank do jogador."""
+    exame = EXAMES.get(seq)
+    if exame:
+        titulo, req, promove = exame
+    else:
+        titulo = f"{ARCOS[((seq - 1) // 5) % len(ARCOS)]}: {FASES[(seq - 1) % 5]}"
+        req, promove = max(1, int(seq * 0.55)), None
+    return {"seq": seq, "titulo": titulo, "rank": "DCBAS"[min(4, seq // 12)], "req_nivel": req, "exame": promove,
+            "duracao": min(1800, 30 + 15 * seq) * (2 if exame else 1), "exp": 20 + 12 * seq, "ryos": 40 + 25 * seq}
+
+
+class JornadaDone(BaseModel):
+    telegram_id: int = Field(gt=0)
+    # Honra sobe a reputação; sombra rende +30% de ryos, mas a derruba
+    escolha: Literal["honra", "sombra"] = "honra"
+
+
+@router.get("/api/player/{telegram_id}/jornada")
+def jornada(telegram_id: int, db: Session = Depends(get_db)):
+    """Missão atual da jornada. Missões já concluídas não são listadas."""
+    p = get_player(db, telegram_id)
+    m = mission_for(p.journey + 1)
+    left = None
+    if p.journey_ends_at:
+        left = max(0, int((as_utc(p.journey_ends_at) - datetime.now(timezone.utc)).total_seconds()))
+    return {**m, "bloqueada": p.level < m["req_nivel"], "em_andamento": p.journey_ends_at is not None, "restante": left}
+
+
+@router.post("/api/jornada/iniciar")
+def jornada_iniciar(payload: RestReq, db: Session = Depends(get_db)):
+    p = get_player(db, payload.telegram_id, lock=True)
+    m = mission_for(p.journey + 1)
+    if p.journey_ends_at is not None:
+        raise HTTPException(409, "Você já tem uma missão em andamento.")
+    if p.level < m["req_nivel"]:
+        raise HTTPException(403, f"Exige nível {m['req_nivel']}.")
+    p.journey_ends_at = datetime.now(timezone.utc) + timedelta(seconds=m["duracao"])
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/api/jornada/concluir")
+def jornada_concluir(payload: JornadaDone, db: Session = Depends(get_db)):
+    p = get_player(db, payload.telegram_id, lock=True)
+    if p.journey_ends_at is None:
+        raise HTTPException(409, "Nenhuma missão em andamento.")
+    left = (as_utc(p.journey_ends_at) - datetime.now(timezone.utc)).total_seconds()
+    if left > 0:
+        raise HTTPException(409, f"A missão ainda não terminou: faltam {int(left) + 1}s.")
+    m = mission_for(p.journey + 1)
+    sombra = payload.escolha == "sombra"
+    ryos = int(m["ryos"] * (1.3 if sombra else 1))
+    p.ryos += ryos
+    p.reputation = max(-100, min(100, p.reputation + (-8 if sombra else 5)))
+    p.journey += 1
+    p.journey_ends_at = None
+    promovido = None
+    if m["exame"] and RANKS.index(p.rank) < RANKS.index(NinjaRank(m["exame"])):
+        p.rank, promovido = NinjaRank(m["exame"]), m["exame"]
+    levels = apply_exp(p, m["exp"])
+    db.commit()
+    return {"exp": m["exp"], "ryos": ryos, "niveis_ganhos": levels, "promovido": promovido}
+
+
+# ───────── Guildas: criar, entrar, doar, sair ─────────
+GUILD_COST = 1000
+
+
+class GuildCreate(BaseModel):
+    telegram_id: int = Field(gt=0)
+    nome: str = Field(min_length=3, max_length=32, pattern=r"^[\w ]+$")
+
+
+class GuildJoin(BaseModel):
+    telegram_id: int = Field(gt=0)
+    guild_id: int = Field(gt=0)
+
+
+class DonateReq(BaseModel):
+    telegram_id: int = Field(gt=0)
+    valor: int = Field(ge=10, le=1_000_000)
+
+
+@router.get("/api/player/{telegram_id}/guilda")
+def guilda_info(telegram_id: int, db: Session = Depends(get_db)):
+    """Minha guilda (com membros e cofre) e a lista das demais, para entrar ou atacar."""
+    p = get_player(db, telegram_id)
+    guilds = db.scalars(select(Guild).order_by(Guild.vitorias_guerra.desc(), Guild.level.desc()).limit(30)).all()
+    counts = dict(db.execute(select(Player.guilda_id, func.count()).where(Player.guilda_id.is_not(None))
+                             .group_by(Player.guilda_id)).all())
+    others = [{"id": g.id, "nome": g.name, "nivel": g.level, "membros": counts.get(g.id, 0),
+               "vitorias": g.vitorias_guerra} for g in guilds if g.id != p.guilda_id]
+    minha = None
+    if p.guild:
+        g = p.guild
+        membros = db.scalars(select(Player).where(Player.guilda_id == g.id)
+                             .order_by(Player.level.desc()).limit(10)).all()
+        minha = {"id": g.id, "nome": g.name, "nivel": g.level, "vitorias": g.vitorias_guerra,
+                 "doado": g.recursos_doados, "proximo_nivel": 500 * g.level ** 2, "sou_lider": g.leader_id == p.id,
+                 "total_membros": counts.get(g.id, 0),
+                 "membros": [{"nome": m.ninja_name, "nivel": m.level, "rank": m.rank.value,
+                              "lider": m.id == g.leader_id} for m in membros]}
+    return {"minha": minha, "guildas": others}
+
+
+@router.post("/api/guild/create")
+def guild_create(payload: GuildCreate, db: Session = Depends(get_db)):
+    p = get_player(db, payload.telegram_id, lock=True)
+    nome = payload.nome.strip()
+    if p.guilda_id:
+        raise HTTPException(409, "Você já está em uma guilda.")
+    if p.ryos < GUILD_COST:
+        raise HTTPException(400, f"Criar uma guilda custa {GUILD_COST} ryos.")
+    if db.scalar(select(Guild.id).where(Guild.name == nome)):
+        raise HTTPException(409, "Já existe uma guilda com esse nome.")
+    g = Guild(name=nome, leader_id=p.id)
+    db.add(g)
+    db.flush()
+    p.guilda_id = g.id
+    p.ryos -= GUILD_COST
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/api/guild/join")
+def guild_join(payload: GuildJoin, db: Session = Depends(get_db)):
+    p = get_player(db, payload.telegram_id, lock=True)
+    if p.guilda_id:
+        raise HTTPException(409, "Você já está em uma guilda.")
+    if db.get(Guild, payload.guild_id) is None:
+        raise HTTPException(404, "Guilda não encontrada.")
+    p.guilda_id = payload.guild_id
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/api/guild/leave")
+def guild_leave(payload: RestReq, db: Session = Depends(get_db)):
+    """Sai da guilda. Se for o líder, passa o comando ao membro de maior nível (ou desfaz a guilda vazia)."""
+    p = get_player(db, payload.telegram_id, lock=True)
+    if not p.guilda_id:
+        raise HTTPException(409, "Você não está em uma guilda.")
+    g = p.guild
+    if g.leader_id == p.id:
+        heir = db.scalar(select(Player).where(Player.guilda_id == g.id, Player.id != p.id)
+                         .order_by(Player.level.desc()).limit(1))
+        if heir:
+            g.leader_id = heir.id
+    p.guilda_id = None
+    db.flush()
+    if g.leader_id == p.id:  # ninguém assumiu: guilda vazia
+        db.delete(g)
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/api/guild/donate")
+def guild_donate(payload: DonateReq, db: Session = Depends(get_db)):
+    """Doa ryos ao cofre. A guilda sobe de nível sozinha conforme o total doado."""
+    p = get_player(db, payload.telegram_id, lock=True)
+    if not p.guilda_id:
+        raise HTTPException(409, "Você não está em uma guilda.")
+    if p.ryos < payload.valor:
+        raise HTTPException(400, "Ryos insuficientes.")
+    g = p.guild
+    p.ryos -= payload.valor
+    g.recursos_doados += payload.valor
+    g.level = max(g.level, 1 + int((g.recursos_doados / 500) ** 0.5))
+    db.commit()
+    return {"nivel": g.level}
