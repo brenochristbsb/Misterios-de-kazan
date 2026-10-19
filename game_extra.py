@@ -137,6 +137,8 @@ def extras(telegram_id: int, db: Session = Depends(get_db)):
     clans = db.scalars(select(Clan).where(Clan.name != NO_CLAN_NAME).order_by(Clan.name)).all()
     return {
         "avatares": AVATARS,
+        "patente": patente_info(p),
+        "hospital": hospital_info(p),
         "reputacao": p.reputation,
         "titulo": reputation_title(p.reputation),
         "inventario": [{"id": i.id, "nome": i.item_name, "tipo": i.item_type.value,
@@ -290,7 +292,7 @@ def fim_luta(db: Session, p: Player, L: dict, won: bool) -> dict:
             clan_hooks(db, p, L)
             pet_afinidade(db, L)
             for nome, attr in mp["itens"]:  # drops temáticos: cada mapa solta só o tipo dele
-                if random.random() < 0.25 * mult:
+                if random.random() < 0.25 * mult and bolsa_livre(p, len(res["drops"])):
                     db.add(InventoryItem(player_id=p.id, item_name=nome, item_type=ItemType(mp["tipo"]),
                                          status_bonus={attr: 2 * mp["perigo"]}))
                     res["drops"].append(nome)
@@ -1006,6 +1008,8 @@ def caminho_concluir(payload: RestReq, db: Session = Depends(get_db)):
     if p.caminho == "reliquia":
         if clan.reliquia_dada:
             raise HTTPException(409, "A relíquia deste clã já foi entregue a outro líder.")
+        if not bolsa_livre(p):
+            raise HTTPException(409, f"Mochila cheia ({BOLSA_MAX} itens). Abra espaço para receber a relíquia.")
         db.add(InventoryItem(player_id=p.id, item_name=d["reliquia"], item_type=ItemType(d["tipo"]),
                              status_bonus=dict(d["rel_bonus"])))
         clan.reliquia_dada = True
@@ -1034,6 +1038,14 @@ _NOMES = {"Arma": ["Kunai de Treino", "Shuriken de Aço", "Lâmina Curva", "Kata
 _BONUS = {"Arma": lambda t: {"forca": 2 * t + 1, "destreza": t + 1},
           "Armadura": lambda t: {"defesa": 2 * t + 1, "agilidade": t},
           "Pergaminho": lambda t: {"inteligencia": 2 * t + 1, "ninjutsu": t + 1, "genjutsu": t + 1}}
+_NOMES.update({"Botas": ["Sandálias de Palha", "Botas de Couro", "Botas Ninja", "Botas do Vento", "Botas das Sombras"],
+               "Luvas": ["Luvas de Treino", "Luvas Acolchoadas", "Manoplas de Ferro", "Luvas do Trovão", "Garras do Eclipse"],
+               "Colar": ["Cordão de Contas", "Amuleto de Jade", "Colar da Lua", "Pingente do Dragão", "Gargantilha Etérea"],
+               "Anel": ["Anel de Cobre", "Anel de Prata", "Anel do Foco", "Anel Rubro", "Anel do Vazio"]})
+_BONUS.update({"Botas": lambda t: {"agilidade": 2 * t + 1, "defesa": t},
+               "Luvas": lambda t: {"destreza": 2 * t + 1, "taijutsu": t + 1},
+               "Colar": lambda t: {"inteligencia": t + 1, "ninjutsu": t + 1, "defesa": t},
+               "Anel": lambda t: {"genjutsu": t + 1, "destreza": t + 1, "forca": t}})
 ITENS_LOJA = {f"{tipo.lower()}_{i + 1}": {"id": f"{tipo.lower()}_{i + 1}", "nome": _NOMES[tipo][i], "tipo": tipo,
                                           "nivel": TIER_NIVEL[i], "preco": TIER_PRECO[i], "bonus": _BONUS[tipo](i + 1)}
               for tipo in _NOMES for i in range(5)}
@@ -1121,6 +1133,8 @@ def loja_comprar(payload: CompraReq, db: Session = Depends(get_db)):
         raise HTTPException(409, "Termine a luta antes de comprar.")
     if payload.produto in ITENS_LOJA:
         it = ITENS_LOJA[payload.produto]
+        if not bolsa_livre(p):
+            raise HTTPException(409, f"Mochila cheia ({BOLSA_MAX} itens). Venda ou anuncie algo antes.")
         if p.level < it["nivel"]:
             raise HTTPException(403, f"Exige nível {it['nivel']}.")
         if p.ryos < it["preco"]:
@@ -1198,6 +1212,8 @@ def mercado_comprar(payload: AnuncioReq, db: Session = Depends(get_db)):
         raise HTTPException(400, "Este anúncio é seu. Cancele-o para recuperar o item.")
     if p.ryos < a.preco:
         raise HTTPException(400, f"Ryos insuficientes: custa {a.preco}.")
+    if not bolsa_livre(p):
+        raise HTTPException(409, f"Mochila cheia ({BOLSA_MAX} itens).")
     p.ryos -= a.preco
     seller = db.get(Player, a.seller_id)
     if seller is not None:
@@ -1215,6 +1231,8 @@ def mercado_cancelar(payload: AnuncioReq, db: Session = Depends(get_db)):
     a = db.scalar(select(MarketListing).where(MarketListing.id == payload.anuncio_id).with_for_update())
     if a is None or a.seller_id != p.id:
         raise HTTPException(404, "Anúncio não encontrado.")
+    if not bolsa_livre(p):
+        raise HTTPException(409, f"Mochila cheia ({BOLSA_MAX} itens). Abra espaço para recuperar o item.")
     db.add(InventoryItem(player_id=p.id, item_name=a.item_name, item_type=ItemType(a.item_type), status_bonus=dict(a.bonus)))
     db.delete(a)
     db.commit()
@@ -1398,3 +1416,102 @@ def pet_soltar(payload: PetReq, db: Session = Depends(get_db)):
     db.delete(pet)
     db.commit()
     return {"mensagem": f"{nome} voltou à natureza."}
+
+
+# ───────── Esqueleto novo: bolsa (39 itens), patente e Hospital ─────────
+BOLSA_MAX = 39  # equipamentos, materiais e itens de quest; poções empilham fora desse limite
+SLOTS = ["Arma", "Armadura", "Botas", "Luvas", "Colar", "Anel", "Pergaminho"]
+HOSPITAL_GRATIS_CD = 600  # segundos entre curas gratuitas
+BUFFS_HOSPITAL = [("Bênção do Tigre", "forca"), ("Bênção do Falcão", "agilidade"), ("Bênção da Tartaruga", "defesa"),
+                  ("Bênção da Serpente", "genjutsu"), ("Bênção da Fênix", "ninjutsu"), ("Bênção do Urso", "taijutsu"),
+                  ("Bênção da Coruja", "inteligencia"), ("Bênção do Lince", "destreza")]
+
+
+def bolsa_livre(p: Player, extra: int = 0) -> bool:
+    return len(p.inventory) + extra < BOLSA_MAX
+
+
+def _n(x: int) -> str:
+    return f"{x:,}".replace(",", ".")
+
+
+def patente_info(p: Player) -> dict:
+    """O que falta para a próxima patente: exame (nível e missão) ou fama, a partir de Anbu."""
+    for seq, (nome, nivel, alvo) in sorted(EXAMES.items()):
+        if RANKS.index(p.rank) < RANKS.index(NinjaRank(alvo)):
+            return {"atual": p.rank.value, "proxima": alvo,
+                    "texto": f"{nome}: chegue ao nível {nivel} (você: {p.level}) e à missão {seq} da Jornada (você: {p.journey + 1})."}
+    if p.rank == NinjaRank.ANBU:
+        return {"atual": p.rank.value, "proxima": "Sannin",
+                "texto": f"Sannin: {_n(SANNIN_MIN_FAMA)} de fama e uma cadeira livre ou mais fama que o Sannin mais fraco por 7 dias (sua fama: {_n(p.fama)})."}
+    if p.rank == NinjaRank.SANNIN:
+        return {"atual": p.rank.value, "proxima": "Kage",
+                "texto": f"Kage: {_n(KAGE_MIN_FAMA)} de fama e mais fama que o Kage da vila por 7 dias (sua fama: {_n(p.fama)})."}
+    return {"atual": p.rank.value, "proxima": None, "texto": "Você alcançou a mais alta patente."}
+
+
+def hospital_info(p: Player) -> dict:
+    now = datetime.now(timezone.utc)
+    cd = max(0, HOSPITAL_GRATIS_CD - int((now - as_utc(p.hospital_gratis_at)).total_seconds())) if p.hospital_gratis_at else 0
+    buff = None
+    if p.buff:
+        resto = int((datetime.fromisoformat(p.buff["ate"]) - now).total_seconds())
+        if resto > 0:
+            buff = {"nome": p.buff["nome"], "attr": p.buff["attr"], "pct": p.buff["pct"], "restante_s": resto}
+    return {"gratis_restante_s": cd, "preco_total": 40 + 12 * p.level, "preco_sannin": 150 + 40 * p.level, "buff": buff}
+
+
+class HospitalReq(BaseModel):
+    telegram_id: int = Field(gt=0)
+    opcao: Literal["gratis", "total", "sannin"]
+
+
+@router.post("/api/hospital")
+def hospital(payload: HospitalReq, db: Session = Depends(get_db)):
+    """Gratuita: 50% do HP perdido (a cada 10 min). Total: HP e chakra. Sannin: total e buff aleatório de 15 min."""
+    p = get_player(db, payload.telegram_id, lock=True)
+    if p.luta:
+        raise HTTPException(409, "O hospital não atende no meio de uma luta.")
+    now = datetime.now(timezone.utc)
+    info = hospital_info(p)
+    if payload.opcao == "gratis":
+        falta = p.vida_max - p.vida_atual
+        if falta <= 0:
+            raise HTTPException(400, "Você não está ferido.")
+        if info["gratis_restante_s"] > 0:
+            raise HTTPException(429, f"A cura gratuita volta em {(info['gratis_restante_s'] + 59) // 60} min.")
+        cura = max(1, falta // 2)
+        p.vida_atual += cura
+        p.hospital_gratis_at = now
+        msg = f"Você recuperou {cura} de vida."
+    else:
+        preco = info["preco_total" if payload.opcao == "total" else "preco_sannin"]
+        if p.ryos < preco:
+            raise HTTPException(400, f"Ryos insuficientes: custa {preco}.")
+        p.ryos -= preco
+        p.vida_atual, p.chakra_atual = p.vida_max, p.chakra_max
+        msg = "Vida e chakra totalmente recuperados."
+        if payload.opcao == "sannin":
+            nome, attr = random.choice(BUFFS_HOSPITAL)
+            p.buff = {"nome": nome, "attr": attr, "pct": 0.15, "ate": (now + timedelta(minutes=15)).isoformat()}
+            msg += f" {nome}: +15% de {attr} por 15 minutos."
+    db.commit()
+    return {"mensagem": msg}
+
+
+@router.get("/api/player/{telegram_id}/bolsa")
+def bolsa(telegram_id: int, db: Session = Depends(get_db)):
+    """Mochila por abas: equipados, equipamentos em standby, consumíveis, materiais e itens de quest."""
+    p = get_player(db, telegram_id)
+    vi = vila_idx(p)
+    mis = mission_for(p.journey + 1, vi)
+    quests = []
+    if mis["tipo"] == "coleta" and p.level >= mis["req_nivel"]:
+        quests.append({"nome": VILAS[vi]["recursos"][mis["mapa"] - 1], "qtd": p.journey_prog, "meta": mis["qtd"],
+                       "mapa": mapa_vila(mis["mapa"], vi)["nome"]})
+    return {"max": BOLSA_MAX, "slots": SLOTS,
+            "itens": [{"id": i.id, "nome": i.item_name, "tipo": i.item_type.value, "bonus": i.status_bonus or {},
+                       "equipado": i.is_equipped} for i in p.inventory],
+            "consumiveis": [{"id": k, "nome": POCOES[k][0], "efeito": POCOES[k][1], "valor": POCOES[k][2], "qtd": q}
+                            for k, q in (p.pocoes or {}).items() if q > 0 and k in POCOES],
+            "materiais": [], "quests": quests}

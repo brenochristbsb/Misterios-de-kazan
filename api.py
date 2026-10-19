@@ -174,6 +174,11 @@ def effective_stats(player: Player) -> dict:
                 if key in stats and isinstance(value, (int, float)):
                     stats[key] += int(value)
 
+    # 2b) Buff temporário do Hospital (recuperação Sannin)
+    b = player.buff
+    if b and b.get("attr") in stats and datetime.fromisoformat(b["ate"]) > datetime.now(timezone.utc):
+        stats[b["attr"]] += int(stats[b["attr"]] * b["pct"])
+
     # 3) Invocação ativa
     link = active_summon_link(player)
     if link:

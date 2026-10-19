@@ -109,6 +109,10 @@ class ItemType(str, enum.Enum):
     ARMA = "Arma"
     ARMADURA = "Armadura"
     PERGAMINHO = "Pergaminho"
+    BOTAS = "Botas"
+    LUVAS = "Luvas"
+    COLAR = "Colar"
+    ANEL = "Anel"
 
 
 # ─────────────────────────────────────────────────────────────
@@ -212,6 +216,9 @@ class Player(TimestampMixin, Base):
     tecnica: Mapped[Optional[str]] = mapped_column(String(48))
     # Poções em estoque: {id da poção: quantidade}
     pocoes: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    # Hospital: última cura gratuita e buff temporário da recuperação Sannin {nome, attr, pct, ate}
+    hospital_gratis_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    buff: Mapped[Optional[dict]] = mapped_column(JSON)
     # Ovos e alimentos de pet em estoque: {id: quantidade}
     ovos: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     alimentos: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)

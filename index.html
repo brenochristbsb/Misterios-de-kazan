@@ -75,6 +75,11 @@
   .log-me{color:#e8c870}.log-crit{font-weight:700;color:#f0c860}
   ::-webkit-scrollbar{width:6px}::-webkit-scrollbar-thumb{background:#2f282f;border-radius:6px}
   @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+  .tile{position:relative;overflow:hidden;border-radius:1rem;min-height:7.4rem;padding:.8rem;border:1px solid #2f282f;display:flex;flex-direction:column;justify-content:flex-end;text-align:left;background:linear-gradient(160deg,var(--a,#3a1519),var(--b,#120f13));box-shadow:0 10px 24px rgba(0,0,0,.45),inset 0 1px 0 rgba(255,255,255,.05);transition:transform .12s}
+  .tile:active{transform:scale(.97)}
+  .tile img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+  .tile::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,0) 30%,rgba(0,0,0,.8))}
+  .tile>*{position:relative;z-index:1}.tile .ico{position:absolute;top:.45rem;right:.7rem;z-index:0;font-size:2.7rem;filter:drop-shadow(0 4px 10px rgba(0,0,0,.6))}
 </style>
 </head>
 <body class="min-h-screen font-sans">
@@ -98,6 +103,12 @@
 </header>
 
 <main class="px-4 pt-4 space-y-3" style="padding-bottom:calc(env(safe-area-inset-bottom,0px) + 6rem)">
+  <button id="backBtn" class="hidden chip mb-1" onclick="goBack()">← Voltar</button>
+  <section id="tab-menu" class="tab space-y-3 hidden"></section>
+  <section id="tab-aldeia" class="tab space-y-3 hidden"></section>
+  <section id="tab-bolsa" class="tab space-y-3 hidden"></section>
+  <section id="tab-treino" class="tab space-y-3 hidden"></section>
+  <section id="tab-hospital" class="tab space-y-3 hidden"></section>
   <section id="tab-perfil" class="tab space-y-3"></section>
   <section id="tab-jornada" class="tab space-y-3 hidden"></section>
   <section id="tab-mapas" class="tab space-y-3 hidden"></section>
@@ -107,14 +118,12 @@
   <section id="tab-ranking" class="tab space-y-3 hidden"></section>
 </main>
 
-<nav class="fixed bottom-0 inset-x-0 z-30 grid grid-cols-7 bg-sumi/95 backdrop-blur border-t border-line" style="padding-bottom:env(safe-area-inset-bottom,0px)">
-  <button data-tab="perfil"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>Perfil</button>
-  <button data-tab="jornada"><svg viewBox="0 0 24 24"><path d="M4 4h12a4 4 0 0 1 4 4v12H8a4 4 0 0 1-4-4z"/><path d="M8 9h8M8 13h6"/></svg>Jornada</button>
-  <button data-tab="mapas"><svg viewBox="0 0 24 24"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2z"/><path d="M9 4v14M15 6v14"/></svg>Mapas</button>
-  <button data-tab="vila"><svg viewBox="0 0 24 24"><path d="M3 11 12 3l9 8"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/></svg>Vila</button>
+<nav class="fixed bottom-0 inset-x-0 z-30 grid grid-cols-5 bg-sumi/95 backdrop-blur border-t border-line" style="padding-bottom:env(safe-area-inset-bottom,0px)">
+  <button data-tab="menu"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg>Menu</button>
+  <button data-tab="mapas"><svg viewBox="0 0 24 24"><path d="M3 6h18M5 9.5h14M7 6v14M17 6v14M4 4c4 1 12 1 16 0"/></svg>Portão</button>
+  <button data-tab="bolsa"><svg viewBox="0 0 24 24"><path d="M6 8h12l1 12H5z"/><path d="M9 8a3 3 0 0 1 6 0"/></svg>Itens</button>
   <button data-tab="guilda"><svg viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z"/></svg>Guilda</button>
-  <button data-tab="loja"><svg viewBox="0 0 24 24"><path d="M4 8h16l-1.5 11h-13z"/><path d="M8 8a4 4 0 0 1 8 0"/></svg>Loja</button>
-  <button data-tab="ranking"><svg viewBox="0 0 24 24"><path d="M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M7 6H4v2a3 3 0 0 0 3 3M17 6h3v2a3 3 0 0 1-3 3M12 14v4M8 20h8"/></svg>Ranking</button>
+  <button data-tab="perfil"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>Perfil</button>
 </nav>
 
 <div id="regBox" class="hidden fixed inset-0 z-40 bg-sumi overflow-y-auto p-5">
@@ -158,7 +167,7 @@ const REG = ATTRS.slice(3);  // os 7 atributos de combate que recebem os 5 ponto
 const TIPOS = { Arma: 'Armas', Armadura: 'Armaduras', Pergaminho: 'Pergaminhos' };
 const bonusTxt = b => Object.entries(b).map(([k, v]) => `+${v} ${k}`).join(', ');
 const dur = s => s >= 60 ? Math.round(s / 60) + ' min' : s + ' s';
-let P, X, J, G, K, R, LU, CL, LJ, PT, ljSec = 'itens', VILS, battle = null, reps = 1;
+let P, X, J, G, K, R, LU, CL, LJ, PT, BO, ljSec = 'itens', boSec = 'equipados', VILS, battle = null, reps = 1;
 
 function toast(msg, ok = true) {
   const t = $('toast');
@@ -184,8 +193,8 @@ async function api(path, body) {
 }
 async function refresh() {
   const id = tgUser.id;
-  [P, X, J, G, K, { luta: LU }, CL] = await Promise.all([api('/api/player/' + id), api(`/api/player/${id}/extras`), api(`/api/player/${id}/jornada`),
-    api(`/api/player/${id}/guilda`), api(`/api/player/${id}/kage`), api(`/api/player/${id}/luta`), api(`/api/player/${id}/clan`)]);
+  [P, X, J, G, K, { luta: LU }, CL, BO] = await Promise.all([api('/api/player/' + id), api(`/api/player/${id}/extras`), api(`/api/player/${id}/jornada`),
+    api(`/api/player/${id}/guilda`), api(`/api/player/${id}/kage`), api(`/api/player/${id}/luta`), api(`/api/player/${id}/clan`), api(`/api/player/${id}/bolsa`)]);
   render();
 }
 // Ação: chama a API, mostra um aviso e recarrega o estado
@@ -199,11 +208,17 @@ async function act(path, body, msg) {
 }
 
 /* ───────── Abas ───────── */
-function showTab(name) {
+const MAIN = ['menu', 'mapas', 'bolsa', 'guilda', 'perfil'];
+let cur = 'perfil', navStack = [];
+const goBack = () => showTab(navStack.pop() || 'menu', true);
+function showTab(name, back) {
+  if (MAIN.includes(name)) navStack = []; else if (!back && name !== cur) navStack.push(cur);
+  cur = name;
+  $('backBtn').classList.toggle('hidden', MAIN.includes(name));
   if (name === 'ranking') loadRanking();
   if (name === 'loja') loadLoja();
   document.querySelectorAll('.tab').forEach(s => s.classList.toggle('hidden', s.id !== 'tab-' + name));
-  document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.tab === name));
+  document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.tab === (MAIN.includes(name) ? name : 'menu')));
   tg?.HapticFeedback?.selectionChanged?.();
 }
 document.querySelectorAll('nav button').forEach(b => b.onclick = () => showTab(b.dataset.tab));
@@ -221,33 +236,100 @@ function renderHeader() {
 function render() {
   renderHeader();
   renderPerfil(); renderJornada(); renderMapas(); renderVila(); renderGuilda();
+  renderMenu(); renderAldeia(); renderBolsa(); renderTreino(); renderHospital();
 }
 
 /* Perfil: atributos (com treino), equipamento e invocações */
 const setReps = n => { reps = n; renderPerfil(); };
-function renderPerfil() {
-  const rows = ATTRS.map(([k, n, ds]) => {
-    const b = P.atributos_base[k], e = P.atributos_efetivos[k], d = e - b;
+/* Ícones da Aldeia e do Menu. Para usar imagens reais, coloque img/<id>.jpg no repositório: o ícone troca sozinho. */
+const PAL = [['#4a1a14', '#140e0e'], ['#14323f', '#0c1014'], ['#3d2d12', '#120f0a'], ['#1d3a26', '#0c120e'], ['#2f1d3f', '#100c14'], ['#3a1a2a', '#140c10']];
+const tile = (id, ico, nome, sub_, fn, i = 0, soon = false) => `<button class="tile" style="--a:${PAL[i % PAL.length][0]};--b:${PAL[i % PAL.length][1]}" onclick="${soon ? `toast('${nome}: em breve.', true)` : fn}">
+  <img src="img/${id}.jpg" alt="" onerror="this.remove()"><span class="ico">${ico}</span>${soon ? '<span class="tag absolute top-2 left-2 z-10">em breve</span>' : ''}
+  <b class="font-jp text-base">${nome}</b><span class="text-xs text-paper/70">${sub_}</span></button>`;
+function renderMenu() {
+  const T = [['aldeia', '🏯', 'Aldeia', 'Dojo, Kage, Torre, Hospital', "showTab('aldeia')"], ['forja', '⚒️', 'Forja', 'Melhore seus equipamentos', '', 1],
+    ['arena', '⚔️', 'Arena', 'Duelos e rankings', '', 1], ['portao', '⛩️', 'Portão', 'Mapas de caça', "showTab('mapas')"],
+    ['quests', '📜', 'Quests', 'Jornada e missões', "showTab('jornada')"], ['ranking', '🏆', 'Ranking', 'Nível, fama e patentes', "showTab('ranking')"],
+    ['treino', '🥋', 'Boneco de treino', 'Treine seus atributos', "showTab('treino')"], ['masmorras', '🕳️', 'Masmorras', 'Solo e em grupo', '', 1],
+    ['hospital', '🏥', 'Hospital', 'Vida, chakra e bênçãos', "showTab('hospital')"], ['torre', '🗼', 'Torre Ninja', 'Andares infinitos', '', 1],
+    ['pets', '🐾', 'Pets', 'Ovos, afinidade e alimentos', "ljSec = 'pets'; showTab('loja')"], ['loja', '🛍️', 'Loja e mercado', 'Itens, poções e trocas', "ljSec = 'itens'; showTab('loja')"],
+    ['vila', '🏘️', 'Vila e clãs', 'Kage, clãs e provações', "showTab('vila')"]];
+  $('tab-menu').innerHTML = `<h2>Menu</h2><div class="grid grid-cols-2 gap-3">${T.map(([id, ico, n, s, fn, soon], i) => tile(id, ico, n, s, fn, i, !!soon)).join('')}</div>`;
+}
+function renderAldeia() {
+  const T = [['dojo', '🥋', 'Dojo', 'Senseis e treino de jutsus', '', 1], ['kage', '👘', 'Sala do Kage', 'O Kage e a disputa do cargo', "showTab('vila')"],
+    ['portao', '⛩️', 'Portão', 'Mapas de caça por patente', "showTab('mapas')"], ['masmorras', '🕳️', 'Masmorras', 'Mais itens, XP e ryos', '', 1],
+    ['torre', '🗼', 'Torre', 'Andares infinitos e loja própria', '', 1], ['hospital', '🏥', 'Hospital', 'Recupere-se das lutas', "showTab('hospital')"]];
+  $('tab-aldeia').innerHTML = `<h2>${esc(P.village.name)}</h2><p class="lbl">${esc(P.village.description || '')}</p>
+    <div class="grid grid-cols-2 gap-3">${T.map(([id, ico, n, s, fn, soon], i) => tile(id, ico, n, s, fn, i, !!soon)).join('')}</div>`;
+}
+function renderHospital() {
+  const hp = X.hospital, dur = s => s >= 60 ? Math.ceil(s / 60) + ' min' : s + ' s', ferido = P.vida.atual < P.vida.max;
+  const opt = (id, titulo, desc, preco, off, rot) => `<div class="card"><div class="flex justify-between items-start gap-3"><div><h2>${titulo}</h2><p class="text-sm text-paper/70 mt-1">${desc}</p></div>
+    <b class="text-gold shrink-0">${preco}</b></div><button class="btn w-full mt-3" ${off ? 'disabled' : ''} onclick="act('/api/hospital', { opcao: '${id}' }, r => r.mensagem)">${rot}</button></div>`;
+  $('tab-hospital').innerHTML = `<h2>Hospital da vila</h2>
+    ${hp.buff ? `<div class="card border-gold"><b>${esc(hp.buff.nome)}</b><p class="text-sm mt-1">+${Math.round(hp.buff.pct * 100)}% de ${esc(attrNome(hp.buff.attr))}. Restam ${dur(hp.buff.restante_s)}.</p></div>` : ''}
+    ${opt('gratis', 'Atendimento gratuito', 'Recupera metade da vida que você perdeu. Disponível a cada 10 minutos.', 'grátis', !ferido || hp.gratis_restante_s > 0,
+      hp.gratis_restante_s > 0 ? 'Volta em ' + dur(hp.gratis_restante_s) : ferido ? 'Atender' : 'Você não está ferido')}
+    ${opt('total', 'Recuperação total', 'Restaura toda a vida e todo o chakra.', fmt(hp.preco_total) + ' ryos', P.ryos < hp.preco_total, 'Recuperar')}
+    ${opt('sannin', 'Recuperação Sannin', 'Vida e chakra totais e uma bênção aleatória de +15% em um atributo por 15 minutos.', fmt(hp.preco_sannin) + ' ryos', P.ryos < hp.preco_sannin, 'Receber bênção')}`;
+}
+function renderBolsa() {
+  if (!BO) return;
+  const n = BO.itens.length, eq = BO.itens.filter(i => i.equipado), standby = BO.itens.filter(i => !i.equipado);
+  const chips = [['equipados', 'Equipados'], ['standby', 'Equipamentos'], ['consumiveis', 'Consumíveis'], ['materiais', 'Materiais'], ['quests', 'Quests']].map(([k, t]) =>
+    `<button class="chip ${k === boSec ? 'on' : ''}" onclick="boSec='${k}'; renderBolsa()">${t}</button>`).join('');
+  const row = (a, b, right) => `<div class="flex items-center gap-2 py-2 border-t border-line"><div class="flex-1 min-w-0">${a}<div class="text-xs text-gold">${b}</div></div>${right}</div>`;
+  let body;
+  if (boSec === 'equipados') {
+    body = `<div class="grid grid-cols-2 gap-2">${BO.slots.map(t => { const it = eq.find(i => i.tipo === t);
+      return `<div class="slot"><div class="lbl">${t}</div><div class="text-sm font-semibold truncate">${it ? esc(it.nome) : 'Vazio'}</div><div class="text-xs text-gold truncate">${it ? esc(bonusTxt(it.bonus)) : '&nbsp;'}</div>
+        ${it ? `<button class="chip mt-2" onclick="equip(${it.id}, false)">Remover</button>` : ''}</div>`; }).join('')}</div>`;
+  } else if (boSec === 'standby') {
+    body = `<div class="card"><h2>Em standby</h2>${standby.map(i => row(`<div class="text-sm font-semibold truncate">${esc(i.nome)} <span class="tag">${esc(i.tipo)}</span></div>`, esc(bonusTxt(i.bonus)),
+      `<button class="chip" onclick="equip(${i.id}, true)">Equipar</button>`)).join('') || '<p class="lbl mt-2">Nenhum equipamento guardado. Explore o Portão ou visite a Loja.</p>'}
+      <p class="lbl mt-3">Para vender ou anunciar, use a aba Mochila da Loja.</p></div>`;
+  } else if (boSec === 'consumiveis') {
+    const ef = { vida: 'de vida', chakra: 'de chakra', energia: 'de energia' };
+    body = `<div class="card"><h2>Consumíveis</h2>${BO.consumiveis.map(c => row(`<div class="text-sm font-semibold truncate">${esc(c.nome)} <span class="tag">x${c.qtd}</span></div>`, `+${c.valor} ${ef[c.efeito]}`,
+      `<button class="chip" ${LU ? 'disabled' : ''} onclick="act('/api/pocao/usar', { pocao: '${c.id}' }, r => r.mensagem)">Usar</button>`)).join('') || '<p class="lbl mt-2">Nenhuma poção. Compre na Loja.</p>'}
+      <p class="lbl mt-3">Poções empilham e não ocupam espaço na mochila.</p></div>`;
+  } else if (boSec === 'materiais') {
+    body = '<div class="card"><h2>Materiais</h2><p class="lbl mt-2">Aqui ficarão os materiais de forja e os fragmentos de chave, que caem de chefes. A Forja e as Masmorras chegam nos próximos blocos.</p></div>';
+  } else {
+    body = `<div class="card"><h2>Itens de quest</h2>${BO.quests.map(q => row(`<div class="text-sm font-semibold">${esc(q.nome)} <span class="tag">${q.qtd}/${q.meta}</span></div>`, `Colete em ${esc(q.mapa)}`,
+      `<div class="w-20"><div class="bar"><i class="bg-gold" style="width:${pct(q.qtd, q.meta)}"></i></div></div>`)).join('') || '<p class="lbl mt-2">Nenhum item de quest agora. Missões de coleta aparecem aqui.</p>'}</div>`;
+  }
+  $('tab-bolsa').innerHTML = `<div class="card"><div class="flex justify-between items-center"><h2>Mochila</h2><b class="${n >= BO.max ? 'text-vermil' : ''}">${n}/${BO.max}</b></div>
+    <div class="bar mt-2"><i class="bg-gold" style="width:${pct(n, BO.max)}"></i></div>${n >= BO.max ? '<p class="text-xs text-vermil mt-2">Mochila cheia: drops e compras de equipamento ficam bloqueados.</p>' : ''}</div>
+    <div class="flex gap-2 flex-wrap">${chips}</div>${body}`;
+}
+function renderTreino() {
+  const rows = ATTRS.map(([k, n, ds]) => { const b = P.atributos_base[k], e = P.atributos_efetivos[k], d = e - b;
     return `<div class="flex items-center gap-3"><div class="flex-1"><div class="flex justify-between text-sm"><span>${n} <span class="lbl ml-1">${ds}</span></span>
       <span class="font-bold">${e}${d ? `<span class="text-gold text-xs font-normal"> +${d}</span>` : ''}</span></div>
       <div class="bar mt-1.5"><i class="bg-gradient-to-r from-red-900 to-vermil" style="width:${Math.min(100, e)}%"></i></div></div>
-      <button class="round" aria-label="Treinar ${n}" onclick="train('${k}')">+</button></div>`;
-  }).join('');
-  const slots = ['Arma', 'Armadura', 'Pergaminho'].map(t => {
-    const it = X.inventario.find(i => i.tipo === t && i.equipado);
-    return `<div class="slot"><div class="lbl">${t}</div><div class="text-sm font-semibold truncate">${it ? esc(it.nome) : 'Vazio'}</div>
-      <div class="text-xs text-gold truncate">${it ? esc(bonusTxt(it.bonus)) : '&nbsp;'}</div></div>`;
-  }).join('');
-  const bag = X.inventario.map(i => `<div class="flex items-center gap-2 py-2 border-t border-line">
-      <div class="flex-1 min-w-0"><div class="text-sm font-semibold truncate">${esc(i.nome)} <span class="tag">${esc(i.tipo)}</span></div>
-      <div class="text-xs text-gold">${esc(bonusTxt(i.bonus))}</div></div>
-      <button class="chip ${i.equipado ? 'on' : ''}" onclick="equip(${i.id}, ${!i.equipado})">${i.equipado ? 'Equipado' : 'Equipar'}</button></div>`).join('');
+      <button class="round" aria-label="Treinar ${n}" onclick="train('${k}')">+</button></div>`; }).join('');
+  $('tab-treino').innerHTML = `<div class="card space-y-4"><div class="flex items-center justify-between"><h2>Boneco de treino</h2>
+    <div class="flex gap-1.5">${[1, 5, 10].map(n => `<button class="chip ${n === reps ? 'on' : ''}" onclick="setReps(${n})">×${n}</button>`).join('')}</div></div>
+    ${rows}<p class="lbl">Cada treino custa ${25 * reps} ryos e rende ${3 * reps} de XP.</p></div>`;
+}
+function renderPerfil() {
+  const pat = X.patente, soon = t => `<button class="w-full flex justify-between items-center py-3 border-t border-line text-sm" onclick="toast('${t}: em breve.', true)"><span>${t}</span><span class="text-gold text-xs">em breve</span></button>`;
+  const rows = ATTRS.map(([k, n, ds]) => { const b = P.atributos_base[k], e = P.atributos_efetivos[k], d = e - b;
+    return `<div><div class="flex justify-between text-sm"><span>${n} <span class="lbl ml-1">${ds}</span></span><span class="font-bold">${e}${d ? `<span class="text-gold text-xs font-normal"> +${d}</span>` : ''}</span></div>
+      <div class="bar mt-1.5"><i class="bg-gradient-to-r from-red-900 to-vermil" style="width:${Math.min(100, e)}%"></i></div></div>`; }).join('');
+  const rec = [['Dinheiro', fmt(P.ryos) + ' ryos'], ['Fama', fmt(P.fama)], ['Troféus', '0'], ['Moedas da Arena', '0'], ['Moedas VIP', '0']].map(([a, b]) =>
+    `<div class="rounded-xl border border-line p-2.5"><div class="lbl">${a}</div><div class="font-bold text-gold">${b}</div></div>`).join('');
   $('tab-perfil').innerHTML = `
-    <div class="card space-y-4"><div class="flex items-center justify-between"><h2>Atributos</h2>
-      <div class="flex gap-1.5">${[1, 5, 10].map(n => `<button class="chip ${n === reps ? 'on' : ''}" onclick="setReps(${n})">×${n}</button>`).join('')}</div></div>
-      ${rows}<p class="lbl">Cada treino custa ${25 * reps} ryos e rende ${3 * reps} de XP.</p></div>
-    <div class="card"><h2 class="mb-3">Equipamento</h2><div class="grid grid-cols-3 gap-2">${slots}</div>${bag ? `<div class="mt-3">${bag}</div>` : '<p class="lbl mt-3">Nada na mochila. Explore mapas para conseguir itens.</p>'}</div>
-    <div class="card"><h2>Avatar</h2><div class="grid grid-cols-6 gap-2 mt-3">${X.avatares.map(a => `<button class="round !w-full !h-11 !text-2xl ${a === P.avatar ? 'bg-gold/20' : ''}" aria-label="Avatar ${a}" onclick="act('/api/avatar', { avatar: '${a}' })">${a}</button>`).join('')}</div></div>`;
+    <div class="card flex items-center gap-4"><div class="seal w-20 h-20 text-5xl shrink-0">${P.avatar}</div><div class="min-w-0"><h2 class="truncate">${esc(P.ninja_name)}</h2>
+      <div class="lbl">${esc(P.rank)}, nível ${P.level}</div><div class="lbl">${esc(P.village.name)}</div><div class="lbl">Vida ${P.vida.atual}/${P.vida.max}, energia ${P.energia}/25</div></div></div>
+    <div class="card"><h2>Recursos</h2><div class="grid grid-cols-2 gap-2 mt-3">${rec}</div>
+      <button class="chip mt-3" onclick="showTab('ranking')">Ver rankings</button></div>
+    <div class="card"><h2>Patente: ${esc(pat.atual)}</h2><p class="text-sm text-paper/70 mt-2">${pat.proxima ? `Próxima: <b class="text-gold">${esc(pat.proxima)}</b>. ` : ''}${esc(pat.texto)}</p></div>
+    <div class="card space-y-3"><h2>Atributos</h2>${rows}<button class="chip" onclick="showTab('treino')">Treinar no boneco</button></div>
+    <div class="card"><h2 class="mb-1">Opções</h2>${['Jutsus', 'Amigos', 'Skins', 'Conquistas', 'Livro Bingo', 'Trocar nome', 'Trocar classe e sexo', 'Fórum e tutoriais'].map(soon).join('')}</div>
+    <details class="card"><summary class="font-jp font-extrabold">Trocar avatar</summary><div class="grid grid-cols-6 gap-2 mt-3">${X.avatares.map(a => `<button class="round !w-full !h-11 !text-2xl ${a === P.avatar ? 'bg-gold/20' : ''}" aria-label="Avatar ${a}" onclick="act('/api/avatar', { avatar: '${a}' })">${a}</button>`).join('')}</div></details>`;
 }
 const train = k => act('/api/train', { atributo: k, repeticoes: reps }, r => `${k} subiu para ${r.novo_valor}` + (r.niveis_ganhos ? `. Nível ${r.level}!` : ''));
 const equip = (id, on) => act('/api/inventory/equip', { item_id: id, equipar: on });
