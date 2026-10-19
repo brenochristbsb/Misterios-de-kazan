@@ -33,7 +33,7 @@
   .lbl{font-size:.75rem;color:#ece6da99}
   .slot{border:1px dashed #3a323a;border-radius:.75rem;padding:.6rem;min-width:0}
   h2{font-family:"Shippori Mincho",Georgia,serif;font-weight:800;font-size:1.05rem}
-  nav button{display:flex;flex-direction:column;align-items:center;gap:.15rem;padding:.55rem 0;font-size:.7rem;color:#ece6da80;border-top:2px solid transparent}
+  nav button{display:flex;flex-direction:column;align-items:center;gap:.15rem;padding:.55rem 0;font-size:.62rem;color:#ece6da80;border-top:2px solid transparent}
   nav button.on{color:#d9a93f;border-top-color:#d9a93f}
   nav svg{width:1.4rem;height:1.4rem;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
 </style>
@@ -64,15 +64,17 @@
   <section id="tab-mapas" class="tab space-y-3 hidden"></section>
   <section id="tab-vila" class="tab space-y-3 hidden"></section>
   <section id="tab-guilda" class="tab space-y-3 hidden"></section>
+  <section id="tab-loja" class="tab space-y-3 hidden"></section>
   <section id="tab-ranking" class="tab space-y-3 hidden"></section>
 </main>
 
-<nav class="fixed bottom-0 inset-x-0 z-30 grid grid-cols-6 bg-sumi/95 backdrop-blur border-t border-line" style="padding-bottom:env(safe-area-inset-bottom,0px)">
+<nav class="fixed bottom-0 inset-x-0 z-30 grid grid-cols-7 bg-sumi/95 backdrop-blur border-t border-line" style="padding-bottom:env(safe-area-inset-bottom,0px)">
   <button data-tab="perfil"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>Perfil</button>
   <button data-tab="jornada"><svg viewBox="0 0 24 24"><path d="M4 4h12a4 4 0 0 1 4 4v12H8a4 4 0 0 1-4-4z"/><path d="M8 9h8M8 13h6"/></svg>Jornada</button>
   <button data-tab="mapas"><svg viewBox="0 0 24 24"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2z"/><path d="M9 4v14M15 6v14"/></svg>Mapas</button>
   <button data-tab="vila"><svg viewBox="0 0 24 24"><path d="M3 11 12 3l9 8"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/></svg>Vila</button>
   <button data-tab="guilda"><svg viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z"/></svg>Guilda</button>
+  <button data-tab="loja"><svg viewBox="0 0 24 24"><path d="M4 8h16l-1.5 11h-13z"/><path d="M8 8a4 4 0 0 1 8 0"/></svg>Loja</button>
   <button data-tab="ranking"><svg viewBox="0 0 24 24"><path d="M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M7 6H4v2a3 3 0 0 0 3 3M17 6h3v2a3 3 0 0 1-3 3M12 14v4M8 20h8"/></svg>Ranking</button>
 </nav>
 
@@ -117,7 +119,7 @@ const REG = ATTRS.slice(3);  // os 7 atributos de combate que recebem os 5 ponto
 const TIPOS = { Arma: 'Armas', Armadura: 'Armaduras', Pergaminho: 'Pergaminhos' };
 const bonusTxt = b => Object.entries(b).map(([k, v]) => `+${v} ${k}`).join(', ');
 const dur = s => s >= 60 ? Math.round(s / 60) + ' min' : s + ' s';
-let P, X, J, G, K, R, LU, VILS, battle = null, reps = 1;
+let P, X, J, G, K, R, LU, CL, LJ, PT, ljSec = 'itens', VILS, battle = null, reps = 1;
 
 function toast(msg, ok = true) {
   const t = $('toast');
@@ -143,8 +145,8 @@ async function api(path, body) {
 }
 async function refresh() {
   const id = tgUser.id;
-  [P, X, J, G, K, { luta: LU }] = await Promise.all([api('/api/player/' + id), api(`/api/player/${id}/extras`), api(`/api/player/${id}/jornada`),
-    api(`/api/player/${id}/guilda`), api(`/api/player/${id}/kage`), api(`/api/player/${id}/luta`)]);
+  [P, X, J, G, K, { luta: LU }, CL] = await Promise.all([api('/api/player/' + id), api(`/api/player/${id}/extras`), api(`/api/player/${id}/jornada`),
+    api(`/api/player/${id}/guilda`), api(`/api/player/${id}/kage`), api(`/api/player/${id}/luta`), api(`/api/player/${id}/clan`)]);
   render();
 }
 // Ação: chama a API, mostra um aviso e recarrega o estado
@@ -160,6 +162,7 @@ async function act(path, body, msg) {
 /* ───────── Abas ───────── */
 function showTab(name) {
   if (name === 'ranking') loadRanking();
+  if (name === 'loja') loadLoja();
   document.querySelectorAll('.tab').forEach(s => s.classList.toggle('hidden', s.id !== 'tab-' + name));
   document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.tab === name));
   tg?.HapticFeedback?.selectionChanged?.();
@@ -265,30 +268,34 @@ async function iniciarLuta(path, body) {
 }
 const explore = id => iniciarLuta('/api/maps/explore', { map_id: id });
 const duelar = nome => iniciarLuta('/api/pvp/desafiar', { alvo: nome });
-async function agir(acao) {
+async function agir(acao, item) {
   try {
-    const r = await api('/api/luta/agir', { telegram_id: tgUser.id, acao });
+    const r = await api('/api/luta/agir', { telegram_id: tgUser.id, acao, item });
     if (r.resultado) {
       battle = r.resultado;
       tg?.HapticFeedback?.impactOccurred?.(battle.vitoria ? 'heavy' : 'light');
-      toast(battle.fuga ? 'Você fugiu.' : battle.vitoria ? 'Vitória!' : 'Derrota.', !!battle.vitoria);
+      toast(battle.clan || (battle.fuga ? 'Você fugiu.' : battle.vitoria ? 'Vitória!' : 'Derrota.'), !!battle.vitoria);
     }
     await refresh();
   } catch (e) { toast(e.message, false); }
 }
 function lutaHtml() {
-  const l = LU, pc = (a, b) => Math.max(0, Math.round(100 * a / b)) + '%', sem = P.chakra.atual < l.custo;
+  const l = LU, pc = (a, b) => Math.max(0, Math.round(100 * a / b)) + '%', sem = P.chakra.atual + (l.reserva || 0) < l.custo;
   return `<div class="card border-vermil"><div class="flex justify-between items-center"><h2>${esc(l.inimigo)}</h2>
       ${l.chefe ? '<span class="tag red">Chefe</span>' : l.tipo === 'pvp' ? '<span class="tag gold">Duelo</span>' : ''}</div>
     <div class="flex justify-between text-xs mt-3 mb-1"><span>Vida do inimigo</span><span>${l.hp}/${l.hp_max}</span></div>
     <div class="bar"><i class="bg-vermil" style="width:${pc(l.hp, l.hp_max)}"></i></div>
     <div class="grid grid-cols-2 gap-3 mt-3 text-xs"><div><div class="flex justify-between mb-1"><span>Sua vida</span><span>${P.vida.atual}/${P.vida.max}</span></div><div class="bar"><i class="bg-gradient-to-r from-red-900 to-vermil" style="width:${pc(P.vida.atual, P.vida.max)}"></i></div></div>
       <div><div class="flex justify-between mb-1"><span>Chakra</span><span>${P.chakra.atual}/${P.chakra.max}</span></div><div class="bar"><i class="bg-chakra" style="width:${pc(P.chakra.atual, P.chakra.max)}"></i></div></div></div>
+    ${l.escudo || l.reserva ? `<div class="text-xs text-gold mt-2">Bônus de vigor e chakra: escudo de ${l.escudo} de vida e reserva de ${l.reserva} de chakra.</div>` : ''}
+    ${l.pet ? `<div class="text-xs text-gold mt-1">${esc(l.pet.nome)} ativo: +${l.pet.n} ${esc(attrNome(l.pet.attr))}.</div>` : ''}
     <div class="text-xs text-paper/70 mt-3 space-y-1 max-h-36 overflow-y-auto">${l.log.map(x => `<div>${esc(x)}</div>`).join('')}</div>
     <div class="grid grid-cols-2 gap-2 mt-4"><button class="btn" onclick="agir('fisico')">Golpe físico</button>
       <button class="btn" ${sem ? 'disabled' : ''} onclick="agir('ninjutsu')">Ninjutsu (${l.custo})</button>
       <button class="btn" ${sem ? 'disabled' : ''} onclick="agir('genjutsu')">Genjutsu (${l.custo})</button>
+      ${l.tecnica ? `<button class="btn col-span-2" ${P.chakra.atual + (l.reserva || 0) < l.custo * 3 ? 'disabled' : ''} onclick="agir('secreta')">${esc(l.tecnica)} (${l.custo * 3} de chakra)</button>` : ''}
       <button class="btn btn-ghost" onclick="agir('defender')">Defender</button>
+      ${(l.pocoes || []).map(x => `<button class="btn btn-ghost" onclick="agir('pocao', '${x.id}')">${esc(x.nome)} x${x.qtd}</button>`).join('')}
       <button class="btn btn-ghost col-span-2" onclick="agir('fugir')">Fugir</button></div></div>`;
 }
 
@@ -296,14 +303,7 @@ function lutaHtml() {
 function renderVila() {
   const kageHtml = kageCard();
   const c = P.clan, noClan = c.name === 'Sem clã', rep = X.reputacao;
-  const clans = noClan ? X.clas.map(cl => {
-    const ok = P.level >= cl.min_level && RANKS.indexOf(P.rank) >= RANKS.indexOf(cl.min_rank);
-    return `<div class="card ${ok ? '' : 'opacity-60'}"><h2>${esc(cl.nome)}</h2>
-      <p class="text-sm text-paper/70 mt-1">+${Math.round(cl.bonus * 100)}% de ${esc(cl.passiva)}</p>
-      <p class="lbl mt-1">Exige nível ${cl.min_level} e rank ${esc(cl.min_rank)}. O teste é um duelo e exige 20 de chakra.</p>
-      <button class="btn w-full mt-3" ${ok ? '' : 'disabled'} onclick="joinClan(${cl.id})">Fazer teste de admissão</button></div>`;
-  }).join('') : `<div class="card"><div class="lbl">Seu clã</div><h2>${esc(c.name)}</h2>
-      <p class="text-sm text-paper/70 mt-1">+${Math.round(c.bonus_val * 100)}% de ${esc(c.passiva_atributo)}, já somado aos atributos.</p></div>`;
+  const clans = clanCard();
   $('tab-vila').innerHTML = `
     <div class="card"><div class="lbl">Sua vila</div><h2>${esc(P.village.name)}</h2><p class="text-sm text-paper/70 mt-1">${esc(P.village.description) || ''}</p>
       <div class="flex justify-between mt-4 text-sm"><span>Reputação</span><b>${esc(X.titulo)}</b></div>
@@ -312,6 +312,110 @@ function renderVila() {
     ${clans}
     <div class="card"><h2>Casa de chá</h2><p class="lbl mt-1">Restaura toda a vida e o chakra por 50 ryos.</p>
       <button class="btn btn-ghost w-full mt-3" onclick="act('/api/rest', {}, () => 'Vida e chakra restaurados.')">Descansar</button></div>`;
+}
+/* Loja: itens por nível, poções, venda ao mercador e mercado entre jogadores */
+async function loadLoja() {
+  try { [LJ, PT] = await Promise.all([api(`/api/player/${tgUser.id}/loja`), api(`/api/player/${tgUser.id}/pets`)]); renderLoja(); } catch (e) { toast(e.message, false); }
+}
+const askOk = (t, f) => tg?.showConfirm ? tg.showConfirm(t, ok => ok && f()) : (confirm(t) && f());
+async function lj(path, body, msg) { await act(path, body, msg); await loadLoja(); }
+const anunciar = id => { const v = Number($('pr_' + id).value); if (!v) return toast('Informe o preço.', false); lj('/api/mercado/anunciar', { item_id: id, preco: v }, r => r.mensagem); };
+function renderLoja() {
+  if (!LJ) return;
+  const chips = [['itens', 'Itens'], ['pocoes', 'Poções'], ['vender', 'Mochila'], ['mercado', 'Mercado'], ['pets', 'Pets'], ['petshop', 'Loja pet']].map(([k, n]) =>
+    `<button class="chip ${k === ljSec ? 'on' : ''}" onclick="ljSec='${k}'; renderLoja()">${n}</button>`).join('');
+  const row = (esc1, esc2, right) => `<div class="flex items-center gap-2 py-2 border-t border-line"><div class="flex-1 min-w-0">${esc1}<div class="text-xs text-gold">${esc2}</div></div>${right}</div>`;
+  let body = '';
+  if (ljSec === 'itens') {
+    body = `<div class="card"><h2>Armamentos por nível</h2><p class="lbl mt-1">Quanto mais alto o nível, mais forte o equipamento. Você tem ${fmt(P.ryos)} ryos.</p>
+      ${LJ.itens.map(i => row(`<div class="text-sm font-semibold truncate">${esc(i.nome)} <span class="tag">${esc(i.tipo)}</span></div>`, `${esc(bonusTxt(i.bonus))}. Nível ${i.nivel}`,
+        `<button class="chip" ${i.pode && P.ryos >= i.preco ? '' : 'disabled'} onclick="lj('/api/loja/comprar', { produto: '${i.id}' }, r => r.mensagem)">${fmt(i.preco)}</button>`)).join('')}</div>`;
+  } else if (ljSec === 'pocoes') {
+    const ef = { vida: 'de vida', chakra: 'de chakra', energia: 'de energia' };
+    body = `<div class="card"><h2>Poções</h2><p class="lbl mt-1">Em luta, usar uma poção gasta o turno. A Pílula de Energia só serve fora de luta.</p>
+      ${LJ.pocoes.map(p => row(`<div class="text-sm font-semibold truncate">${esc(p.nome)} <span class="tag">x${p.qtd}</span></div>`, `+${p.valor} ${ef[p.efeito]}. Nível ${p.nivel}`,
+        `<div class="flex gap-1.5"><button class="chip" ${p.qtd && !LU ? '' : 'disabled'} onclick="lj('/api/pocao/usar', { pocao: '${p.id}' }, r => r.mensagem)">Usar</button>
+         <button class="chip" ${p.pode && P.ryos >= p.preco ? '' : 'disabled'} onclick="lj('/api/loja/comprar', { produto: '${p.id}' }, r => r.mensagem)">${fmt(p.preco)}</button></div>`)).join('')}</div>`;
+  } else if (ljSec === 'vender') {
+    body = `<div class="card"><h2>Sua mochila</h2><p class="lbl mt-1">Venda ao mercador na hora, ou anuncie ao preço que quiser para outros jogadores (taxa de ${LJ.taxa}% sobre a venda). Desequipe antes.</p>
+      ${LJ.inventario.map(i => row(`<div class="text-sm font-semibold truncate">${esc(i.nome)} <span class="tag">${esc(i.tipo)}</span>${i.equipado ? ' <span class="tag gold">equipado</span>' : ''}</div>`, esc(bonusTxt(i.bonus)),
+        `<div class="flex flex-col gap-1.5 items-end"><button class="chip" ${i.equipado || i.reliquia ? 'disabled' : ''} onclick="lj('/api/loja/vender', { item_id: ${i.id} }, r => r.mensagem)">Vender ${fmt(i.valor)}</button>
+         <div class="flex gap-1.5"><input id="pr_${i.id}" type="number" min="1" inputmode="numeric" placeholder="preço" class="inp !w-20 !py-1 !px-2 text-xs"><button class="chip" ${i.equipado ? 'disabled' : ''} onclick="anunciar(${i.id})">Anunciar</button></div></div>`)).join('')
+        || '<p class="lbl mt-2">Mochila vazia.</p>'}</div>`;
+  } else if (ljSec === 'pets') {
+    const eggs = PT.ovos.filter(o => o.qtd).map(o => `<button class="btn w-full" onclick="lj('/api/pet/chocar', { ovo: '${o.id}' }, r => r.mensagem)">Chocar ${esc(o.nome)} (x${o.qtd})</button>`).join('');
+    const foods = PT.alimentos.filter(a => a.qtd);
+    body = `<div class="card"><h2>Seus pets (${PT.pets.length}/${PT.max})</h2><p class="lbl mt-1">Só um pet fica ativo. Em cada luta, a chance de o bônus dele ativar vai de 10% a 100% conforme a afinidade, que cresce com alimentos e vitórias.</p>${eggs ? `<div class="space-y-2 mt-3">${eggs}</div>` : ''}</div>`
+      + (PT.pets.map(x => `<div class="card ${x.ativo ? 'border-gold' : ''}"><div class="flex items-center justify-between"><h2>${esc(x.especie)}</h2><span class="tag ${x.tier >= 2 ? 'gold' : ''}">${esc(x.raridade)}</span></div>
+        <p class="text-sm text-paper/70 mt-1">Natureza ${esc(x.natureza)}: +${x.bonus} ${esc(attrNome(x.atributo))} quando ativa.</p>
+        <div class="flex justify-between text-xs mt-3 mb-1"><span>Afinidade</span><span>${x.afinidade} de ${PT.afinidade_max}, ativa em ${x.chance}%</span></div><div class="bar"><i class="bg-gold" style="width:${pct(x.afinidade, PT.afinidade_max)}"></i></div>
+        <div class="flex flex-wrap gap-2 mt-3"><button class="chip ${x.ativo ? 'on' : ''}" ${x.ativo ? 'disabled' : ''} onclick="lj('/api/pet/ativar', { pet_id: ${x.id} })">${x.ativo ? 'Ativo' : 'Ativar'}</button>
+          ${foods.map(a => `<button class="chip" onclick="lj('/api/pet/alimentar', { pet_id: ${x.id}, alimento: '${a.id}' }, r => r.mensagem)">${esc(a.nome)} x${a.qtd}</button>`).join('')}
+          <button class="chip" onclick="askOk('Soltar ${esc(x.especie)}?', () => lj('/api/pet/soltar', { pet_id: ${x.id} }, r => r.mensagem))">Soltar</button></div></div>`).join('')
+      || '<p class="lbl text-center">Nenhum pet ainda. Compre um ovo na Loja pet.</p>');
+  } else if (ljSec === 'petshop') {
+    body = `<div class="card"><h2>Ovos</h2><p class="lbl mt-1">Ovos melhores têm mais chance de naturezas raras e dão bônus maiores. Você tem ${fmt(P.ryos)} ryos.</p>
+      ${PT.ovos.map(o => `<div class="py-3 border-t border-line"><div class="flex items-center gap-2"><div class="flex-1"><div class="text-sm font-semibold">${esc(o.nome)} <span class="tag">x${o.qtd}</span></div><div class="lbl">Nível ${o.nivel}</div></div>
+        <button class="chip" ${o.pode && P.ryos >= o.preco ? '' : 'disabled'} onclick="lj('/api/pet/comprar', { produto: '${o.id}' }, r => r.mensagem)">${fmt(o.preco)}</button></div>
+        <details class="mt-1"><summary class="lbl cursor-pointer">Animais e naturezas possíveis</summary><p class="text-xs text-paper/70 mt-1">${o.especies.map(esc).join(', ')}</p>
+        <p class="text-xs text-paper/60 mt-1">${o.naturezas.map(([n, c]) => `${esc(n)} ${c}%`).join(', ')}</p></details></div>`).join('')}</div>
+      <div class="card"><h2>Alimentos</h2><p class="lbl mt-1">Cada alimento aumenta a afinidade do pet que você escolher.</p>
+      ${PT.alimentos.map(a => `<div class="flex items-center gap-2 py-2 border-t border-line"><div class="flex-1"><div class="text-sm font-semibold">${esc(a.nome)} <span class="tag">x${a.qtd}</span></div><div class="lbl">+${a.valor} de afinidade</div></div>
+        <button class="chip" ${P.ryos >= a.preco ? '' : 'disabled'} onclick="lj('/api/pet/comprar', { produto: '${a.id}' }, r => r.mensagem)">${fmt(a.preco)}</button></div>`).join('')}</div>`;
+  } else {
+    body = `<div class="card"><h2>Mercado dos jogadores</h2><p class="lbl mt-1">Anúncios mais recentes. Você pode ter até ${LJ.max_anuncios} ativos.</p>
+      ${LJ.mercado.map(a => row(`<div class="text-sm font-semibold truncate">${esc(a.nome)} <span class="tag">${esc(a.tipo)}</span></div>`, `${esc(bonusTxt(a.bonus))}. Vendedor: ${esc(a.vendedor)}`,
+        a.meu ? `<button class="chip" onclick="lj('/api/mercado/cancelar', { anuncio_id: ${a.id} }, r => r.mensagem)">Cancelar</button>`
+              : `<button class="chip" ${P.ryos >= a.preco ? '' : 'disabled'} onclick="lj('/api/mercado/comprar', { anuncio_id: ${a.id} }, r => r.mensagem)">${fmt(a.preco)}</button>`)).join('')
+        || '<p class="lbl mt-2">Nenhum anúncio no momento.</p>'}</div>`;
+  }
+  $('tab-loja').innerHTML = `<div class="flex gap-2 flex-wrap">${chips}</div>${body}`;
+}
+const attrNome = k => (ATTRS.find(a => a[0] === k) || [k, k])[1];
+function caminhoHtml(m) {
+  const c = m.caminho, nomes = { reliquia: 'da Relíquia', poder: 'do Poder', segredo: 'do Segredo' }, cu = c.custos;
+  const esc_ = (id, txt, on = true) => `<button class="btn" ${on ? '' : 'disabled'} onclick="act('/api/clan/caminho', { caminho: '${id}' }, () => 'Caminho escolhido.')">${txt}</button>`;
+  if (!c.escolhido) return `<div class="mt-4 border-t border-line pt-3"><h2>Missões do líder: escolha um caminho</h2>
+    <p class="lbl mt-1">Cada caminho exige derrotar ${c.meta} chefes de mapa e pagar um tributo. Só um caminho por liderança.</p>
+    <div class="grid gap-2 mt-3">${esc_('reliquia', `Relíquia: ${esc(c.reliquia)} (${fmt(cu.reliquia)} ryos)${c.reliquia_livre ? '' : ', já entregue'}`, c.reliquia_livre)}
+      ${esc_('poder', `Poder: atributos permanentes (${fmt(cu.poder)} ryos)`)}
+      ${esc_('segredo', `Segredo: técnica ${esc(c.tecnica)} (${fmt(cu.segredo)} ryos)`)}</div></div>`;
+  return `<div class="mt-4 border-t border-line pt-3"><h2>Caminho ${nomes[c.escolhido]}</h2>${c.ok ? '<p class="text-sm text-gold mt-1">Concluído.</p>'
+    : `<div class="flex justify-between text-xs mt-2 mb-1"><span>Chefes derrotados</span><span>${c.prog} de ${c.meta}</span></div><div class="bar"><i class="bg-gold" style="width:${pct(c.prog, c.meta)}"></i></div>
+    <button class="btn w-full mt-3" ${c.prog >= c.meta ? '' : 'disabled'} onclick="act('/api/clan/caminho/concluir', {}, r => r.mensagem)">Concluir (${fmt(cu[c.escolhido])} ryos)</button>`}</div>`;
+}
+function clanCard() {
+  const m = CL.meu, pv = CL.prova, hist = t => `<p class="text-xs text-paper/60 mt-2">${esc(t)}</p>`;
+  let html = '';
+  if (m) {
+    const l = m.lider, d = m.desafiante;
+    html += `<div class="card"><div class="lbl">Seu clã</div><div class="flex items-center justify-between"><h2>${esc(m.nome)}</h2><span class="tag gold">${esc(m.titulo)}</span></div>
+      <p class="text-sm text-paper/70 mt-1">+${Math.round(m.bonus * 100)}% de ${esc(attrNome(m.atributo))}, já somado aos atributos.</p>${hist(m.historia)}
+      <div class="flex justify-between text-xs mt-3 mb-1"><span>Pontos de clã</span><span>${fmt(m.pontos)} de ${fmt(m.lider_min)}</span></div><div class="bar"><i class="bg-gold" style="width:${pct(m.pontos, m.lider_min)}"></i></div>
+      <p class="lbl mt-2">Vitórias em mapas rendem pontos (chefes valem mais). Com ${fmt(m.lider_min)} você pode liderar. Líder atual: ${esc(l.nome)}${l.npc ? ' (NPC)' : ''}. Quem tiver mais pontos que o líder por 7 dias seguidos assume o cargo.</p>
+      ${d ? `<p class="text-sm mt-2">Desafiante: <b>${esc(d.nome)}</b> (${fmt(d.pontos)} pontos). Assume em ${d.dias} dia(s).</p>` : ''}
+      ${m.caminho ? caminhoHtml(m) : ''}
+      <button class="btn btn-ghost w-full mt-3" onclick="act('/api/clan/sair', {}, r => r.mensagem)">Deixar o clã</button></div>`;
+  }
+  if (pv) {
+    html += `<div class="card"><div class="lbl">Provação em andamento</div><h2>${esc(pv.clan)}</h2><div class="mt-3 space-y-2">
+      ${pv.passos.map((s, i) => `<div class="flex items-start gap-2 text-sm ${s.estado === 'pendente' ? 'text-paper/40' : ''}"><span class="w-5 ${s.estado === 'feito' ? 'text-gold' : ''}">${s.estado === 'feito' ? '✓' : (i + 1) + '.'}</span>
+        <div class="flex-1">${esc(s.txt)}${s.estado === 'atual' && pv.meta ? ` <b class="text-gold">${pv.prog}/${pv.meta}</b>` : ''}</div></div>`).join('')}</div>
+      ${pv.acao ? `<button class="btn w-full mt-3" onclick="act('/api/clan/prova/avancar', {}, r => r.mensagem).then(r => r && r.duelo && showTab('mapas'))">${pv.tipo === 't' ? 'Pagar o tributo' : 'Enfrentar o líder'}</button>`
+        : '<p class="lbl mt-3">Esta etapa avança vencendo lutas nos mapas.</p>'}
+      <button class="btn btn-ghost w-full mt-2" onclick="act('/api/clan/sair', {}, r => r.mensagem)">Abandonar a provação</button></div>`;
+  }
+  if (!m && !pv) {
+    const grupos = {};
+    CL.catalogo.forEach(c => (grupos[c.vila] = grupos[c.vila] || []).push(c));
+    const card = c => `<div class="card ${c.pode ? '' : 'opacity-60'}"><h2>${esc(c.nome)}</h2>
+      <p class="text-sm text-paper/70 mt-1">Especialidade: ${esc(attrNome(c.atributo))} (+${Math.round(c.bonus * 100)}%)</p>${hist(c.historia)}
+      <p class="lbl mt-2">Exige nível ${c.nivel} e rank ${esc(c.rank)}. Provação de ${c.etapas} etapas, terminando em duelo contra ${esc(c.lider)}.</p>
+      <button class="btn w-full mt-3" ${c.pode ? '' : 'disabled'} onclick="joinClan(${c.id})">Iniciar a provação</button></div>`;
+    html += Object.entries(grupos).sort(([, a], [, b]) => b[0].minha_vila - a[0].minha_vila).map(([vila, cs], i) =>
+      `<details ${i === 0 ? 'open' : ''}><summary class="lbl py-2 cursor-pointer">Clãs de ${esc(vila)}${cs[0].minha_vila ? ' (sua vila)' : ''}</summary><div class="space-y-3">${cs.map(card).join('')}</div></details>`).join('');
+  }
+  return html;
 }
 function sanninCard() {
   const s = K.sannin, v = s.voce;

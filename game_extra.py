@@ -8,15 +8,16 @@ Mantenha api.py, models.py e game_extra.py na mesma pasta.
 import copy
 import random
 from datetime import datetime, timedelta, timezone
-from typing import Literal
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from clas_dados import CLANS
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from api import ATTRS, NO_CLAN_NAME, active_summon_link, apply_exp, as_utc, effective_stats, get_db, get_player
-from models import Clan, Guild, InventoryItem, ItemType, NinjaRank, Player, PlayerSummon, Summon, Village
+from models import Clan, Guild, InventoryItem, ItemType, MarketListing, NinjaRank, Pet, Player, PlayerSummon, Summon, Village
 
 router = APIRouter()
 
@@ -40,8 +41,14 @@ MAPS = [{"id": i, "nome": n, "min_level": a, "max_level": b, "perigo": p, "tipo"
 MAPS_BY_ID = {m["id"]: m for m in MAPS}
 
 # Requisitos de ingresso por clã (nível, rank). Clãs fora da lista usam o padrão.
-CLAN_REQ = {"Clã do Olho Astral": (5, "Genin"), "Clã das Sombras Abissais": (10, "Genin")}
-clan_req = lambda c: CLAN_REQ.get(c.name, (5, "Genin"))
+CLAN_DATA = {c[1]: {"vila": c[0], "nome": c[1], "atr": c[2], "bonus": c[3], "nivel": c[4], "rank": c[5], "historia": c[6],
+                    "etapas": c[7].split(), "lider": c[8], "tecnica": c[9], "reliquia": c[10], "tipo": c[11],
+                    "rel_bonus": c[12]} for c in CLANS}
+for _d in CLAN_DATA.values():  # o clã nunca exige um mapa que o jogador ainda não pode explorar
+    for _t in _d["etapas"]:
+        if _t[0] in "kb":
+            _d["nivel"] = max(_d["nivel"], MAPS_BY_ID[int(_t[1:].split("x")[0])]["min_level"])
+clan_req = lambda c: (CLAN_DATA[c.name]["nivel"], CLAN_DATA[c.name]["rank"]) if c.name in CLAN_DATA else (5, "Genin")
 
 
 def rank_ok(player, min_rank: str) -> bool:
@@ -139,12 +146,13 @@ def extras(telegram_id: int, db: Session = Depends(get_db)):
 
 # ───────── Combate por turnos ─────────
 # Uma só fórmula para jogador, monstro e PvP: quem tem os melhores atributos leva vantagem, sem bônus escondidos.
-NOME_ACAO = {"fisico": "um golpe físico", "ninjutsu": "um ninjutsu", "genjutsu": "um genjutsu"}
+NOME_ACAO = {"fisico": "um golpe físico", "ninjutsu": "um ninjutsu", "genjutsu": "um genjutsu", "secreta": "sua técnica secreta"}
 
 
 class AgirReq(BaseModel):
     telegram_id: int = Field(gt=0)
-    acao: Literal["fisico", "ninjutsu", "genjutsu", "defender", "fugir"]
+    acao: Literal["fisico", "ninjutsu", "genjutsu", "secreta", "pocao", "defender", "fugir"]
+    item: Optional[str] = None  # id da poção, quando acao = "pocao"
 
 
 class PvpReq(BaseModel):
@@ -163,6 +171,8 @@ def golpe(att: dict, dfn: dict, acao: str):
         return 0, False, False
     if acao == "fisico":
         raw, red = att["taijutsu"] + att["forca"] * 0.8 + att["destreza"] * 0.4, dfn["defesa"] * 0.6
+    elif acao == "secreta":  # técnica secreta do líder do clã: golpe devastador que quase ignora a defesa
+        raw, red = max(att["ninjutsu"], att["genjutsu"]) * 2.2 + att["inteligencia"] * 0.8, dfn["defesa"] * 0.2
     elif acao == "ninjutsu":
         raw, red = att["ninjutsu"] * 1.3 + att["inteligencia"] * 0.5, dfn["defesa"] * 0.3
     else:  # genjutsu: a defesa mental é a inteligência
@@ -193,17 +203,37 @@ def turno_inimigo(L: dict, me: dict, p: Player) -> None:
     if dmg and L["defendendo"]:
         dmg = max(1, dmg // 2)
     L["defendendo"] = False
-    p.vida_atual = max(0, p.vida_atual - dmg)
+    absorvido = min(L.get("escudo", 0), dmg)  # o escudo de vigor absorve o dano primeiro
+    L["escudo"] = L.get("escudo", 0) - absorvido
+    p.vida_atual = max(0, p.vida_atual - (dmg - absorvido))
     L["log"].append(_linha(L["nome"], acao, dmg, crit) + (" Você ficou atordoado!" if stun and dmg else ""))
     if stun and dmg:
         L["me_atordoado"] = True
 
 
+def _me(p: Player, L: dict) -> dict:
+    """Atributos do jogador na luta: equipamentos, clã, invocação e o bônus do pet, se ele ativou."""
+    s = effective_stats(p)
+    if L.get("pet"):
+        s[L["pet"]["attr"]] += L["pet"]["n"]
+    return s
+
+
 def iniciar_luta(p: Player, tipo: str, nome: str, stats: dict, hp: int, chakra: int, boss: bool = False, **ctx) -> None:
-    me = effective_stats(p)
     L = {"tipo": tipo, "nome": nome, "boss": boss, "stats": stats, "hp": hp, "hp_max": hp, "chakra": chakra,
          "turno": 0, "log": [f"{nome} aparece diante de você."], "defendendo": False, "atordoado": False,
-         "me_atordoado": False, **ctx}
+         "me_atordoado": False, "pet": None, "pet_id": None, **ctx}
+    pet = object_session(p).scalar(select(Pet).where(Pet.player_id == p.id, Pet.ativo.is_(True)))
+    if pet:  # a chance de o bônus do pet ativar cresce com a afinidade
+        L["pet_id"] = pet.id
+        attr, n = bonus_pet(pet)
+        if random.random() < chance_pet(pet.afinidade):
+            L["pet"] = {"nome": pet.especie, "attr": attr, "n": n}
+            L["log"].append(f"Seu {pet.especie} ({pet.natureza}) ajuda na luta: +{n} de {attr}!")
+    me = _me(p, L)
+    # Vigor e chakra acima do valor treinado (itens, clã, pet) viram escudo de vida e reserva de chakra na luta
+    L["escudo"] = max(0, 5 * (me["vigor"] - p.vigor))
+    L["reserva"] = max(0, 4 * (me["chakra_attr"] - p.chakra_attr))
     if stats["agilidade"] > me["agilidade"] or (stats["agilidade"] == me["agilidade"] and random.random() < 0.5):  # iniciativa: o mais ágil começa; empate no sorteio
         L["log"].append(f"{nome} é mais rápido e ataca primeiro.")
         turno_inimigo(L, me, p)
@@ -216,7 +246,10 @@ def luta_view(p: Player):
     if not L:
         return None
     return {"inimigo": L["nome"], "chefe": L["boss"], "tipo": L["tipo"], "hp": max(0, L["hp"]), "hp_max": L["hp_max"],
-            "turno": L["turno"], "log": L["log"][-8:], "custo": custo_tecnica(effective_stats(p))}
+            "turno": L["turno"], "log": L["log"][-8:], "custo": custo_tecnica(_me(p, L)), "tecnica": p.tecnica, "pet": L.get("pet"),
+            "escudo": L.get("escudo", 0), "reserva": L.get("reserva", 0),
+            "pocoes": [{"id": k, "nome": POCOES[k][0], "qtd": q} for k, q in (p.pocoes or {}).items()
+                       if q > 0 and k in POCOES and POCOES[k][1] in ("vida", "chakra")]}
 
 
 def fim_luta(db: Session, p: Player, L: dict, won: bool) -> dict:
@@ -229,6 +262,13 @@ def fim_luta(db: Session, p: Player, L: dict, won: bool) -> dict:
         if won:
             res["exp"] = 4
             p.fama += 3
+    elif L["tipo"] == "clan":  # duelo final da provação: vencer significa ingressar no clã
+        if won:
+            clan = db.get(Clan, L["clan_id"])
+            res["exp"] = 25
+            p.fama += 10
+            p.clan_id, p.prov_clan_id, p.prov_etapa, p.prov_prog, p.clan_pontos = clan.id, None, 0, 0, 0
+            res["clan"] = f"Você foi aceito no {clan.name}!"
     else:
         mp = MAPS_BY_ID[L["mapa"]]
         mult = 2 if L["boss"] else 1
@@ -239,6 +279,8 @@ def fim_luta(db: Session, p: Player, L: dict, won: bool) -> dict:
             res["ryos"] = 8 * mp["perigo"] * mult
             p.ryos += res["ryos"]
             p.fama += 5 if L["boss"] else 1
+            clan_hooks(db, p, L)
+            pet_afinidade(db, L)
             for nome, attr in mp["itens"]:  # drops temáticos: cada mapa solta só o tipo dele
                 if random.random() < 0.25 * mult:
                     db.add(InventoryItem(player_id=p.id, item_name=nome, item_type=ItemType(mp["tipo"]),
@@ -321,7 +363,8 @@ def luta_agir(payload: AgirReq, db: Session = Depends(get_db)):
     p = get_player(db, payload.telegram_id, lock=True)
     if not p.luta:
         raise HTTPException(409, "Você não está em luta.")
-    L, me, acao = copy.deepcopy(p.luta), effective_stats(p), payload.acao
+    L, acao = copy.deepcopy(p.luta), payload.acao
+    me = _me(p, L)
     L["turno"] += 1
     if L["me_atordoado"]:
         L["me_atordoado"] = False
@@ -334,16 +377,24 @@ def luta_agir(payload: AgirReq, db: Session = Depends(get_db)):
                     "log": L["log"][-4:] + ["Você fugiu."], "exp": 0, "ryos": 0, "drops": [], "novo_pet": None,
                     "niveis_ganhos": 0, "xp_reduzido": False, "missao": None}}
         L["log"].append("Você não conseguiu fugir.")
+    elif acao == "pocao":  # usar poção gasta o turno
+        if not payload.item:
+            raise HTTPException(400, "Escolha uma poção.")
+        L["log"].append("Você usa " + usar_pocao(p, payload.item) + ".")
     elif acao == "defender":
         L["defendendo"] = True
         p.chakra_atual = min(p.chakra_max, p.chakra_atual + 2)
         L["log"].append("Você se defende e recupera o fôlego.")
     else:
         if acao != "fisico":
-            custo = custo_tecnica(me)
-            if p.chakra_atual < custo:
+            if acao == "secreta" and not p.tecnica:
+                raise HTTPException(400, "Você ainda não domina uma técnica secreta.")
+            custo = custo_tecnica(me) * (3 if acao == "secreta" else 1)
+            if p.chakra_atual + L.get("reserva", 0) < custo:
                 raise HTTPException(400, f"Chakra insuficiente: a técnica custa {custo}.")
-            p.chakra_atual -= custo
+            da_reserva = min(L.get("reserva", 0), custo)  # a reserva de bônus é gasta primeiro
+            L["reserva"] = L.get("reserva", 0) - da_reserva
+            p.chakra_atual -= custo - da_reserva
         dmg, crit, stun = golpe(me, L["stats"], acao)
         L["hp"] -= dmg
         L["log"].append(_linha("Você", acao, dmg, crit) + (" O inimigo ficou atordoado!" if stun and dmg else ""))
@@ -393,30 +444,22 @@ def activate_summon(payload: SummonReq, db: Session = Depends(get_db)):
 
 @router.post("/api/clan/join")
 def join_clan(payload: ClanReq, db: Session = Depends(get_db)):
-    """Teste de admissão: duelo contra um examinador. Vitória = ingresso no clã."""
+    """Inicia a provação de ingresso do clã: várias etapas, terminando em duelo contra o líder."""
     player = get_player(db, payload.telegram_id, lock=True)
     clan = db.get(Clan, payload.clan_id)
-    if clan is None or clan.name == NO_CLAN_NAME:
+    if clan is None or clan.name not in CLAN_DATA:
         raise HTTPException(404, "Clã não encontrado.")
     if player.clan.name != NO_CLAN_NAME:
         raise HTTPException(409, "Você já pertence a um clã.")
+    if player.prov_clan_id:
+        raise HTTPException(409, "Você já está em uma provação. Abandone-a antes de começar outra.")
     min_level, min_rank = clan_req(clan)
     if player.level < min_level or not rank_ok(player, min_rank):
         raise HTTPException(403, f"Requisitos não atingidos: nível {min_level} e rank {min_rank}.")
-    if player.chakra_atual < CLAN_TEST_CHAKRA:
-        raise HTTPException(400, f"Chakra insuficiente: precisa de {CLAN_TEST_CHAKRA}.")
-
-    power = int(3 + min_level * 1.5)  # o examinador acompanha a exigência do clã
-    won, hp_left, log, ck = duel(effective_stats(player), player.vida_atual,
-                                 {a: power for a in ATTRS}, 80 + 10 * min_level, chakra=player.chakra_atual)
-    player.chakra_atual = ck
-    player.vida_atual = min(player.vida_atual, hp_left)
-    if won:
-        player.clan_id = clan.id
-        apply_exp(player, 25)
+    player.prov_clan_id, player.prov_etapa, player.prov_prog = clan.id, 0, 0
+    prova_avancar(db, player)
     db.commit()
-    msg = f"Você foi aceito no {clan.name}!" if won else "O examinador venceu. Treine e tente de novo."
-    return {"entrou": won, "mensagem": msg, "log": log}
+    return {"entrou": True, "mensagem": f"Provação do {clan.name} iniciada."}
 
 
 @router.post("/api/rest")
@@ -751,3 +794,615 @@ def ranking(db: Session = Depends(get_db)):
             for p, v in rows]})
     return {"fama": top([Player.fama.desc()]), "nivel": top([Player.level.desc(), Player.exp.desc()]),
             "kages": kages, "graduacoes": grads}
+
+
+# ───────── Clãs: provação, pontos, liderança e os 3 caminhos do líder ─────────
+LIDER_MIN = 5000  # pontos de clã para liderar (e para desafiar o líder)
+CAMINHO_CHEFES = 8  # chefes de mapa a derrotar no caminho do líder
+CAMINHO_CUSTO = {"reliquia": 6000, "poder": 4000, "segredo": 3000}  # tributo em ryos
+TITULOS_CLAN = [(0, "Aprendiz"), (300, "Membro"), (1000, "Elite"), (2500, "Veterano"), (5000, "Herdeiro")]
+
+
+class CaminhoReq(BaseModel):
+    telegram_id: int = Field(gt=0)
+    caminho: Literal["reliquia", "poder", "segredo"]
+
+
+def prova_avancar(db: Session, p: Player) -> None:
+    """Avança as etapas que se cumprem sozinhas (lutas, chefe, fama). Tributo e duelo pedem ação do jogador."""
+    d = CLAN_DATA[db.get(Clan, p.prov_clan_id).name]
+    while p.prov_etapa < len(d["etapas"]):
+        tok = d["etapas"][p.prov_etapa]
+        if tok[0] == "k":
+            ok = p.prov_prog >= int(tok[1:].split("x")[1])
+        elif tok[0] == "b":
+            ok = p.prov_prog >= 1
+        elif tok[0] == "f":
+            ok = p.fama >= int(tok[1:])
+        else:
+            break
+        if not ok:
+            break
+        p.prov_etapa += 1
+        p.prov_prog = 0
+
+
+def clan_hooks(db: Session, p: Player, L: dict) -> None:
+    """Vitória em mapa: pontos de clã, progresso da provação de ingresso e do caminho do líder."""
+    if p.clan.name != NO_CLAN_NAME:
+        p.clan_pontos += 15 if L["boss"] else 3
+        if p.caminho and not p.caminho_ok and L["boss"] and p.clan.lider_id == p.id:
+            p.caminho_prog = min(CAMINHO_CHEFES, p.caminho_prog + 1)
+    if p.prov_clan_id:
+        tok = CLAN_DATA[db.get(Clan, p.prov_clan_id).name]["etapas"][p.prov_etapa]
+        if tok[0] == "k" and L["mapa"] == int(tok[1:].split("x")[0]):
+            p.prov_prog += 1
+        elif tok[0] == "b" and L["boss"] and L["mapa"] == int(tok[1:]):
+            p.prov_prog = 1
+        prova_avancar(db, p)
+
+
+def clan_tick(db: Session, clan: Clan) -> None:
+    """Liderança: o primeiro membro com 5.000 pontos assume o lugar do líder NPC. Contra um líder jogador, é
+    preciso ter mais pontos que ele por 7 dias seguidos."""
+    lider = db.get(Player, clan.lider_id) if clan.lider_id else None
+    if lider and lider.clan_id != clan.id:
+        lider, clan.lider_id = None, None
+    cand = db.scalar(select(Player).where(Player.clan_id == clan.id, Player.clan_pontos >= LIDER_MIN,
+                                          Player.id != (lider.id if lider else -1))
+                     .order_by(Player.clan_pontos.desc()).limit(1))
+    if cand is None or (lider and cand.clan_pontos <= lider.clan_pontos):
+        clan.desafiante_id = clan.desafio_desde = None
+    elif lider is None:
+        clan.lider_id, clan.desafiante_id, clan.desafio_desde = cand.id, None, None
+    elif clan.desafiante_id != cand.id:
+        clan.desafiante_id, clan.desafio_desde = cand.id, datetime.now(timezone.utc)
+    elif datetime.now(timezone.utc) - as_utc(clan.desafio_desde) >= timedelta(days=KAGE_DAYS):
+        clan.lider_id, clan.desafiante_id, clan.desafio_desde = cand.id, None, None
+    db.commit()
+
+
+def dar_atributo(p: Player, attr: str, n: int) -> None:
+    setattr(p, attr, getattr(p, attr) + n)
+    if attr == "vigor":
+        p.vida_max += 5 * n
+        p.vida_atual += 5 * n
+    elif attr == "chakra_attr":
+        p.chakra_max += 4 * n
+        p.chakra_atual += 4 * n
+
+
+def etapa_txt(tok: str, d: dict) -> str:
+    if tok[0] == "k":
+        m, n = tok[1:].split("x")
+        return f"Vencer {n} lutas em {MAPS_BY_ID[int(m)]['nome']}"
+    if tok[0] == "b":
+        mp = MAPS_BY_ID[int(tok[1:])]
+        return f"Derrotar o chefe de {mp['nome']} ({mp['chefe']})"
+    if tok[0] == "f":
+        return f"Alcançar {tok[1:]} de fama"
+    if tok[0] == "t":
+        return f"Pagar {tok[1:]} ryos de tributo ao clã"
+    return f"Duelo contra o líder, {d['lider']}"
+
+
+@router.get("/api/player/{telegram_id}/clan")
+def clan_info(telegram_id: int, db: Session = Depends(get_db)):
+    p = get_player(db, telegram_id)
+    villages = list(db.scalars(select(Village).order_by(Village.id)))
+    vilas, vi = [v.name for v in villages], [v.id for v in villages].index(p.village_id)
+    meu = prova = None
+    if p.clan.name != NO_CLAN_NAME:
+        c = p.clan
+        clan_tick(db, c)
+        d = CLAN_DATA[c.name]
+        lider = db.get(Player, c.lider_id) if c.lider_id else None
+        des = db.get(Player, c.desafiante_id) if c.desafiante_id and c.desafio_desde else None
+        sou = lider is not None and lider.id == p.id
+        meu = {"nome": c.name, "vila": vilas[d["vila"]], "historia": d["historia"], "atributo": d["atr"], "bonus": d["bonus"],
+               "pontos": p.clan_pontos, "titulo": "Líder" if sou else [t for m, t in TITULOS_CLAN if p.clan_pontos >= m][-1],
+               "lider_min": LIDER_MIN,
+               "lider": {"nome": lider.ninja_name if lider else d["lider"], "npc": lider is None, "eu": sou},
+               "desafiante": {"nome": des.ninja_name, "pontos": des.clan_pontos,
+                              "dias": max(1, KAGE_DAYS - (datetime.now(timezone.utc) - as_utc(c.desafio_desde)).days)} if des else None,
+               "caminho": {"escolhido": p.caminho, "prog": p.caminho_prog, "meta": CAMINHO_CHEFES, "ok": p.caminho_ok,
+                           "custos": CAMINHO_CUSTO, "reliquia": d["reliquia"], "reliquia_livre": not c.reliquia_dada,
+                           "tecnica": d["tecnica"]} if sou else None}
+    if p.prov_clan_id:
+        pc = db.get(Clan, p.prov_clan_id)
+        d = CLAN_DATA[pc.name]
+        prova_avancar(db, p)
+        db.commit()
+        tok = d["etapas"][p.prov_etapa]
+        prova = {"clan": pc.name, "prog": p.prov_prog, "tipo": tok[0], "acao": tok[0] in "td",
+                 "meta": int(tok[1:].split("x")[1]) if tok[0] == "k" else 1 if tok[0] == "b" else 0,
+                 "passos": [{"txt": etapa_txt(t, d), "estado": "feito" if i < p.prov_etapa else "atual" if i == p.prov_etapa else "pendente"}
+                            for i, t in enumerate(d["etapas"])]}
+    catalogo = []
+    for c in db.scalars(select(Clan).where(Clan.name != NO_CLAN_NAME)):
+        d = CLAN_DATA.get(c.name)
+        if d:
+            catalogo.append({"id": c.id, "nome": c.name, "vila": vilas[d["vila"]], "minha_vila": d["vila"] == vi,
+                             "historia": d["historia"], "atributo": d["atr"], "bonus": d["bonus"], "nivel": d["nivel"],
+                             "rank": d["rank"], "etapas": len(d["etapas"]), "lider": d["lider"],
+                             "pode": p.level >= d["nivel"] and rank_ok(p, d["rank"])})
+    return {"meu": meu, "prova": prova, "catalogo": catalogo}
+
+
+@router.post("/api/clan/prova/avancar")
+def prova_acao(payload: RestReq, db: Session = Depends(get_db)):
+    """Etapas que pedem ação: pagar o tributo ou enfrentar o líder do clã em duelo por turnos."""
+    p = get_player(db, payload.telegram_id, lock=True)
+    if not p.prov_clan_id:
+        raise HTTPException(409, "Você não está em uma provação.")
+    if p.luta:
+        raise HTTPException(409, "Você já está em uma luta.")
+    clan = db.get(Clan, p.prov_clan_id)
+    d = CLAN_DATA[clan.name]
+    prova_avancar(db, p)
+    tok = d["etapas"][p.prov_etapa]
+    duelo = False
+    if tok[0] == "t":
+        custo = int(tok[1:])
+        if p.ryos < custo:
+            raise HTTPException(400, f"Ryos insuficientes: o tributo é {custo}.")
+        p.ryos -= custo
+        p.prov_etapa += 1
+        p.prov_prog = 0
+        prova_avancar(db, p)
+        msg = "Tributo pago ao clã."
+    elif tok[0] == "d":
+        if p.vida_atual < 10:
+            raise HTTPException(400, "Vida baixa demais. Descanse antes do duelo.")
+        power = 4 + d["nivel"]
+        iniciar_luta(p, "clan", d["lider"], {a: power for a in ATTRS}, 100 + 12 * d["nivel"], 80 + 10 * d["nivel"], True, clan_id=clan.id)
+        msg, duelo = f"{d['lider']} aceitou o duelo.", True
+    else:
+        raise HTTPException(400, "Esta etapa avança vencendo lutas nos mapas.")
+    db.commit()
+    return {"mensagem": msg, "duelo": duelo}
+
+
+@router.post("/api/clan/sair")
+def clan_sair(payload: RestReq, db: Session = Depends(get_db)):
+    """Abandona a provação em andamento ou deixa o clã (perde os pontos de clã)."""
+    p = get_player(db, payload.telegram_id, lock=True)
+    if p.luta:
+        raise HTTPException(409, "Termine a luta antes.")
+    if p.clan.name != NO_CLAN_NAME:
+        if p.clan.lider_id == p.id:
+            p.clan.lider_id = None
+        p.clan_id = db.scalar(select(Clan.id).where(Clan.name == NO_CLAN_NAME))
+        p.clan_pontos, p.caminho, p.caminho_prog, p.caminho_ok = 0, None, 0, False
+        msg = "Você deixou o clã."
+    elif p.prov_clan_id:
+        msg = "Provação abandonada."
+    else:
+        raise HTTPException(409, "Você não tem clã nem provação.")
+    p.prov_clan_id, p.prov_etapa, p.prov_prog = None, 0, 0
+    db.commit()
+    return {"mensagem": msg}
+
+
+@router.post("/api/clan/caminho")
+def caminho_escolher(payload: CaminhoReq, db: Session = Depends(get_db)):
+    p = get_player(db, payload.telegram_id, lock=True)
+    if p.clan.name == NO_CLAN_NAME or p.clan.lider_id != p.id:
+        raise HTTPException(403, "Só o líder do clã trilha um dos três caminhos.")
+    if p.caminho:
+        raise HTTPException(409, "Você já escolheu seu caminho.")
+    if payload.caminho == "reliquia" and p.clan.reliquia_dada:
+        raise HTTPException(409, "A relíquia deste clã já foi entregue a outro líder.")
+    p.caminho, p.caminho_prog, p.caminho_ok = payload.caminho, 0, False
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/api/clan/caminho/concluir")
+def caminho_concluir(payload: RestReq, db: Session = Depends(get_db)):
+    """Entrega a recompensa do caminho: relíquia única, poder permanente ou técnica secreta de combate."""
+    p = get_player(db, payload.telegram_id, lock=True)
+    clan = p.clan
+    if clan.name == NO_CLAN_NAME or clan.lider_id != p.id or not p.caminho or p.caminho_ok:
+        raise HTTPException(409, "Não há caminho em andamento.")
+    if p.caminho_prog < CAMINHO_CHEFES:
+        raise HTTPException(400, f"Derrote {CAMINHO_CHEFES} chefes de mapa primeiro ({p.caminho_prog} feitos).")
+    custo = CAMINHO_CUSTO[p.caminho]
+    if p.ryos < custo:
+        raise HTTPException(400, f"Ryos insuficientes: o tributo é {custo}.")
+    d = CLAN_DATA[clan.name]
+    if p.caminho == "reliquia":
+        if clan.reliquia_dada:
+            raise HTTPException(409, "A relíquia deste clã já foi entregue a outro líder.")
+        db.add(InventoryItem(player_id=p.id, item_name=d["reliquia"], item_type=ItemType(d["tipo"]),
+                             status_bonus=dict(d["rel_bonus"])))
+        clan.reliquia_dada = True
+        msg = f"Você forjou {d['reliquia']}, única no mundo. Está na sua mochila."
+    elif p.caminho == "poder":
+        ganhos = {k: max(1, v * 2 // 3) for k, v in d["rel_bonus"].items()}
+        for k, n in ganhos.items():
+            dar_atributo(p, k, n)
+        msg = "Seu poder cresceu para sempre: " + ", ".join(f"+{n} {k}" for k, n in ganhos.items()) + "."
+    else:
+        p.tecnica = d["tecnica"]
+        msg = f"Você domina a técnica secreta {d['tecnica']}. Use-a em qualquer luta."
+    p.ryos -= custo
+    p.caminho_ok = True
+    p.fama += 50
+    db.commit()
+    return {"mensagem": msg}
+
+
+# ───────── Lojas: itens por nível, poções, venda ao NPC e mercado entre jogadores ─────────
+TIER_NIVEL = [1, 5, 10, 16, 24]  # acompanha as faixas dos mapas
+TIER_PRECO = [150, 600, 1800, 4500, 10000]
+_NOMES = {"Arma": ["Kunai de Treino", "Shuriken de Aço", "Lâmina Curva", "Katana de Tempestade", "Lâmina do Eclipse"],
+          "Armadura": ["Colete de Pano", "Couraça de Couro", "Manto Reforçado", "Armadura de Escamas", "Traje de Obsidiana"],
+          "Pergaminho": ["Pergaminho de Foco", "Selo de Concentração", "Rolo do Vento", "Grimório Cinzento", "Tomo do Abismo"]}
+_BONUS = {"Arma": lambda t: {"forca": 2 * t + 1, "destreza": t + 1},
+          "Armadura": lambda t: {"defesa": 2 * t + 1, "agilidade": t},
+          "Pergaminho": lambda t: {"inteligencia": 2 * t + 1, "ninjutsu": t + 1, "genjutsu": t + 1}}
+ITENS_LOJA = {f"{tipo.lower()}_{i + 1}": {"id": f"{tipo.lower()}_{i + 1}", "nome": _NOMES[tipo][i], "tipo": tipo,
+                                          "nivel": TIER_NIVEL[i], "preco": TIER_PRECO[i], "bonus": _BONUS[tipo](i + 1)}
+              for tipo in _NOMES for i in range(5)}
+PRECO_POR_NOME = {v["nome"]: v["preco"] for v in ITENS_LOJA.values()}
+RELIQUIAS = {d["reliquia"] for d in CLAN_DATA.values()}  # únicas no mundo: só circulam no mercado entre jogadores
+# id: (nome, efeito, valor, preço, nível mínimo)
+POCOES = {"vida_p": ("Pílula de Vida", "vida", 60, 40, 1), "vida_m": ("Elixir de Vida", "vida", 200, 150, 10),
+          "vida_g": ("Néctar de Vida", "vida", 600, 500, 20), "chakra_p": ("Pílula de Chakra", "chakra", 40, 40, 1),
+          "chakra_m": ("Elixir de Chakra", "chakra", 120, 150, 10), "chakra_g": ("Néctar de Chakra", "chakra", 400, 500, 20),
+          "energia": ("Pílula de Energia", "energia", 5, 300, 5)}
+TAXA_MERCADO = 0.05  # taxa sobre cada venda entre jogadores (some do jogo)
+MAX_ANUNCIOS = 10
+
+
+class CompraReq(BaseModel):
+    telegram_id: int = Field(gt=0)
+    produto: str
+    qtd: int = Field(default=1, ge=1, le=20)
+
+
+class ItemReq(BaseModel):
+    telegram_id: int = Field(gt=0)
+    item_id: int
+
+
+class AnunciarReq(ItemReq):
+    preco: int = Field(ge=1, le=1_000_000)
+
+
+class AnuncioReq(BaseModel):
+    telegram_id: int = Field(gt=0)
+    anuncio_id: int
+
+
+class PocaoReq(BaseModel):
+    telegram_id: int = Field(gt=0)
+    pocao: str
+
+
+def valor_venda(item: InventoryItem) -> int:
+    if item.item_name in PRECO_POR_NOME:
+        return int(PRECO_POR_NOME[item.item_name] * 0.4)
+    return 12 * sum((item.status_bonus or {}).values())
+
+
+def usar_pocao(p: Player, pid: str) -> str:
+    if pid not in POCOES:
+        raise HTTPException(404, "Poção desconhecida.")
+    qtd = (p.pocoes or {}).get(pid, 0)
+    if qtd <= 0:
+        raise HTTPException(400, "Você não tem essa poção.")
+    nome, ef, val, _, _ = POCOES[pid]
+    if ef == "vida":
+        ganho, p.vida_atual = min(val, p.vida_max - p.vida_atual), min(p.vida_max, p.vida_atual + val)
+    elif ef == "chakra":
+        ganho, p.chakra_atual = min(val, p.chakra_max - p.chakra_atual), min(p.chakra_max, p.chakra_atual + val)
+    else:
+        ganho, p.energia = min(val, 25 - p.energia), min(25, p.energia + val)
+    if ganho <= 0:
+        raise HTTPException(400, "Não faria efeito: o recurso já está cheio.")
+    p.pocoes = {**p.pocoes, pid: qtd - 1}
+    return f"{nome}: +{ganho} de {ef}"
+
+
+@router.get("/api/player/{telegram_id}/loja")
+def loja_info(telegram_id: int, db: Session = Depends(get_db)):
+    p = get_player(db, telegram_id)
+    anuncios = db.scalars(select(MarketListing).order_by(MarketListing.id.desc()).limit(50)).all()
+    nomes = {x.id: x.ninja_name for x in db.scalars(select(Player).where(Player.id.in_({a.seller_id for a in anuncios} or {-1})))}
+    return {"itens": [{**v, "pode": p.level >= v["nivel"]} for v in ITENS_LOJA.values()],
+            "pocoes": [{"id": k, "nome": n, "efeito": e, "valor": v, "preco": pr, "nivel": nv, "pode": p.level >= nv,
+                        "qtd": (p.pocoes or {}).get(k, 0)} for k, (n, e, v, pr, nv) in POCOES.items()],
+            "inventario": [{"id": i.id, "nome": i.item_name, "tipo": i.item_type.value, "bonus": i.status_bonus or {},
+                            "equipado": i.is_equipped, "valor": valor_venda(i), "reliquia": i.item_name in RELIQUIAS}
+                           for i in p.inventory],
+            "mercado": [{"id": a.id, "nome": a.item_name, "tipo": a.item_type, "bonus": a.bonus, "preco": a.preco,
+                         "vendedor": nomes.get(a.seller_id, "?"), "meu": a.seller_id == p.id} for a in anuncios],
+            "taxa": int(TAXA_MERCADO * 100), "max_anuncios": MAX_ANUNCIOS}
+
+
+@router.post("/api/loja/comprar")
+def loja_comprar(payload: CompraReq, db: Session = Depends(get_db)):
+    p = get_player(db, payload.telegram_id, lock=True)
+    if p.luta:
+        raise HTTPException(409, "Termine a luta antes de comprar.")
+    if payload.produto in ITENS_LOJA:
+        it = ITENS_LOJA[payload.produto]
+        if p.level < it["nivel"]:
+            raise HTTPException(403, f"Exige nível {it['nivel']}.")
+        if p.ryos < it["preco"]:
+            raise HTTPException(400, f"Ryos insuficientes: custa {it['preco']}.")
+        p.ryos -= it["preco"]
+        db.add(InventoryItem(player_id=p.id, item_name=it["nome"], item_type=ItemType(it["tipo"]), status_bonus=dict(it["bonus"])))
+        msg = f"Você comprou {it['nome']}."
+    elif payload.produto in POCOES:
+        nome, _, _, preco, nivel = POCOES[payload.produto]
+        if p.level < nivel:
+            raise HTTPException(403, f"Exige nível {nivel}.")
+        if p.ryos < preco * payload.qtd:
+            raise HTTPException(400, f"Ryos insuficientes: custa {preco * payload.qtd}.")
+        p.ryos -= preco * payload.qtd
+        p.pocoes = {**(p.pocoes or {}), payload.produto: (p.pocoes or {}).get(payload.produto, 0) + payload.qtd}
+        msg = f"Você comprou {payload.qtd}x {nome}."
+    else:
+        raise HTTPException(404, "Produto não encontrado.")
+    db.commit()
+    return {"mensagem": msg}
+
+
+@router.post("/api/pocao/usar")
+def pocao_usar(payload: PocaoReq, db: Session = Depends(get_db)):
+    p = get_player(db, payload.telegram_id, lock=True)
+    if p.luta:
+        raise HTTPException(409, "Durante a luta, use a poção pelo painel de combate.")
+    msg = usar_pocao(p, payload.pocao)
+    db.commit()
+    return {"mensagem": msg}
+
+
+def _item_proprio(db: Session, p: Player, item_id: int) -> InventoryItem:
+    it = db.get(InventoryItem, item_id)
+    if it is None or it.player_id != p.id:
+        raise HTTPException(404, "Item não encontrado na sua mochila.")
+    if it.is_equipped:
+        raise HTTPException(409, "Desequipe o item antes.")
+    return it
+
+
+@router.post("/api/loja/vender")
+def loja_vender(payload: ItemReq, db: Session = Depends(get_db)):
+    p = get_player(db, payload.telegram_id, lock=True)
+    it = _item_proprio(db, p, payload.item_id)
+    if it.item_name in RELIQUIAS:
+        raise HTTPException(403, "O mercador não compra relíquias de clã. Anuncie no mercado dos jogadores.")
+    valor = valor_venda(it)
+    p.ryos += valor
+    db.delete(it)
+    db.commit()
+    return {"mensagem": f"Vendido por {valor} ryos."}
+
+
+@router.post("/api/mercado/anunciar")
+def mercado_anunciar(payload: AnunciarReq, db: Session = Depends(get_db)):
+    p = get_player(db, payload.telegram_id, lock=True)
+    it = _item_proprio(db, p, payload.item_id)
+    if db.scalar(select(func.count()).select_from(MarketListing).where(MarketListing.seller_id == p.id)) >= MAX_ANUNCIOS:
+        raise HTTPException(409, f"Limite de {MAX_ANUNCIOS} anúncios ativos.")
+    db.add(MarketListing(seller_id=p.id, item_name=it.item_name, item_type=it.item_type.value,
+                         bonus=dict(it.status_bonus or {}), preco=payload.preco))
+    db.delete(it)
+    db.commit()
+    return {"mensagem": f"{it.item_name} anunciado por {payload.preco} ryos."}
+
+
+@router.post("/api/mercado/comprar")
+def mercado_comprar(payload: AnuncioReq, db: Session = Depends(get_db)):
+    p = get_player(db, payload.telegram_id, lock=True)
+    a = db.scalar(select(MarketListing).where(MarketListing.id == payload.anuncio_id).with_for_update())
+    if a is None:
+        raise HTTPException(404, "Esse anúncio não existe mais.")
+    if a.seller_id == p.id:
+        raise HTTPException(400, "Este anúncio é seu. Cancele-o para recuperar o item.")
+    if p.ryos < a.preco:
+        raise HTTPException(400, f"Ryos insuficientes: custa {a.preco}.")
+    p.ryos -= a.preco
+    seller = db.get(Player, a.seller_id)
+    if seller is not None:
+        seller.ryos += a.preco - int(a.preco * TAXA_MERCADO)
+    db.add(InventoryItem(player_id=p.id, item_name=a.item_name, item_type=ItemType(a.item_type), status_bonus=dict(a.bonus)))
+    nome = a.item_name
+    db.delete(a)
+    db.commit()
+    return {"mensagem": f"Você comprou {nome}."}
+
+
+@router.post("/api/mercado/cancelar")
+def mercado_cancelar(payload: AnuncioReq, db: Session = Depends(get_db)):
+    p = get_player(db, payload.telegram_id, lock=True)
+    a = db.scalar(select(MarketListing).where(MarketListing.id == payload.anuncio_id).with_for_update())
+    if a is None or a.seller_id != p.id:
+        raise HTTPException(404, "Anúncio não encontrado.")
+    db.add(InventoryItem(player_id=p.id, item_name=a.item_name, item_type=ItemType(a.item_type), status_bonus=dict(a.bonus)))
+    db.delete(a)
+    db.commit()
+    return {"mensagem": "Anúncio cancelado: o item voltou para a mochila."}
+
+
+# ───────── Pets: ovos, naturezas, afinidade e loja pet ─────────
+AFINIDADE_MAX = 5000
+RARIDADE = ["Comum", "Incomum", "Raro", "Lendário"]
+MAX_PETS = 20
+# id: (nome, raridade, preço, nível mínimo)
+OVOS = {"ovo_comum": ("Ovo Comum", 0, 200, 1), "ovo_incomum": ("Ovo Incomum", 1, 900, 5),
+        "ovo_raro": ("Ovo Raro", 2, 3500, 12), "ovo_lendario": ("Ovo Lendário", 3, 15000, 20)}
+ESPECIES = {0: ["Coelho Ninja", "Pardal Mensageiro", "Rato de Telhado", "Sapo do Brejo"],
+            1: ["Raposa Cinzenta", "Corvo Sombrio", "Texugo de Ferro"],
+            2: ["Lobo da Neve", "Serpente Rubra", "Águia de Trovão"],
+            3: ["Dragão Menor", "Tigre Espectral", "Fênix de Cinzas"]}
+# (natureza, atributo, bônus base, peso, dificuldade). Ovos melhores multiplicam o peso das naturezas difíceis.
+NATUREZAS = [("Feroz", "forca", 3, 40, 0), ("Veloz", "agilidade", 3, 40, 0), ("Resistente", "defesa", 3, 40, 0),
+             ("Astuta", "inteligencia", 4, 20, 1), ("Certeira", "destreza", 4, 20, 1),
+             ("Chamejante", "ninjutsu", 6, 8, 2), ("Sombria", "genjutsu", 6, 8, 2), ("Lutadora", "taijutsu", 6, 8, 2),
+             ("Vital", "vigor", 8, 2, 3), ("Ancestral", "chakra_attr", 8, 2, 3)]
+NAT_POR_NOME = {n[0]: n for n in NATUREZAS}
+BOOST_OVO = [1, 1.6, 3, 6]  # quanto o ovo favorece naturezas difíceis
+MULT_OVO = [1, 1.3, 1.7, 2.2]  # multiplicador do bônus pela raridade do pet
+# id: (nome, afinidade, preço)
+ALIMENTOS = {"racao": ("Ração Simples", 50, 20), "petisco": ("Petisco Nobre", 200, 70), "banquete": ("Banquete Lendário", 600, 200)}
+
+
+def _pesos(tier: int) -> list:
+    return [n[3] * BOOST_OVO[tier] ** n[4] for n in NATUREZAS]
+
+
+def chances_natureza(tier: int) -> list:
+    ps = _pesos(tier)
+    return [(n[0], round(100 * w / sum(ps), 1)) for n, w in zip(NATUREZAS, ps)]
+
+
+def bonus_pet(pet: Pet):
+    _, attr, base, _, _ = NAT_POR_NOME[pet.natureza]
+    return attr, max(1, round(base * MULT_OVO[pet.raridade]))
+
+
+def chance_pet(afinidade: int) -> float:
+    return 0.10 + 0.90 * afinidade / AFINIDADE_MAX
+
+
+def pet_afinidade(db: Session, L: dict) -> None:
+    """Pet que acompanhou a luta ganha afinidade pela vitória (chefes valem mais)."""
+    pet = db.get(Pet, L["pet_id"]) if L.get("pet_id") else None
+    if pet:
+        pet.afinidade = min(AFINIDADE_MAX, pet.afinidade + (3 if L["boss"] else 1))
+
+
+class PetCompraReq(BaseModel):
+    telegram_id: int = Field(gt=0)
+    produto: str
+    qtd: int = Field(default=1, ge=1, le=20)
+
+
+class OvoReq(BaseModel):
+    telegram_id: int = Field(gt=0)
+    ovo: str
+
+
+class PetReq(BaseModel):
+    telegram_id: int = Field(gt=0)
+    pet_id: int
+
+
+class AlimentarReq(PetReq):
+    alimento: str
+
+
+def _pet_proprio(db: Session, p: Player, pet_id: int) -> Pet:
+    pet = db.get(Pet, pet_id)
+    if pet is None or pet.player_id != p.id:
+        raise HTTPException(404, "Pet não encontrado.")
+    return pet
+
+
+@router.get("/api/player/{telegram_id}/pets")
+def pets_info(telegram_id: int, db: Session = Depends(get_db)):
+    p = get_player(db, telegram_id)
+    pets = db.scalars(select(Pet).where(Pet.player_id == p.id).order_by(Pet.ativo.desc(), Pet.raridade.desc(), Pet.afinidade.desc())).all()
+    out = []
+    for x in pets:
+        attr, n = bonus_pet(x)
+        out.append({"id": x.id, "especie": x.especie, "raridade": RARIDADE[x.raridade], "tier": x.raridade, "natureza": x.natureza,
+                    "atributo": attr, "bonus": n, "afinidade": x.afinidade, "chance": round(100 * chance_pet(x.afinidade)), "ativo": x.ativo})
+    return {"pets": out, "max": MAX_PETS, "afinidade_max": AFINIDADE_MAX,
+            "ovos": [{"id": k, "nome": n, "tier": t, "preco": pr, "nivel": nv, "pode": p.level >= nv, "qtd": (p.ovos or {}).get(k, 0),
+                      "especies": ESPECIES[t], "naturezas": chances_natureza(t)} for k, (n, t, pr, nv) in OVOS.items()],
+            "alimentos": [{"id": k, "nome": n, "valor": v, "preco": pr, "qtd": (p.alimentos or {}).get(k, 0)}
+                          for k, (n, v, pr) in ALIMENTOS.items()]}
+
+
+@router.post("/api/pet/comprar")
+def pet_comprar(payload: PetCompraReq, db: Session = Depends(get_db)):
+    p = get_player(db, payload.telegram_id, lock=True)
+    if payload.produto in OVOS:
+        nome, _, preco, nivel = OVOS[payload.produto]
+        if p.level < nivel:
+            raise HTTPException(403, f"Exige nível {nivel}.")
+        campo = "ovos"
+    elif payload.produto in ALIMENTOS:
+        nome, _, preco = ALIMENTOS[payload.produto]
+        campo = "alimentos"
+    else:
+        raise HTTPException(404, "Produto não encontrado.")
+    if p.ryos < preco * payload.qtd:
+        raise HTTPException(400, f"Ryos insuficientes: custa {preco * payload.qtd}.")
+    p.ryos -= preco * payload.qtd
+    estoque = dict(getattr(p, campo) or {})
+    estoque[payload.produto] = estoque.get(payload.produto, 0) + payload.qtd
+    setattr(p, campo, estoque)
+    db.commit()
+    return {"mensagem": f"Você comprou {payload.qtd}x {nome}."}
+
+
+@router.post("/api/pet/chocar")
+def pet_chocar(payload: OvoReq, db: Session = Depends(get_db)):
+    p = get_player(db, payload.telegram_id, lock=True)
+    if payload.ovo not in OVOS:
+        raise HTTPException(404, "Ovo desconhecido.")
+    qtd = (p.ovos or {}).get(payload.ovo, 0)
+    if qtd <= 0:
+        raise HTTPException(400, "Você não tem esse ovo.")
+    total = db.scalar(select(func.count()).select_from(Pet).where(Pet.player_id == p.id))
+    if total >= MAX_PETS:
+        raise HTTPException(409, f"Você já tem {MAX_PETS} pets. Solte algum antes de chocar.")
+    _, tier, _, _ = OVOS[payload.ovo]
+    especie = random.choice(ESPECIES[tier])
+    nat = random.choices(NATUREZAS, weights=_pesos(tier))[0]
+    pet = Pet(player_id=p.id, especie=especie, raridade=tier, natureza=nat[0], afinidade=0, ativo=total == 0)
+    db.add(pet)
+    p.ovos = {**p.ovos, payload.ovo: qtd - 1}
+    db.commit()
+    attr, n = bonus_pet(pet)
+    return {"mensagem": f"Nasceu: {especie} {nat[0]} ({RARIDADE[tier]}). Dá +{n} de {attr} quando ativa o bônus."}
+
+
+@router.post("/api/pet/alimentar")
+def pet_alimentar(payload: AlimentarReq, db: Session = Depends(get_db)):
+    p = get_player(db, payload.telegram_id, lock=True)
+    pet = _pet_proprio(db, p, payload.pet_id)
+    if payload.alimento not in ALIMENTOS:
+        raise HTTPException(404, "Alimento desconhecido.")
+    qtd = (p.alimentos or {}).get(payload.alimento, 0)
+    if qtd <= 0:
+        raise HTTPException(400, "Você não tem esse alimento.")
+    if pet.afinidade >= AFINIDADE_MAX:
+        raise HTTPException(400, "A afinidade já está no máximo.")
+    nome, valor, _ = ALIMENTOS[payload.alimento]
+    ganho = min(valor, AFINIDADE_MAX - pet.afinidade)
+    pet.afinidade += ganho
+    p.alimentos = {**p.alimentos, payload.alimento: qtd - 1}
+    db.commit()
+    return {"mensagem": f"{pet.especie} comeu {nome}: +{ganho} de afinidade."}
+
+
+@router.post("/api/pet/ativar")
+def pet_ativar(payload: PetReq, db: Session = Depends(get_db)):
+    p = get_player(db, payload.telegram_id, lock=True)
+    alvo = _pet_proprio(db, p, payload.pet_id)
+    if p.luta:
+        raise HTTPException(409, "Troque de pet depois da luta.")
+    for x in db.scalars(select(Pet).where(Pet.player_id == p.id)):
+        x.ativo = x.id == alvo.id
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/api/pet/soltar")
+def pet_soltar(payload: PetReq, db: Session = Depends(get_db)):
+    p = get_player(db, payload.telegram_id, lock=True)
+    pet = _pet_proprio(db, p, payload.pet_id)
+    if p.luta:
+        raise HTTPException(409, "Termine a luta antes.")
+    nome = pet.especie
+    db.delete(pet)
+    db.commit()
+    return {"mensagem": f"{nome} voltou à natureza."}

@@ -25,6 +25,7 @@ from typing import Optional
 from sqlalchemy import (
     JSON,
     BigInteger,
+    Boolean,
     CheckConstraint,
     DateTime,
     Enum,
@@ -95,6 +96,12 @@ class AttributeType(str, enum.Enum):
     NINJUTSU = "ninjutsu"
     GENJUTSU = "genjutsu"
     AGILIDADE = "agilidade"
+    FORCA = "forca"
+    INTELIGENCIA = "inteligencia"
+    CHAKRA_ATTR = "chakra_attr"
+    DEFESA = "defesa"
+    VIGOR = "vigor"
+    DESTREZA = "destreza"
 
 
 class ItemType(str, enum.Enum):
@@ -193,6 +200,21 @@ class Player(TimestampMixin, Base):
     luta: Mapped[Optional[dict]] = mapped_column(JSON)
     # Início do período em que este Anbu supera em fama o Sannin mais fraco (7 dias seguidos tomam a cadeira)
     sannin_desde: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    # Provação de ingresso em um clã (etapa atual e progresso dela) e pontos de clã
+    prov_clan_id: Mapped[Optional[int]] = mapped_column(Integer)
+    prov_etapa: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    prov_prog: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    clan_pontos: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # Caminho do líder: reliquia, poder ou segredo; técnica secreta aprendida
+    caminho: Mapped[Optional[str]] = mapped_column(String(12))
+    caminho_prog: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    caminho_ok: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    tecnica: Mapped[Optional[str]] = mapped_column(String(48))
+    # Poções em estoque: {id da poção: quantidade}
+    pocoes: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    # Ovos e alimentos de pet em estoque: {id: quantidade}
+    ovos: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    alimentos: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
 
     # Chaves estrangeiras
     village_id: Mapped[int] = mapped_column(
@@ -291,6 +313,11 @@ class Clan(Base):
         Enum(AttributeType, name="attribute_type"), nullable=False
     )
     bonus_val: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    # Liderança: sem jogador líder, o líder NPC (clas_dados.py) comanda. Disputa de 7 dias por pontos de clã.
+    lider_id: Mapped[Optional[int]] = mapped_column(Integer)
+    desafiante_id: Mapped[Optional[int]] = mapped_column(Integer)
+    desafio_desde: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    reliquia_dada: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)  # relíquia única no mundo
 
     members: Mapped[list["Player"]] = relationship(back_populates="clan")
 
@@ -442,3 +469,33 @@ class PlayerMission(Base):
     mission: Mapped["Mission"] = relationship()
 
     __table_args__ = (Index("ix_player_missions_player_status", "player_id", "status"),)
+
+
+# ─────────────────────────────────────────────────────────────
+# Mercado entre jogadores: o item sai da mochila do vendedor (custódia) e volta se o anúncio for cancelado
+# ─────────────────────────────────────────────────────────────
+class MarketListing(Base):
+    __tablename__ = "market_listings"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    seller_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    item_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    item_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    bonus: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    preco: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+# ─────────────────────────────────────────────────────────────
+# Pets: nascem de ovos, têm uma única natureza (que define o atributo que dão ao dono) e afinidade de 0 a 5000
+# ─────────────────────────────────────────────────────────────
+class Pet(Base):
+    __tablename__ = "pets"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    player_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    especie: Mapped[str] = mapped_column(String(48), nullable=False)
+    raridade: Mapped[int] = mapped_column(Integer, nullable=False)  # 0 comum, 1 incomum, 2 raro, 3 lendário
+    natureza: Mapped[str] = mapped_column(String(24), nullable=False)
+    afinidade: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    ativo: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

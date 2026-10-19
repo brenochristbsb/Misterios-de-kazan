@@ -38,6 +38,8 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from clas_dados import CLANS
 from sqlalchemy import create_engine, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload, sessionmaker
@@ -530,9 +532,7 @@ def seed_initial_data() -> None:
             Village(name="Vila da Montanha de Jade", npc_kage="Gensai Pedra", description="Resistência e defesa inabaláveis. Kage: Gensai Pedra."),
             Village(name="Vila da Lua Cinzenta", npc_kage="Selene Véu", description="Ilusionistas que agem à noite. Kage: Selene Véu."),
             Clan(name="Sem clã", passiva_atributo=AttributeType.TAIJUTSU, bonus_val=0.0),
-            Clan(name="Clã do Olho Astral", passiva_atributo=AttributeType.GENJUTSU, bonus_val=0.20),
-            Clan(name="Clã das Sombras Abissais", passiva_atributo=AttributeType.AGILIDADE, bonus_val=0.15),
-            Clan(name="Clã das Chamas", passiva_atributo=AttributeType.NINJUTSU, bonus_val=0.10),
+            *[Clan(name=c[1], passiva_atributo=AttributeType(c[2]), bonus_val=c[3]) for c in CLANS],
             Summon(name="Grande Sapo Guerreiro", level=1, bonus_taijutsu=3, bonus_ninjutsu=1),
             Summon(name="Serpente Abissal", level=1, bonus_taijutsu=1, bonus_ninjutsu=3),
             Mission(title="Recuperar o gato fujão", rank_required=MissionRank.D, exp_reward=20, ryos_reward=50, duration_seconds=60),
