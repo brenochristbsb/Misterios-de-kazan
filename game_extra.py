@@ -13,6 +13,7 @@ from typing import Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from clas_dados import CLANS
+from vilas_dados import VILAS
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, object_session
 
@@ -39,6 +40,13 @@ _RAW_MAPS = [
 MAPS = [{"id": i, "nome": n, "min_level": a, "max_level": b, "perigo": p, "tipo": t, "itens": it,
          "inimigo": "Ninja da região", "chefe": c} for i, n, a, b, p, t, it, c in _RAW_MAPS]
 MAPS_BY_ID = {m["id"]: m for m in MAPS}
+vila_idx = lambda p: (p.village_id - 1) % len(VILAS)  # as vilas são semeadas na ordem de vilas_dados.py
+
+
+def mapa_vila(mid: int, vi: int) -> dict:
+    """Mapa do nível `mid` com nome, inimigo e chefe da vila: a dificuldade é igual, só a ambientação muda."""
+    nome, inimigo, chefe = VILAS[vi]["mapas"][mid - 1]
+    return {**MAPS_BY_ID[mid], "nome": nome, "inimigo": inimigo, "chefe": chefe}
 
 # Requisitos de ingresso por clã (nível, rank). Clãs fora da lista usam o padrão.
 CLAN_DATA = {c[1]: {"vila": c[0], "nome": c[1], "atr": c[2], "bonus": c[3], "nivel": c[4], "rank": c[5], "historia": c[6],
@@ -138,7 +146,7 @@ def extras(telegram_id: int, db: Session = Depends(get_db)):
                        for ps in p.player_summons],
         "mapas": [{"id": m["id"], "nome": m["nome"], "min_level": m["min_level"], "max_level": m["max_level"],
                    "perigo": m["perigo"], "tipo": m["tipo"], "chefe": m["chefe"],
-                   "itens": [i[0] for i in m["itens"]]} for m in MAPS],
+                   "itens": [i[0] for i in m["itens"]]} for m in [mapa_vila(x["id"], vila_idx(p)) for x in MAPS]],
         "clas": [{"id": c.id, "nome": c.name, "passiva": c.passiva_atributo.value, "bonus": c.bonus_val,
                   "min_level": clan_req(c)[0], "min_rank": clan_req(c)[1]} for c in clans],
     }
@@ -287,19 +295,10 @@ def fim_luta(db: Session, p: Player, L: dict, won: bool) -> dict:
                                          status_bonus={attr: 2 * mp["perigo"]}))
                     res["drops"].append(nome)
             if L["on_mission"]:  # coleta: 70% por vitória; caçada: 1 por vitória; procurado: só ao vencer o chefe
-                mis = mission_for(p.journey + 1)
+                mis = mission_for(p.journey + 1, vila_idx(p))
                 gain = {"coleta": int(random.random() < 0.7), "caca": 1, "busca": int(L["boss"])}[mis["tipo"]]
                 p.journey_prog = min(mis["qtd"], p.journey_prog + gain)
                 res["missao"] = {"progresso": p.journey_prog, "qtd": mis["qtd"]}
-            link = active_summon_link(p)
-            if link and link.level < 10 and random.random() < 0.3:
-                link.level += 1
-            owned = {ps.summon_id for ps in p.player_summons}
-            pool = db.scalars(select(Summon).where(Summon.id.not_in(owned))).all()
-            if pool and random.random() < (0.15 if L["boss"] else 0.05):
-                s = random.choice(pool)
-                db.add(PlayerSummon(player_id=p.id, summon_id=s.id, level=1, is_active=not owned))
-                res["novo_pet"] = s.name
     res["niveis_ganhos"] = apply_exp(p, res["exp"])
     return res
 
@@ -313,7 +312,7 @@ def luta_atual(telegram_id: int, db: Session = Depends(get_db)):
 def explore(payload: ExploreReq, db: Session = Depends(get_db)):
     """Explorar gasta 1 de energia e abre uma luta por turnos contra um inimigo do mapa."""
     player = get_player(db, payload.telegram_id, lock=True)
-    mp = MAPS_BY_ID.get(payload.map_id)
+    mp = mapa_vila(payload.map_id, vila_idx(player)) if payload.map_id in MAPS_BY_ID else None
     if player.luta:
         raise HTTPException(409, "Você já está em uma luta.")
     if mp is None:
@@ -325,7 +324,7 @@ def explore(payload: ExploreReq, db: Session = Depends(get_db)):
     if player.vida_atual < 10:
         raise HTTPException(400, "Vida baixa demais. Descanse antes de explorar.")
 
-    mis = mission_for(player.journey + 1)
+    mis = mission_for(player.journey + 1, vila_idx(player))
     on_mission = mis["mapa"] == mp["id"] and player.level >= mis["req_nivel"] and player.journey_prog < mis["qtd"]
     boss = random.random() < (0.5 if on_mission and mis["tipo"] == "busca" else 0.15)
     power = int((2 * mp["perigo"] + 3) * (1.25 if boss else 1))
@@ -477,35 +476,28 @@ def rest(payload: RestReq, db: Session = Depends(get_db)):
 # ───────── Jornada: missões por tarefa (coleta, caçada, procurado), sem tempo ─────────
 EXAMES = {6: ("Exame Genin", 5, "Genin"), 16: ("Exame Chunin", 12, "Chunin"),
           32: ("Exame Jonin", 20, "Jonin"), 54: ("Exame Anbu", 30, "Anbu")}
-RECURSOS = {1: "Ervas de Treino", 2: "Brotos de Bambu Lunar", 3: "Cristais de Eco", 4: "Lodo Negro", 5: "Cacos de Geada"}
-# História do primeiro arco: o Corvo Cinzento e o pergaminho partido
-STORY = {
-    1: ("O Pergaminho Partido", "Na biblioteca da academia, o selo de um pergaminho da vila foi encontrado partido. O mestre pede ervas para restaurá-lo."),
-    2: ("Rastros no Bosque", "Lobos famintos rondam o bosque ao lado da academia. Alguém os está atraindo para longe da floresta."),
-    3: ("O Procurado Cinzento", "O Livro Bingo da vila registra um nome novo: um chefe que serve ao misterioso Corvo Cinzento."),
-    4: ("Penas Negras", "Penas negras surgem nos dormitórios. Reúna amostras para o mestre rastrear o mensageiro."),
-    5: ("Voz na Neblina", "O Corvo mandou recrutas testar as defesas da academia. Detenha-os antes que cheguem lá."),
-    6: ("Exame Genin", "O diretor reúne os melhores alunos. Provem que merecem o protetor de testa de Genin."),
-    7: ("Além dos Muros", "Como Genin, sua primeira ordem é seguir a trilha do Corvo até os bambuzais."),
-    8: ("Ecos do Bambuzal", "Os bambus guardam fragmentos de um mapa. Colete o que puder antes que o Corvo o faça."),
-}
 TIPO_NOME = {"coleta": "Coleta", "caca": "Caçada", "busca": "Procurado"}
 
 
-def mission_for(seq: int) -> dict:
-    """Missão nº `seq` (infinita). Tipos em rodízio: coleta, caçada e procurado do Livro Bingo. Exames promovem o rank."""
+def mission_for(seq: int, vi: int = 0) -> dict:
+    """Missão nº `seq` (infinita). Tipos em rodízio: coleta, caçada e procurado do Livro Bingo. Exames promovem o rank.
+    Números iguais em todas as vilas; mapas, recursos, procurados e arcos de história são os da vila `vi`."""
+    v = VILAS[vi]
     exame = EXAMES.get(seq)
     req = exame[1] if exame else max(1, int(seq * 0.55))
     tipo = "caca" if exame else ("busca", "coleta", "caca")[seq % 3]
-    mp = next((m for m in reversed(MAPS) if m["min_level"] <= req), MAPS[0])
+    mid = next((m["id"] for m in reversed(MAPS) if m["min_level"] <= req), 1)
+    mp = mapa_vila(mid, vi)
     qtd = {"coleta": 4 + seq // 4, "caca": 5 + seq // 3, "busca": 1}[tipo]
-    objetivo = {"coleta": f"Colete {qtd} {RECURSOS[mp['id']]} em {mp['nome']}",
+    objetivo = {"coleta": f"Colete {qtd} {v['recursos'][mid - 1]} em {mp['nome']}",
                 "caca": f"Derrote {qtd} inimigos em {mp['nome']}",
                 "busca": f"Capture {mp['chefe']}, procurado em {mp['nome']}"}[tipo]
-    titulo, historia = STORY.get(seq) or (
-        (exame[0], f"O conselho avaliou seus feitos e abriu o {exame[0].lower()}.") if exame else
-        (f"{TIPO_NOME[tipo]}: {mp['nome']}", "Novos rumores chegam à vila. Cumpra a tarefa e descubra o que o Corvo Cinzento planeja."))
-    return {"seq": seq, "titulo": titulo, "historia": historia, "tipo": tipo, "mapa": mp["id"], "objetivo": objetivo,
+    arco, sinopse = v["arcos"][((seq - 1) // 6) % len(v["arcos"])]
+    if exame:
+        titulo, historia = exame[0], f"O conselho de {v['nome']} avaliou seus feitos e abriu o {exame[0].lower()}."
+    else:
+        titulo, historia = f"{arco}: {TIPO_NOME[tipo]}", sinopse
+    return {"seq": seq, "titulo": titulo, "historia": historia, "tipo": tipo, "mapa": mid, "objetivo": objetivo,
             "qtd": qtd, "req_nivel": req, "exame": exame[2] if exame else None, "rank": "DCBAS"[min(4, seq // 12)],
             "exp": 10 + 4 * seq, "ryos": 20 + 8 * seq, "fama": (10 + seq) * (3 if tipo == "busca" else 1)}
 
@@ -520,14 +512,14 @@ class JornadaDone(BaseModel):
 def jornada(telegram_id: int, db: Session = Depends(get_db)):
     """Missão atual e progresso. Missões já concluídas não são listadas."""
     p = get_player(db, telegram_id)
-    m = mission_for(p.journey + 1)
+    m = mission_for(p.journey + 1, vila_idx(p))
     return {**m, "progresso": p.journey_prog, "bloqueada": p.level < m["req_nivel"], "pronta": p.journey_prog >= m["qtd"]}
 
 
 @router.post("/api/jornada/entregar")
 def jornada_entregar(payload: JornadaDone, db: Session = Depends(get_db)):
     p = get_player(db, payload.telegram_id, lock=True)
-    m = mission_for(p.journey + 1)
+    m = mission_for(p.journey + 1, vila_idx(p))
     if p.journey_prog < m["qtd"]:
         raise HTTPException(409, "O objetivo ainda não foi cumprido.")
     sombra = payload.escolha == "sombra"
@@ -872,12 +864,12 @@ def dar_atributo(p: Player, attr: str, n: int) -> None:
         p.chakra_atual += 4 * n
 
 
-def etapa_txt(tok: str, d: dict) -> str:
+def etapa_txt(tok: str, d: dict, vi: int) -> str:
     if tok[0] == "k":
         m, n = tok[1:].split("x")
-        return f"Vencer {n} lutas em {MAPS_BY_ID[int(m)]['nome']}"
+        return f"Vencer {n} lutas em {mapa_vila(int(m), vi)['nome']}"
     if tok[0] == "b":
-        mp = MAPS_BY_ID[int(tok[1:])]
+        mp = mapa_vila(int(tok[1:]), vi)
         return f"Derrotar o chefe de {mp['nome']} ({mp['chefe']})"
     if tok[0] == "f":
         return f"Alcançar {tok[1:]} de fama"
@@ -916,7 +908,7 @@ def clan_info(telegram_id: int, db: Session = Depends(get_db)):
         tok = d["etapas"][p.prov_etapa]
         prova = {"clan": pc.name, "prog": p.prov_prog, "tipo": tok[0], "acao": tok[0] in "td",
                  "meta": int(tok[1:].split("x")[1]) if tok[0] == "k" else 1 if tok[0] == "b" else 0,
-                 "passos": [{"txt": etapa_txt(t, d), "estado": "feito" if i < p.prov_etapa else "atual" if i == p.prov_etapa else "pendente"}
+                 "passos": [{"txt": etapa_txt(t, d, vila_idx(p)), "estado": "feito" if i < p.prov_etapa else "atual" if i == p.prov_etapa else "pendente"}
                             for i, t in enumerate(d["etapas"])]}
     catalogo = []
     for c in db.scalars(select(Clan).where(Clan.name != NO_CLAN_NAME)):

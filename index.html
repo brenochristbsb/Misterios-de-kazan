@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
 <title>Shadow Clan RPG</title>
+<meta name="theme-color" content="#0c0b0d">
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <script src="https://cdn.tailwindcss.com"></script>
 <link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@600;800&display=swap" rel="stylesheet">
@@ -36,6 +37,44 @@
   nav button{display:flex;flex-direction:column;align-items:center;gap:.15rem;padding:.55rem 0;font-size:.62rem;color:#ece6da80;border-top:2px solid transparent}
   nav button.on{color:#d9a93f;border-top-color:#d9a93f}
   nav svg{width:1.4rem;height:1.4rem;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+  /* ───── Polimento visual: atmosfera, profundidade, brilho nas barras e transições ───── */
+  body{background:radial-gradient(ellipse 85% 45% at 50% -6%,#3b1519 0,transparent 62%),radial-gradient(circle at 90% 7%,rgba(217,169,63,.17) 0,rgba(217,169,63,0) 17%),radial-gradient(ellipse at 50% 120%,#1a0d12 0,transparent 55%),#0c0b0d fixed;font-feature-settings:"tnum"}
+  header{background:linear-gradient(180deg,rgba(14,12,15,.97),rgba(12,11,13,.86))!important;box-shadow:0 8px 24px rgba(0,0,0,.45)}
+  #hAv{font-size:1.65rem}
+  .card{background:linear-gradient(165deg,#1e191f 0%,#141116 72%);border:1px solid #2f282f;box-shadow:0 12px 30px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.045)}
+  h2::before{content:"";display:inline-block;width:.2rem;height:.95em;margin-right:.55rem;vertical-align:-.12em;border-radius:2px;background:linear-gradient(#e8684f,#a82a1a)}
+  .bar{height:.5rem;background:#231e24;box-shadow:inset 0 1px 3px rgba(0,0,0,.65)}
+  .bar>i{transition:width .6s cubic-bezier(.2,.8,.2,1)}
+  .bar>i.bg-vermil,.bar>i.to-vermil{background:linear-gradient(90deg,#8e1d12,#e0452c);box-shadow:0 0 9px rgba(224,69,44,.5)}
+  .bar>i.bg-chakra{background:linear-gradient(90deg,#2d6f8c,#7cc7e6);box-shadow:0 0 9px rgba(90,167,199,.45)}
+  .bar>i.bg-gold{background:linear-gradient(90deg,#9d7119,#f0c860);box-shadow:0 0 9px rgba(217,169,63,.4)}
+  .btn{background:linear-gradient(180deg,#d83f29,#aa2817);box-shadow:0 6px 16px rgba(200,50,31,.28),inset 0 1px 0 rgba(255,255,255,.2);letter-spacing:.01em}
+  .btn.btn-gold{background:linear-gradient(180deg,#eac15a,#c4922a);box-shadow:0 6px 16px rgba(217,169,63,.24),inset 0 1px 0 rgba(255,255,255,.32)}
+  .btn.btn-ghost{background:rgba(217,169,63,.06);box-shadow:none}
+  .btn:disabled{box-shadow:none;filter:grayscale(.45)}
+  .chip{background:#17141a;transition:border-color .15s,background .15s,transform .1s}
+  .chip:active{transform:scale(.94)}.chip:disabled{opacity:.35}
+  .chip.on{box-shadow:0 0 12px rgba(217,169,63,.2)}
+  .tag{background:rgba(255,255,255,.04)}
+  .tag.gold{background:rgba(217,169,63,.1)}.tag.red{background:rgba(200,50,31,.12)}
+  .inp:focus{border-color:#d9a93f;box-shadow:0 0 0 3px rgba(217,169,63,.15)}
+  .border-vermil{border-color:#c8321f!important;box-shadow:0 0 0 1px rgba(200,50,31,.35),0 0 28px rgba(200,50,31,.22),0 12px 30px rgba(0,0,0,.5)}
+  .border-gold{border-color:#d9a93f!important;box-shadow:0 0 22px rgba(217,169,63,.16),0 12px 30px rgba(0,0,0,.5)}
+  details>summary{list-style:none;cursor:pointer}details>summary::-webkit-details-marker{display:none}
+  details>summary::before{content:"▸";display:inline-block;width:1rem;color:#d9a93f}details[open]>summary::before{content:"▾"}
+  nav{background:linear-gradient(180deg,rgba(20,16,21,.94),rgba(9,8,10,.99))!important;box-shadow:0 -8px 24px rgba(0,0,0,.45)}
+  nav button{position:relative;transition:color .2s}
+  nav button.on{color:#f0c860;border-top-color:transparent}
+  nav button.on::before{content:"";position:absolute;top:0;left:20%;right:20%;height:2px;border-radius:2px;background:linear-gradient(90deg,transparent,#d9a93f,transparent);box-shadow:0 0 12px #d9a93f}
+  nav button svg{transition:transform .2s,filter .2s}
+  nav button.on svg{transform:translateY(-1px) scale(1.1);filter:drop-shadow(0 0 6px rgba(217,169,63,.55))}
+  .tab:not(.hidden){animation:tabin .28s ease both}
+  @keyframes tabin{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+  .foe{animation:foe 2.4s ease-in-out infinite}
+  @keyframes foe{0%,100%{box-shadow:0 0 0 3px #0c0b0d,0 6px 16px rgba(200,50,31,.35)}50%{box-shadow:0 0 0 3px #0c0b0d,0 6px 26px rgba(200,50,31,.7)}}
+  .log-me{color:#e8c870}.log-crit{font-weight:700;color:#f0c860}
+  ::-webkit-scrollbar{width:6px}::-webkit-scrollbar-thumb{background:#2f282f;border-radius:6px}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
 </head>
 <body class="min-h-screen font-sans">
@@ -203,17 +242,12 @@ function renderPerfil() {
       <div class="flex-1 min-w-0"><div class="text-sm font-semibold truncate">${esc(i.nome)} <span class="tag">${esc(i.tipo)}</span></div>
       <div class="text-xs text-gold">${esc(bonusTxt(i.bonus))}</div></div>
       <button class="chip ${i.equipado ? 'on' : ''}" onclick="equip(${i.id}, ${!i.equipado})">${i.equipado ? 'Equipado' : 'Equipar'}</button></div>`).join('');
-  const pets = X.invocacoes.map(s => `<div class="flex items-center gap-2 py-2 border-t border-line">
-      <div class="flex-1"><div class="text-sm font-semibold">${esc(s.nome)} <span class="tag">nível ${s.nivel}</span></div>
-      <div class="text-xs text-gold">+${s.bonus_taijutsu} taijutsu e +${s.bonus_ninjutsu} ninjutsu, 20% a mais por nível</div></div>
-      <button class="chip ${s.ativo ? 'on' : ''}" onclick="activateSummon(${s.id})">${s.ativo ? 'Ativa' : 'Ativar'}</button></div>`).join('');
   $('tab-perfil').innerHTML = `
     <div class="card space-y-4"><div class="flex items-center justify-between"><h2>Atributos</h2>
       <div class="flex gap-1.5">${[1, 5, 10].map(n => `<button class="chip ${n === reps ? 'on' : ''}" onclick="setReps(${n})">×${n}</button>`).join('')}</div></div>
       ${rows}<p class="lbl">Cada treino custa ${25 * reps} ryos e rende ${3 * reps} de XP.</p></div>
     <div class="card"><h2 class="mb-3">Equipamento</h2><div class="grid grid-cols-3 gap-2">${slots}</div>${bag ? `<div class="mt-3">${bag}</div>` : '<p class="lbl mt-3">Nada na mochila. Explore mapas para conseguir itens.</p>'}</div>
-    <div class="card"><h2>Avatar</h2><div class="grid grid-cols-6 gap-2 mt-3">${X.avatares.map(a => `<button class="round !w-full !h-11 !text-2xl ${a === P.avatar ? 'bg-gold/20' : ''}" aria-label="Avatar ${a}" onclick="act('/api/avatar', { avatar: '${a}' })">${a}</button>`).join('')}</div></div>
-    <div class="card"><h2>Invocações</h2>${pets || '<p class="lbl mt-2">Nenhuma ainda. Chefes de mapa podem soltar contratos.</p>'}</div>`;
+    <div class="card"><h2>Avatar</h2><div class="grid grid-cols-6 gap-2 mt-3">${X.avatares.map(a => `<button class="round !w-full !h-11 !text-2xl ${a === P.avatar ? 'bg-gold/20' : ''}" aria-label="Avatar ${a}" onclick="act('/api/avatar', { avatar: '${a}' })">${a}</button>`).join('')}</div></div>`;
 }
 const train = k => act('/api/train', { atributo: k, repeticoes: reps }, r => `${k} subiu para ${r.novo_valor}` + (r.niveis_ganhos ? `. Nível ${r.level}!` : ''));
 const equip = (id, on) => act('/api/inventory/equip', { item_id: id, equipar: on });
@@ -249,7 +283,7 @@ function renderMapas() {
   const bt = battle ? `<div class="card border-${battle.vitoria ? 'gold' : 'vermil'}"><div class="flex justify-between items-center">
       <h2>${battle.fuga ? 'Você fugiu de' : battle.vitoria ? 'Vitória contra' : 'Derrota contra'} ${esc(battle.inimigo)}</h2>${battle.chefe ? '<span class="tag red">Chefe</span>' : ''}</div>
       <div class="text-xs text-paper/70 mt-2 max-h-28 overflow-y-auto">${battle.log.map(esc).join('<br>')}</div>
-      <div class="text-sm mt-2">+${battle.exp} XP${battle.ryos ? `, +${fmt(battle.ryos)} ryos` : ''}${battle.drops.length ? `. Itens: ${battle.drops.map(esc).join(', ')}` : ''}${battle.novo_pet ? `. Nova invocação: ${esc(battle.novo_pet)}` : ''}${battle.niveis_ganhos ? '. Subiu de nível!' : ''}</div>
+      <div class="text-sm mt-2">+${battle.exp} XP${battle.ryos ? `, +${fmt(battle.ryos)} ryos` : ''}${battle.drops.length ? `. Itens: ${battle.drops.map(esc).join(', ')}` : ''}${battle.niveis_ganhos ? '. Subiu de nível!' : ''}</div>
       ${battle.missao ? `<div class="text-xs text-gold mt-1">Missão: ${battle.missao.progresso} de ${battle.missao.qtd}</div>` : ''}
       ${battle.xp_reduzido ? '<p class="text-xs text-vermil mt-1">Você já passou da faixa deste mapa: o XP é reduzido.</p>' : ''}</div>` : '';
   $('tab-mapas').innerHTML = LU ? lutaHtml() : bt + X.mapas.map(m => {
@@ -281,7 +315,7 @@ async function agir(acao, item) {
 }
 function lutaHtml() {
   const l = LU, pc = (a, b) => Math.max(0, Math.round(100 * a / b)) + '%', sem = P.chakra.atual + (l.reserva || 0) < l.custo;
-  return `<div class="card border-vermil"><div class="flex justify-between items-center"><h2>${esc(l.inimigo)}</h2>
+  return `<div class="card border-vermil"><div class="flex justify-between items-center"><div class="flex items-center gap-3 min-w-0"><div class="seal foe w-12 h-12 text-2xl shrink-0">${l.chefe ? '👹' : l.tipo === 'pvp' ? '⚔️' : l.tipo === 'clan' ? '🏯' : '🐺'}</div><h2 class="truncate">${esc(l.inimigo)}</h2></div>
       ${l.chefe ? '<span class="tag red">Chefe</span>' : l.tipo === 'pvp' ? '<span class="tag gold">Duelo</span>' : ''}</div>
     <div class="flex justify-between text-xs mt-3 mb-1"><span>Vida do inimigo</span><span>${l.hp}/${l.hp_max}</span></div>
     <div class="bar"><i class="bg-vermil" style="width:${pc(l.hp, l.hp_max)}"></i></div>
@@ -289,7 +323,7 @@ function lutaHtml() {
       <div><div class="flex justify-between mb-1"><span>Chakra</span><span>${P.chakra.atual}/${P.chakra.max}</span></div><div class="bar"><i class="bg-chakra" style="width:${pc(P.chakra.atual, P.chakra.max)}"></i></div></div></div>
     ${l.escudo || l.reserva ? `<div class="text-xs text-gold mt-2">Bônus de vigor e chakra: escudo de ${l.escudo} de vida e reserva de ${l.reserva} de chakra.</div>` : ''}
     ${l.pet ? `<div class="text-xs text-gold mt-1">${esc(l.pet.nome)} ativo: +${l.pet.n} ${esc(attrNome(l.pet.attr))}.</div>` : ''}
-    <div class="text-xs text-paper/70 mt-3 space-y-1 max-h-36 overflow-y-auto">${l.log.map(x => `<div>${esc(x)}</div>`).join('')}</div>
+    <div class="text-xs text-paper/70 mt-3 space-y-1 max-h-36 overflow-y-auto">${l.log.map(x => `<div class="${/^Você/.test(x) ? 'log-me' : ''} ${/crítico/.test(x) ? 'log-crit' : ''}">${esc(x)}</div>`).join('')}</div>
     <div class="grid grid-cols-2 gap-2 mt-4"><button class="btn" onclick="agir('fisico')">Golpe físico</button>
       <button class="btn" ${sem ? 'disabled' : ''} onclick="agir('ninjutsu')">Ninjutsu (${l.custo})</button>
       <button class="btn" ${sem ? 'disabled' : ''} onclick="agir('genjutsu')">Genjutsu (${l.custo})</button>

@@ -40,6 +40,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from clas_dados import CLANS
+from vilas_dados import VILAS
 from sqlalchemy import create_engine, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload, sessionmaker
@@ -524,13 +525,7 @@ def seed_initial_data() -> None:
         if db.scalar(select(Village.id).limit(1)) is not None:
             return
         db.add_all([
-            Village(name="Vila das Chamas Eternas", npc_kage="Ryuko Hanabi", description="Especialistas em combate ofensivo e determinação. Kage: Ryuko Hanabi."),
-            Village(name="Vila da Névoa Oculta", npc_kage="Ayame Neblina", description="Mestres no silêncio e nas táticas. Kage: Ayame Neblina."),
-            Village(name="Vila do Vento Prateado", npc_kage="Kaito Brisa", description="Velocidade, agilidade e esquiva. Kage: Kaito Brisa."),
-            Village(name="Vila da Maré Profunda", npc_kage="Nami Abissal", description="Estrategistas do mar e da paciência. Kage: Nami Abissal."),
-            Village(name="Vila do Trovão Dourado", npc_kage="Raizen Relâmpago", description="Golpes rápidos e disciplina de ferro. Kage: Raizen Relâmpago."),
-            Village(name="Vila da Montanha de Jade", npc_kage="Gensai Pedra", description="Resistência e defesa inabaláveis. Kage: Gensai Pedra."),
-            Village(name="Vila da Lua Cinzenta", npc_kage="Selene Véu", description="Ilusionistas que agem à noite. Kage: Selene Véu."),
+            *[Village(name=v["nome"], npc_kage=v["kage"], description=f'{v["historia"]} Kage: {v["kage"]}.') for v in VILAS],
             Clan(name="Sem clã", passiva_atributo=AttributeType.TAIJUTSU, bonus_val=0.0),
             *[Clan(name=c[1], passiva_atributo=AttributeType(c[2]), bonus_val=c[3]) for c in CLANS],
             Summon(name="Grande Sapo Guerreiro", level=1, bonus_taijutsu=3, bonus_ninjutsu=1),
