@@ -76,6 +76,7 @@ class NinjaRank(str, enum.Enum):
     CHUNIN = "Chunin"
     JONIN = "Jonin"
     ANBU = "Anbu"
+    SANNIN = "Sannin"  # só 3 no mundo; só eles disputam o cargo de Kage
     KAGE = "Kage"
 
 
@@ -180,6 +181,18 @@ class Player(TimestampMixin, Base):
     ninjutsu: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
     genjutsu: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
     agilidade: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
+    # Atributos de combate: força, inteligência (controle de chakra e missões secretas), reserva de chakra,
+    # defesa, vigor (vida) e destreza (armas e crítico)
+    forca: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
+    inteligencia: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
+    chakra_attr: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
+    defesa: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
+    vigor: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
+    destreza: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
+    # Luta por turnos em andamento (inimigo, vida, chakra e log); None quando não há luta
+    luta: Mapped[Optional[dict]] = mapped_column(JSON)
+    # Início do período em que este Anbu supera em fama o Sannin mais fraco (7 dias seguidos tomam a cadeira)
+    sannin_desde: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
     # Chaves estrangeiras
     village_id: Mapped[int] = mapped_column(
@@ -249,7 +262,7 @@ class Village(Base):
 
     # Kage NPC enquanto nenhum jogador ocupa o cargo; desafiante e início da disputa (7 dias seguidos com mais fama)
     npc_kage: Mapped[Optional[str]] = mapped_column(String(64))
-    npc_fama: Mapped[int] = mapped_column(Integer, default=1500, nullable=False)
+    npc_fama: Mapped[int] = mapped_column(Integer, default=20000, nullable=False)
     challenger_id: Mapped[Optional[int]] = mapped_column(Integer)
     challenger_since: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 

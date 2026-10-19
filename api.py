@@ -84,7 +84,7 @@ def get_db() -> Iterator[Session]:
 # ─────────────────────────────────────────────────────────────
 # Regras de jogo (constantes fáceis de balancear)
 # ─────────────────────────────────────────────────────────────
-ATTRS = ("taijutsu", "ninjutsu", "genjutsu", "agilidade")
+ATTRS = ("taijutsu", "ninjutsu", "genjutsu", "agilidade", "forca", "inteligencia", "chakra_attr", "defesa", "vigor", "destreza")
 
 # Promoção automática de rank por nível (Kage é concedido à parte)
 RANK_BY_LEVEL = [(1, NinjaRank.ESTUDANTE), (5, NinjaRank.GENIN), (12, NinjaRank.CHUNIN),
@@ -101,6 +101,7 @@ MAX_MISSION_RANK = {
     NinjaRank.CHUNIN: MissionRank.B,
     NinjaRank.JONIN: MissionRank.A,
     NinjaRank.ANBU: MissionRank.S,
+    NinjaRank.SANNIN: MissionRank.S,
     NinjaRank.KAGE: MissionRank.S,
 }
 
@@ -108,7 +109,7 @@ MAX_MISSION_RANK = {
 TRAIN_CHAKRA_COST = 0  # chakra só é gasto em luta
 TRAIN_RYOS_COST = 25
 TRAIN_ATTR_GAIN = 1
-TRAIN_EXP_GAIN = 15
+TRAIN_EXP_GAIN = 3
 
 # Guerra de guildas
 WAR_CHAKRA_COST = 20
@@ -118,8 +119,8 @@ WAR_ROLL_RANGE = (0.85, 1.15)  # fator de sorte aplicado a ataque e defesa
 
 
 def exp_for_level(level: int) -> int:
-    """EXP total necessária para ALCANÇAR `level` (nível 1 = 0, nível 2 = 100, nível 3 = 300...)."""
-    return 50 * level * (level - 1)
+    """EXP total necessária para ALCANÇAR `level` (nível 1 = 0, nível 2 = 250, nível 3 = 1.000...)."""
+    return 250 * (level - 1) ** 2  # nível 2 = 250 XP, nível 5 = 4.000, nível 10 = 20.250
 
 
 def apply_exp(player: Player, amount: int) -> int:
@@ -193,6 +194,12 @@ class Attributes(BaseModel):
     ninjutsu: int
     genjutsu: int
     agilidade: int
+    forca: int
+    inteligencia: int
+    chakra_attr: int
+    defesa: int
+    vigor: int
+    destreza: int
 
 
 class Resource(BaseModel):
@@ -262,15 +269,20 @@ class RegisterRequest(BaseModel):
     # Letras, números, _ e espaços (aceita acentos)
     ninja_name: str = Field(min_length=3, max_length=32, pattern=r"^[\w ]+$")
     village_id: int = Field(gt=0)
-    # Distribua exatamente 5 pontos entre os atributos (todos começam em 5)
-    taijutsu: int = Field(default=0, ge=0, le=5)
-    ninjutsu: int = Field(default=0, ge=0, le=5)
-    genjutsu: int = Field(default=0, ge=0, le=5)
+    # Estilo principal (+3) e 5 pontos para distribuir entre os 7 atributos de combate (todos começam em 5)
+    estilo: Literal["taijutsu", "ninjutsu", "genjutsu"] = "taijutsu"
     agilidade: int = Field(default=0, ge=0, le=5)
+    forca: int = Field(default=0, ge=0, le=5)
+    inteligencia: int = Field(default=0, ge=0, le=5)
+    chakra_attr: int = Field(default=0, ge=0, le=5)
+    defesa: int = Field(default=0, ge=0, le=5)
+    vigor: int = Field(default=0, ge=0, le=5)
+    destreza: int = Field(default=0, ge=0, le=5)
 
     @model_validator(mode="after")
     def check_points(self):
-        if self.taijutsu + self.ninjutsu + self.genjutsu + self.agilidade != 5:
+        total = sum(getattr(self, k) for k in ("agilidade", "forca", "inteligencia", "chakra_attr", "defesa", "vigor", "destreza"))
+        if total != 5:
             raise ValueError("Distribua exatamente 5 pontos entre os atributos.")
         return self
 
@@ -281,6 +293,12 @@ class TrainableAttribute(str, Enum):
     NINJUTSU = "ninjutsu"
     AGILIDADE = "agilidade"
     GENJUTSU = "genjutsu"
+    FORCA = "forca"
+    INTELIGENCIA = "inteligencia"
+    CHAKRA = "chakra_attr"
+    DEFESA = "defesa"
+    VIGOR = "vigor"
+    DESTREZA = "destreza"
 
 
 class TrainRequest(BaseModel):
@@ -389,9 +407,9 @@ async def require_auth(x_telegram_init_data: str = Header(default="")):
 
 
 # ───────── Regeneração passiva ─────────
-CHAKRA_REGEN_SECS = 20  # 1 de chakra a cada 20 s
+CHAKRA_REGEN_SECS = 100  # 3 de chakra a cada 5 min
 ENERGY_REGEN_SECS = 180  # 1 de energia a cada 3 min (máximo 25)
-HP_REGEN_SECS = 30      # 1 de vida a cada 30 s
+HP_REGEN_SECS = 100      # 3 de vida a cada 5 min
 
 
 def regen(player: Player) -> None:
@@ -594,8 +612,14 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
         ninja_name=payload.ninja_name,
         village_id=payload.village_id,
         clan_id=no_clan.id,
-        taijutsu=5 + payload.taijutsu, ninjutsu=5 + payload.ninjutsu,
-        genjutsu=5 + payload.genjutsu, agilidade=5 + payload.agilidade,
+        taijutsu=5 + (3 if payload.estilo == "taijutsu" else 0),
+        ninjutsu=5 + (3 if payload.estilo == "ninjutsu" else 0),
+        genjutsu=5 + (3 if payload.estilo == "genjutsu" else 0),
+        agilidade=5 + payload.agilidade, forca=5 + payload.forca, inteligencia=5 + payload.inteligencia,
+        chakra_attr=5 + payload.chakra_attr, defesa=5 + payload.defesa, vigor=5 + payload.vigor,
+        destreza=5 + payload.destreza,
+        vida_max=100 + 5 * payload.vigor, vida_atual=100 + 5 * payload.vigor,
+        chakra_max=100 + 4 * payload.chakra_attr, chakra_atual=100 + 4 * payload.chakra_attr,
     ))
     try:
         db.commit()
@@ -635,6 +659,12 @@ def train(payload: TrainRequest, db: Session = Depends(get_db)):
     player.ryos -= ryos_cost
     attr = payload.atributo.value
     setattr(player, attr, getattr(player, attr) + TRAIN_ATTR_GAIN * payload.repeticoes)
+    if attr == "vigor":  # cada ponto de vigor aumenta a vida máxima
+        player.vida_max += 5 * payload.repeticoes
+        player.vida_atual += 5 * payload.repeticoes
+    elif attr == "chakra_attr":  # cada ponto de chakra aumenta a reserva
+        player.chakra_max += 4 * payload.repeticoes
+        player.chakra_atual += 4 * payload.repeticoes
     levels = apply_exp(player, exp_gain)
     db.commit()
 

@@ -109,12 +109,15 @@ const fmt = n => Number(n).toLocaleString('pt-BR');
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const pct = (a, b) => Math.max(0, Math.min(100, a / (b || 1) * 100)) + '%';
 const expFloor = l => 50 * l * (l - 1);
-const RANKS = ['Estudante', 'Genin', 'Chunin', 'Jonin', 'Anbu', 'Kage'];
-const ATTRS = [['taijutsu', 'Taijutsu'], ['ninjutsu', 'Ninjutsu'], ['genjutsu', 'Genjutsu'], ['agilidade', 'Agilidade']];
+const RANKS = ['Estudante', 'Genin', 'Chunin', 'Jonin', 'Anbu', 'Sannin', 'Kage'];
+const ATTRS = [['taijutsu', 'Taijutsu', 'golpes físicos'], ['ninjutsu', 'Ninjutsu', 'técnicas de chakra'], ['genjutsu', 'Genjutsu', 'ilusões que atordoam'],
+  ['forca', 'Força', 'dano físico'], ['agilidade', 'Agilidade', 'iniciativa e esquiva'], ['inteligencia', 'Inteligência', 'controle de chakra e missões secretas'],
+  ['chakra_attr', 'Chakra', 'reserva de chakra'], ['defesa', 'Defesa', 'reduz o dano'], ['vigor', 'Vigor', 'vida máxima'], ['destreza', 'Destreza', 'armas e crítico']];
+const REG = ATTRS.slice(3);  // os 7 atributos de combate que recebem os 5 pontos do cadastro
 const TIPOS = { Arma: 'Armas', Armadura: 'Armaduras', Pergaminho: 'Pergaminhos' };
 const bonusTxt = b => Object.entries(b).map(([k, v]) => `+${v} ${k}`).join(', ');
 const dur = s => s >= 60 ? Math.round(s / 60) + ' min' : s + ' s';
-let P, X, J, G, K, R, VILS, battle = null, reps = 1;
+let P, X, J, G, K, R, LU, VILS, battle = null, reps = 1;
 
 function toast(msg, ok = true) {
   const t = $('toast');
@@ -140,8 +143,8 @@ async function api(path, body) {
 }
 async function refresh() {
   const id = tgUser.id;
-  [P, X, J, G, K] = await Promise.all([api('/api/player/' + id), api(`/api/player/${id}/extras`), api(`/api/player/${id}/jornada`),
-    api(`/api/player/${id}/guilda`), api(`/api/player/${id}/kage`)]);
+  [P, X, J, G, K, { luta: LU }] = await Promise.all([api('/api/player/' + id), api(`/api/player/${id}/extras`), api(`/api/player/${id}/jornada`),
+    api(`/api/player/${id}/guilda`), api(`/api/player/${id}/kage`), api(`/api/player/${id}/luta`)]);
   render();
 }
 // Ação: chama a API, mostra um aviso e recarrega o estado
@@ -181,9 +184,9 @@ function render() {
 /* Perfil: atributos (com treino), equipamento e invocações */
 const setReps = n => { reps = n; renderPerfil(); };
 function renderPerfil() {
-  const rows = ATTRS.map(([k, n]) => {
+  const rows = ATTRS.map(([k, n, ds]) => {
     const b = P.atributos_base[k], e = P.atributos_efetivos[k], d = e - b;
-    return `<div class="flex items-center gap-3"><div class="flex-1"><div class="flex justify-between text-sm"><span>${n}</span>
+    return `<div class="flex items-center gap-3"><div class="flex-1"><div class="flex justify-between text-sm"><span>${n} <span class="lbl ml-1">${ds}</span></span>
       <span class="font-bold">${e}${d ? `<span class="text-gold text-xs font-normal"> +${d}</span>` : ''}</span></div>
       <div class="bar mt-1.5"><i class="bg-gradient-to-r from-red-900 to-vermil" style="width:${Math.min(100, e)}%"></i></div></div>
       <button class="round" aria-label="Treinar ${n}" onclick="train('${k}')">+</button></div>`;
@@ -204,7 +207,7 @@ function renderPerfil() {
   $('tab-perfil').innerHTML = `
     <div class="card space-y-4"><div class="flex items-center justify-between"><h2>Atributos</h2>
       <div class="flex gap-1.5">${[1, 5, 10].map(n => `<button class="chip ${n === reps ? 'on' : ''}" onclick="setReps(${n})">×${n}</button>`).join('')}</div></div>
-      ${rows}<p class="lbl">Cada treino custa ${25 * reps} ryos e rende ${15 * reps} de XP.</p></div>
+      ${rows}<p class="lbl">Cada treino custa ${25 * reps} ryos e rende ${3 * reps} de XP.</p></div>
     <div class="card"><h2 class="mb-3">Equipamento</h2><div class="grid grid-cols-3 gap-2">${slots}</div>${bag ? `<div class="mt-3">${bag}</div>` : '<p class="lbl mt-3">Nada na mochila. Explore mapas para conseguir itens.</p>'}</div>
     <div class="card"><h2>Avatar</h2><div class="grid grid-cols-6 gap-2 mt-3">${X.avatares.map(a => `<button class="round !w-full !h-11 !text-2xl ${a === P.avatar ? 'bg-gold/20' : ''}" aria-label="Avatar ${a}" onclick="act('/api/avatar', { avatar: '${a}' })">${a}</button>`).join('')}</div></div>
     <div class="card"><h2>Invocações</h2>${pets || '<p class="lbl mt-2">Nenhuma ainda. Chefes de mapa podem soltar contratos.</p>'}</div>`;
@@ -241,12 +244,12 @@ const entregar = escolha => act('/api/jornada/entregar', { escolha }, r =>
 function renderMapas() {
   const ideal = [...X.mapas].reverse().find(m => P.level >= m.min_level && P.level <= m.max_level);
   const bt = battle ? `<div class="card border-${battle.vitoria ? 'gold' : 'vermil'}"><div class="flex justify-between items-center">
-      <h2>${battle.vitoria ? 'Vitória' : 'Derrota'} contra ${esc(battle.inimigo)}</h2>${battle.chefe ? '<span class="tag red">Chefe</span>' : ''}</div>
+      <h2>${battle.fuga ? 'Você fugiu de' : battle.vitoria ? 'Vitória contra' : 'Derrota contra'} ${esc(battle.inimigo)}</h2>${battle.chefe ? '<span class="tag red">Chefe</span>' : ''}</div>
       <div class="text-xs text-paper/70 mt-2 max-h-28 overflow-y-auto">${battle.log.map(esc).join('<br>')}</div>
       <div class="text-sm mt-2">+${battle.exp} XP${battle.ryos ? `, +${fmt(battle.ryos)} ryos` : ''}${battle.drops.length ? `. Itens: ${battle.drops.map(esc).join(', ')}` : ''}${battle.novo_pet ? `. Nova invocação: ${esc(battle.novo_pet)}` : ''}${battle.niveis_ganhos ? '. Subiu de nível!' : ''}</div>
       ${battle.missao ? `<div class="text-xs text-gold mt-1">Missão: ${battle.missao.progresso} de ${battle.missao.qtd}</div>` : ''}
       ${battle.xp_reduzido ? '<p class="text-xs text-vermil mt-1">Você já passou da faixa deste mapa: o XP é reduzido.</p>' : ''}</div>` : '';
-  $('tab-mapas').innerHTML = bt + X.mapas.map(m => {
+  $('tab-mapas').innerHTML = LU ? lutaHtml() : bt + X.mapas.map(m => {
     const locked = P.level < m.min_level, over = P.level > m.max_level;
     const state = locked ? `<span class="tag">Libera no nível ${m.min_level}</span>`
       : over ? '<span class="tag red">Acima da faixa: XP reduzido</span>' : '<span class="tag gold">Faixa ideal</span>';
@@ -257,7 +260,37 @@ function renderMapas() {
       <button class="btn w-full mt-3" ${locked || P.energia < 1 ? 'disabled' : ''} onclick="explore(${m.id})">Explorar (1 de energia)</button></div>`;
   }).join('');
 }
-const explore = id => act('/api/maps/explore', { map_id: id }, r => { battle = r; tg?.HapticFeedback?.impactOccurred?.(r.vitoria ? 'heavy' : 'light'); return r.vitoria ? 'Vitória!' : 'Derrota.'; });
+async function iniciarLuta(path, body) {
+  try { battle = null; await api(path, { telegram_id: tgUser.id, ...body }); showTab('mapas'); await refresh(); } catch (e) { toast(e.message, false); }
+}
+const explore = id => iniciarLuta('/api/maps/explore', { map_id: id });
+const duelar = nome => iniciarLuta('/api/pvp/desafiar', { alvo: nome });
+async function agir(acao) {
+  try {
+    const r = await api('/api/luta/agir', { telegram_id: tgUser.id, acao });
+    if (r.resultado) {
+      battle = r.resultado;
+      tg?.HapticFeedback?.impactOccurred?.(battle.vitoria ? 'heavy' : 'light');
+      toast(battle.fuga ? 'Você fugiu.' : battle.vitoria ? 'Vitória!' : 'Derrota.', !!battle.vitoria);
+    }
+    await refresh();
+  } catch (e) { toast(e.message, false); }
+}
+function lutaHtml() {
+  const l = LU, pc = (a, b) => Math.max(0, Math.round(100 * a / b)) + '%', sem = P.chakra.atual < l.custo;
+  return `<div class="card border-vermil"><div class="flex justify-between items-center"><h2>${esc(l.inimigo)}</h2>
+      ${l.chefe ? '<span class="tag red">Chefe</span>' : l.tipo === 'pvp' ? '<span class="tag gold">Duelo</span>' : ''}</div>
+    <div class="flex justify-between text-xs mt-3 mb-1"><span>Vida do inimigo</span><span>${l.hp}/${l.hp_max}</span></div>
+    <div class="bar"><i class="bg-vermil" style="width:${pc(l.hp, l.hp_max)}"></i></div>
+    <div class="grid grid-cols-2 gap-3 mt-3 text-xs"><div><div class="flex justify-between mb-1"><span>Sua vida</span><span>${P.vida.atual}/${P.vida.max}</span></div><div class="bar"><i class="bg-gradient-to-r from-red-900 to-vermil" style="width:${pc(P.vida.atual, P.vida.max)}"></i></div></div>
+      <div><div class="flex justify-between mb-1"><span>Chakra</span><span>${P.chakra.atual}/${P.chakra.max}</span></div><div class="bar"><i class="bg-chakra" style="width:${pc(P.chakra.atual, P.chakra.max)}"></i></div></div></div>
+    <div class="text-xs text-paper/70 mt-3 space-y-1 max-h-36 overflow-y-auto">${l.log.map(x => `<div>${esc(x)}</div>`).join('')}</div>
+    <div class="grid grid-cols-2 gap-2 mt-4"><button class="btn" onclick="agir('fisico')">Golpe físico</button>
+      <button class="btn" ${sem ? 'disabled' : ''} onclick="agir('ninjutsu')">Ninjutsu (${l.custo})</button>
+      <button class="btn" ${sem ? 'disabled' : ''} onclick="agir('genjutsu')">Genjutsu (${l.custo})</button>
+      <button class="btn btn-ghost" onclick="agir('defender')">Defender</button>
+      <button class="btn btn-ghost col-span-2" onclick="agir('fugir')">Fugir</button></div></div>`;
+}
 
 /* Vila: reputação, clã e descanso */
 function renderVila() {
@@ -280,6 +313,20 @@ function renderVila() {
     <div class="card"><h2>Casa de chá</h2><p class="lbl mt-1">Restaura toda a vida e o chakra por 50 ryos.</p>
       <button class="btn btn-ghost w-full mt-3" onclick="act('/api/rest', {}, () => 'Vida e chakra restaurados.')">Descansar</button></div>`;
 }
+function sanninCard() {
+  const s = K.sannin, v = s.voce;
+  const msg = v.rank === 'Sannin' ? 'Você é um dos três Sannin. Só você e seus pares podem disputar o cargo de Kage.'
+    : v.rank === 'Kage' ? 'Você é Kage.'
+    : v.dias_restantes ? `Sua fama passa a do Sannin mais fraco. Faltam ${v.dias_restantes} dia(s) para tomar a cadeira.`
+    : v.rank === 'Anbu' ? `Anbu com ${fmt(P.fama)} de fama. Precisa de ${fmt(s.minimo)} e de mais fama que o Sannin mais fraco por 7 dias.`
+    : `Chegue a Anbu e a ${fmt(s.minimo)} de fama para disputar uma cadeira. Sua fama: ${fmt(P.fama)}.`;
+  return `<div class="card"><h2>Os três Sannin</h2>
+    <p class="lbl mt-1">Só eles disputam o cargo de Kage (${fmt(s.minimo_kage)} de fama). A cadeira se conquista a partir de ${fmt(s.minimo)}.</p>
+    ${s.cadeiras.map(c => `<div class="flex items-center justify-between py-2 border-t border-line text-sm"><div class="min-w-0"><div class="font-semibold truncate">${esc(c.nome)} ${c.eu ? '<span class="tag gold">Você</span>' : ''}</div>
+      <div class="lbl">${esc(c.vila)}</div></div><b>${fmt(c.fama)}</b></div>`).join('')}
+    ${s.vagas ? `<p class="lbl mt-2">${s.vagas} cadeira(s) vaga(s): o Anbu mais famoso acima de ${fmt(s.minimo)} assume.</p>` : ''}
+    <p class="text-sm mt-3">${msg}</p></div>`;
+}
 function kageCard() {
   const k = K, ch = k.desafiante;
   return `<div class="card"><div class="lbl">Kage da vila</div>
@@ -288,7 +335,7 @@ function kageCard() {
     ${ch ? `<div class="text-sm mt-3">Desafiante: <b>${esc(ch.nome)}</b>, fama ${fmt(ch.fama)}. Assume o cargo em ${ch.dias_restantes} dia(s) se a fama dele seguir acima.</div>` : ''}
     ${k.voce_e_kage ? '<p class="lbl mt-3">Mantenha sua fama acima da dos outros jogadores da vila para não perder o cargo.</p>'
       : `<button class="btn btn-ghost w-full mt-3" ${k.pode_desafiar ? '' : 'disabled'} onclick="act('/api/kage/desafiar', {}, () => 'Disputa aberta!')">Disputar o cargo de Kage</button>
-         <p class="lbl mt-2">Exige rank Anbu e fama maior que a do Kage por 7 dias seguidos.</p>`}</div>`;
+         <p class="lbl mt-2">Exige ser Sannin, ter 20.000 de fama e mais fama que o Kage por 7 dias seguidos.</p>`}</div>`;
 }
 const joinClan = id => act('/api/clan/join', { clan_id: id }, r => r.mensagem);
 
@@ -333,22 +380,26 @@ async function atacar() {
 
 /* Ranking: Kages de cada vila e os melhores jogadores */
 async function loadRanking() {
-  try { R = await api('/api/ranking'); } catch (e) { return toast(e.message, false); }
+  try { [R, K] = await Promise.all([api('/api/ranking'), api(`/api/player/${tgUser.id}/kage`)]); } catch (e) { return toast(e.message, false); }
   const row = (m, i, val) => `<div class="flex items-center gap-3 py-2 border-t border-line"><span class="w-6 text-center font-bold ${i < 3 ? 'text-gold' : 'text-paper/50'}">${i + 1}</span>
     <span class="text-xl">${esc(m.avatar)}</span><div class="flex-1 min-w-0"><div class="text-sm font-semibold truncate">${esc(m.nome)}</div>
-    <div class="lbl truncate">${esc(m.vila)}, ${esc(m.rank)}</div></div><b class="text-sm">${val}</b></div>`;
-  $('tab-ranking').innerHTML = `<div class="card"><h2>Kages</h2>${R.kages.map(k => `<div class="flex items-center justify-between py-2 border-t border-line text-sm">
+    <div class="lbl truncate">${esc(m.vila)}, ${esc(m.rank)}</div></div><b class="text-sm">${val}</b>${m.nome !== P.ninja_name ? `<button class="chip" onclick="duelar('${m.nome}')">Duelar</button>` : ''}</div>`;
+  $('tab-ranking').innerHTML = `${sanninCard()}<div class="card"><h2>Kages</h2>${R.kages.map(k => `<div class="flex items-center justify-between py-2 border-t border-line text-sm">
       <div class="min-w-0"><div class="font-semibold truncate">${esc(k.nome)} ${k.jogador ? '' : '<span class="tag">NPC</span>'}</div><div class="lbl">${esc(k.vila)}</div></div><b>${fmt(k.fama)}</b></div>`).join('')}</div>
     <div class="card"><h2>Mais famosos</h2>${R.fama.map((m, i) => row(m, i, fmt(m.fama))).join('') || '<p class="lbl mt-2">Sem jogadores ainda.</p>'}</div>
-    <div class="card"><h2>Maiores níveis</h2>${R.nivel.map((m, i) => row(m, i, 'Nv ' + m.nivel)).join('')}</div>`;
+    <div class="card"><h2>Maiores níveis</h2>${R.nivel.map((m, i) => row(m, i, 'Nv ' + m.nivel)).join('')}</div>
+    ${R.graduacoes.filter(g => g.rank !== 'Kage' && (g.total || g.rank === 'Sannin')).map(g => `<div class="card"><div class="flex items-center justify-between"><h2>${esc(g.rank)}</h2><span class="tag">${g.total} no jogo</span></div>${g.top.map((m, i) => row(m, i, fmt(m.fama))).join('') || '<p class="lbl mt-2">Ninguém nesta graduação ainda.</p>'}</div>`).join('')}`;
 }
 
 /* ───────── Cadastro e inicialização ───────── */
-const pts = { taijutsu: 0, ninjutsu: 0, genjutsu: 0, agilidade: 0 };
+let estilo = 'taijutsu';
+const pts = Object.fromEntries(REG.map(([k]) => [k, 0]));
 const ptsLeft = () => 5 - Object.values(pts).reduce((x, y) => x + y, 0);
 function renderPts() {
-  $('rPts').innerHTML = `<p class="text-sm">Distribua <b class="text-gold">${ptsLeft()}</b> pontos (todos começam em 5)</p>` + ATTRS.map(([k, n]) =>
-    `<div class="flex items-center justify-between"><span>${n}</span><div class="flex items-center gap-3"><button class="round" aria-label="Menos ${n}" onclick="addPt('${k}', -1)">−</button>
+  $('rPts').innerHTML = `<p class="text-sm">Estilo principal (+3)</p><div class="flex gap-2">${ATTRS.slice(0, 3).map(([k, n]) =>
+    `<button class="chip ${k === estilo ? 'on' : ''}" onclick="estilo='${k}'; renderPts()">${n}</button>`).join('')}</div>
+    <p class="text-sm">Distribua <b class="text-gold">${ptsLeft()}</b> pontos (todos começam em 5)</p>` + REG.map(([k, n, ds]) =>
+    `<div class="flex items-center justify-between"><div><div>${n}</div><div class="lbl">${ds}</div></div><div class="flex items-center gap-3"><button class="round" aria-label="Menos ${n}" onclick="addPt('${k}', -1)">−</button>
      <b class="w-6 text-center">${5 + pts[k]}</b><button class="round" aria-label="Mais ${n}" onclick="addPt('${k}', 1)">+</button></div></div>`).join('');
 }
 function addPt(k, d) { if ((d > 0 && !ptsLeft()) || (d < 0 && !pts[k])) return; pts[k] += d; renderPts(); }
@@ -369,7 +420,7 @@ async function register() {
   $('rInfo').textContent = '';
   try {
     await api('/api/register', { telegram_id: tgUser.id, username: tgUser.username || null, ninja_name: $('rName').value.trim(),
-      village_id: Number($('rVillage').value), ...pts });
+      village_id: Number($('rVillage').value), estilo, ...pts });
     $('regBox').classList.add('hidden');
     await refresh();
     toast(`Bem-vindo, ${P.ninja_name}!`);
