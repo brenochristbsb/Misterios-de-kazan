@@ -243,6 +243,7 @@ class Player(TimestampMixin, Base):
     trofeus: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     moedas_arena: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     arena: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    arena_temp: Mapped[int] = mapped_column(Integer, default=0, nullable=False)  # temporada em que os troféus valem
 
     # Chaves estrangeiras
     village_id: Mapped[int] = mapped_column(

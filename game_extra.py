@@ -7,7 +7,7 @@ Mantenha api.py, models.py e game_extra.py na mesma pasta.
 
 import copy
 import random
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -2493,7 +2493,40 @@ def _arena_reg(p: Player) -> dict:
     return a
 
 
+# Temporadas: ciclos de 14 dias (a primeira começa em 19/10/2026, UTC). Na primeira visita de uma nova temporada, quem jogou na anterior
+# ganha o prêmio da liga em que terminou (a coletar) e os troféus caem pela metade. O ranking só mostra quem pontuou na temporada atual.
+ARENA_INICIO, ARENA_DIAS = date(2026, 10, 19), 14
+ARENA_PREMIOS = {"Bronze": (20, None), "Prata": (60, None), "Ouro": (150, None), "Platina": (300, "ovo_raro"),
+                 "Diamante": (600, "ovo_raro"), "Lenda": (1000, "ovo_lendario")}
+
+
+def temporada_atual() -> int:
+    return max(0, (datetime.now(timezone.utc).date() - ARENA_INICIO).days // ARENA_DIAS)
+
+
+def temporada_dias_restantes() -> int:
+    return (ARENA_INICIO + timedelta(days=(temporada_atual() + 1) * ARENA_DIAS) - datetime.now(timezone.utc).date()).days
+
+
+def arena_virar(p: Player) -> bool:
+    """Se a temporada mudou desde a última visita, concede o prêmio pendente e reduz os troféus. Retorna True quando algo mudou."""
+    atual = temporada_atual()
+    if (p.arena_temp or 0) == atual:
+        return False
+    a, t = _arena_reg(p), p.trofeus or 0
+    if a["v"] + a["d"] > 0:  # só quem jogou na temporada anterior ganha prêmio
+        liga = arena_liga(t)
+        moedas, ovo = ARENA_PREMIOS[liga]
+        a["premio"] = {"temporada": (p.arena_temp or 0) + 1, "liga": liga, "trofeus": t, "moedas": moedas, "ovo": ovo}
+        a["hist"] = ([{"temporada": (p.arena_temp or 0) + 1, "liga": liga, "trofeus": t}] + a.get("hist", []))[:5]
+    p.trofeus = t // 2
+    a["v"], a["d"], a["seq"], a["melhor"] = 0, 0, 0, p.trofeus
+    p.arena, p.arena_temp = a, atual
+    return True
+
+
 def fim_arena(db: Session, p: Player, L: dict, won: bool, res: dict) -> None:
+    arena_virar(p)  # a luta pode ter começado em outra temporada
     a, t = _arena_reg(p), p.trofeus or 0
     npc = L.get("npc")
     if npc is not None:
@@ -2524,11 +2557,15 @@ def fim_arena(db: Session, p: Player, L: dict, won: bool, res: dict) -> None:
 @router.get("/api/player/{telegram_id}/arena")
 def arena_info(telegram_id: int, db: Session = Depends(get_db)):
     p = get_player(db, telegram_id)
+    if arena_virar(p):
+        db.commit()
     a, t = _arena_reg(p), p.trofeus or 0
     vs = a["vs"]
     cand = db.scalars(select(Player).where(Player.id != p.id).order_by(func.abs(Player.trofeus - t), func.abs(Player.level - p.level)).limit(5)).all()
-    top = db.scalars(select(Player).where(Player.trofeus > 0).order_by(Player.trofeus.desc(), Player.level.desc()).limit(10)).all()
+    top = db.scalars(select(Player).where(Player.trofeus > 0, Player.arena_temp == temporada_atual()).order_by(Player.trofeus.desc(), Player.level.desc()).limit(10)).all()
     return {"trofeus": t, "liga": arena_liga(t), "moedas": p.moedas_arena or 0, "v": a["v"], "d": a["d"], "seq": a["seq"], "melhor": a["melhor"],
+            "temporada": {"n": temporada_atual() + 1, "dias": temporada_dias_restantes(), "premio": a.get("premio"), "hist": a.get("hist", []),
+                          "premios": [{"liga": n, "moedas": v[0], "ovo": OVOS[v[1]][0] if v[1] else None} for n, v in ARENA_PREMIOS.items()]},
             "energia": ARENA_ENERGIA, "vs_dia": ARENA_VS_DIA,
             "oponentes": [{"nome": x.ninja_name, "avatar": x.avatar, "nivel": x.level, "rank": rank_titulo(x), "trofeus": x.trofeus or 0,
                            "liga": arena_liga(x.trofeus or 0), "hoje": vs.get(x.ninja_name, 0)} for x in cand],
@@ -2542,6 +2579,7 @@ def arena_lutar(payload: ArenaReq, db: Session = Depends(get_db)):
     p = get_player(db, payload.telegram_id, lock=True)
     if (payload.alvo is None) == (payload.npc is None):
         raise HTTPException(400, "Escolha um jogador ou um gladiador.")
+    arena_virar(p)
     if p.luta:
         raise HTTPException(409, "Você já está em uma luta.")
     if p.masmorra:
@@ -2572,6 +2610,23 @@ def arena_lutar(payload: ArenaReq, db: Session = Depends(get_db)):
     iniciar_luta(p, "arena", nome, stats, hp, ck, boss, elemento=elem, mapa=None, on_mission=False, **extra)
     db.commit()
     return {"luta": luta_view(p)}
+
+
+@router.post("/api/arena/premio")
+def arena_premio(payload: RestReq, db: Session = Depends(get_db)):
+    p = get_player(db, payload.telegram_id, lock=True)
+    a = _arena_reg(p)
+    pr = a.pop("premio", None)
+    if not pr:
+        raise HTTPException(409, "Você não tem prêmio de temporada para coletar.")
+    p.moedas_arena = (p.moedas_arena or 0) + pr["moedas"]
+    txt = f"{pr['moedas']} moedas da Arena"
+    if pr["ovo"]:
+        p.ovos = {**(p.ovos or {}), pr["ovo"]: (p.ovos or {}).get(pr["ovo"], 0) + 1}
+        txt += f" e {OVOS[pr['ovo']][0]}"
+    p.arena = a
+    db.commit()
+    return {"mensagem": f"Prêmio da temporada {pr['temporada']} ({pr['liga']}): {txt}."}
 
 
 @router.post("/api/arena/comprar")
