@@ -644,7 +644,7 @@ def pvp_desafiar(payload: PvpReq, db: Session = Depends(get_db)):
     if p.vida_atual < 10:
         raise HTTPException(400, "Vida baixa demais. Descanse antes de duelar.")
     p.energia -= 2
-    iniciar_luta(p, "pvp", t.ninja_name, {k: int(v) for k, v in effective_stats(t).items()}, t.vida_max, t.chakra_max, elemento=t.elemento)
+    iniciar_luta(p, "pvp", t.ninja_name, {k: int(v) for k, v in effective_stats(t).items()}, t.vida_max, t.chakra_max, elemento=t.elemento, alvo_id=t.id)
     db.commit()
     return {"luta": luta_view(p)}
 
@@ -891,6 +891,12 @@ def jornada_entregar(payload: JornadaDone, db: Session = Depends(get_db)):
     p.reputation = max(-100, min(100, p.reputation + (-8 if sombra else 5)))
     p.journey += 1
     p.journey_prog = 0
+    if sombra:  # o caminho da sombra rende fama Nukenin
+        try:
+            from blocos_extra import nk_ganhar
+            nk_ganhar(p, 40)
+        except Exception:
+            pass
     promovido = None
     if m["exame"] and posto(p) < PATENTES.index(m["exame"]):
         promover(p, m["exame"])
@@ -972,6 +978,8 @@ def guild_join(payload: GuildJoin, db: Session = Depends(get_db)):
     gj = db.get(Guild, payload.guild_id)
     if gj is None:
         raise HTTPException(404, "Guilda não encontrada.")
+    if (gj.dados or {}).get("modo") == "candidatura":
+        raise HTTPException(409, "Esta guilda só aceita candidaturas: envie a sua e espere o líder aprovar.")
     if db.scalar(select(func.count()).select_from(Player).where(Player.guilda_id == gj.id)) >= guild_limite(gj):
         raise HTTPException(409, f"A guilda está cheia (limite de {guild_limite(gj)} membros no nível {gj.level}).")
     p.guilda_id = payload.guild_id
@@ -1015,6 +1023,7 @@ def guild_donate(payload: DonateReq, db: Session = Depends(get_db)):
     p.ryos -= payload.valor
     g.recursos_doados += payload.valor
     g.level = max(g.level, 1 + int((g.recursos_doados / 500) ** 0.5))
+    _dados_set(g, cofre=(g.dados or {}).get("cofre", 0) + payload.valor)  # o cofre é o saldo gastável da tesouraria
     prog(p, "doacao")
     db.commit()
     return {"nivel": g.level}
@@ -1907,6 +1916,8 @@ def hospital(payload: HospitalReq, db: Session = Depends(get_db)):
         raise HTTPException(409, "O hospital fica fechado durante a masmorra: use os itens da bolsa ou abandone-a.")
     if p.torre_sessao:
         raise HTTPException(409, "A Torre não tem hospital: use os itens da bolsa ou saia da Torre.")
+    if (p.nk_fama or 0) >= 1000:
+        raise HTTPException(403, "Você foi expulso da aldeia como Nukenin: o hospital não atende quem está no Livro Bingo.")
     now = datetime.now(timezone.utc)
     info = hospital_info(p)
     p.status_fora = []  # o hospital cura qualquer status negativo
@@ -2805,7 +2816,7 @@ def conta_excluir(payload: ExcluirReq, db: Session = Depends(get_db)):
 
 
 # ───────── Guilda completa: cargos, mural, perk de nível e chefe cooperativo ─────────
-# Cargos: líder (tudo), vice (até 2: expulsa membros e edita o mural) e membro. O nível da guilda libera vagas e um bônus de XP e ryos
+# Cargos: líder (tudo), vice (até 2: expulsa membros e edita o mural) e membro. O nível da guilda libera um bônus de XP e ryos
 # nas caçadas. O chefe da guilda tem um HP compartilhado: cada membro luta contra ele até 2 vezes por dia e o dano entra no total;
 # quando cai, todo mundo que bateu recebe uma recompensa proporcional ao dano, para coletar na tela da guilda.
 GUILD_VICES, GUILD_CHEFE_ENERGIA, GUILD_CHEFE_TENT = 2, 3, 2
@@ -2817,13 +2828,27 @@ def cargo_guilda(g: Guild, pid: int) -> str:
     return "lider" if g.leader_id == pid else "vice" if pid in (g.dados or {}).get("vices", []) else "membro"
 
 
+GUILD_MEMBROS_MAX = 4  # regra do jogo: no máximo 4 membros por guilda (guildas que já passam disso só deixam de aceitar entradas)
+
+
 def guild_limite(g: Guild) -> int:
-    return min(50, 10 + 2 * g.level)
+    return GUILD_MEMBROS_MAX
+
+
+# Tesouraria: buffs comprados com o cofre da guilda. id: (nome, custo em ryos do cofre, % de XP e ryos, horas)
+BUFFS_GUILDA = {"bencao": ("Bênção da guilda", 4000, 10, 24), "bencao2": ("Grande Bênção da guilda", 9000, 20, 24)}
 
 
 def bonus_guilda(p: Player) -> int:
-    """Perk de nível da guilda: +1% de XP e ryos por nível, até +15%."""
-    return min(15, p.guild.level) if p.guilda_id and p.guild else 0
+    """Perk de nível da guilda (+1% de XP e ryos por nível, até +15%) mais os buffs ativos comprados na tesouraria."""
+    if not (p.guilda_id and p.guild):
+        return 0
+    total = min(15, p.guild.level)
+    agora = datetime.now(timezone.utc)
+    for bid, ate in ((p.guild.dados or {}).get("buffs") or {}).items():
+        if bid in BUFFS_GUILDA and datetime.fromisoformat(ate) > agora:
+            total += BUFFS_GUILDA[bid][2]
+    return total
 
 
 def _dados_set(g: Guild, **kw) -> None:
@@ -2965,6 +2990,8 @@ def guild_chefe_lutar(payload: RestReq, db: Session = Depends(get_db)):
         raise HTTPException(409, "Você já está em uma luta.")
     if p.masmorra:
         raise HTTPException(409, "Termine ou abandone a masmorra antes.")
+    if datetime.now(timezone.utc).weekday() not in (1, 2, 3, 4):
+        raise HTTPException(409, "O chefe da guilda aparece de terça a sexta (horário UTC). Volte nesses dias.")
     g = db.scalar(select(Guild).where(Guild.id == p.guilda_id).with_for_update())
     if _tentativas(g, p) >= GUILD_CHEFE_TENT:
         raise HTTPException(400, f"Você já usou as {GUILD_CHEFE_TENT} tentativas de hoje contra o chefe da guilda.")
