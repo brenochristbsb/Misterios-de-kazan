@@ -542,6 +542,7 @@ def fim_luta(db: Session, p: Player, L: dict, won: bool) -> dict:
                 if mp["perigo"] >= perigo_min and random.random() < chance:
                     p.pocoes = {**(p.pocoes or {}), pid: (p.pocoes or {}).get(pid, 0) + 1}
                     res["extras"].append(POCOES[pid][0])
+            res["extras"] += dropar_materiais(p, mp, L["boss"], mult)  # materiais de forja: o tier acompanha o perigo do mapa
             if L["on_mission"]:  # coleta: 70% por vitória; caçada: 1 por vitória; procurado: só ao vencer o chefe
                 mis = mission_for(p.journey + 1, vila_idx(p))
                 gain = {"coleta": int(random.random() < 0.7), "caca": 1, "busca": int(L["boss"])}[mis["tipo"]]
@@ -1415,7 +1416,8 @@ class PocaoReq(BaseModel):
 def valor_venda(item: InventoryItem) -> int:
     if item.item_name in PRECO_POR_NOME:
         return int(PRECO_POR_NOME[item.item_name] * 0.4)
-    return 12 * sum((item.status_bonus or {}).values())
+    # chaves que começam com "_" (refino da Forja) não são atributos
+    return 12 * sum(v for k, v in (item.status_bonus or {}).items() if not k.startswith("_") and isinstance(v, (int, float)))
 
 
 def usar_pocao(p: Player, pid: str) -> str:
@@ -1896,7 +1898,9 @@ def bolsa(telegram_id: int, db: Session = Depends(get_db)):
                        "equipado": i.is_equipped} for i in p.inventory],
             "consumiveis": [{"id": k, "nome": POCOES[k][0], "efeito": POCOES[k][1], "valor": POCOES[k][2], "qtd": q}
                             for k, q in (p.pocoes or {}).items() if q > 0 and k in POCOES],
-            "materiais": [], "quests": quests}
+            "materiais": [{"id": k, "nome": MAT_NOME[k], "tier": int(k[-1]), "qtd": q}
+                          for k, q in sorted((p.materiais or {}).items()) if q > 0 and k in MAT_NOME],
+            "quests": quests}
 
 
 # ───────── Elementos e jutsus com nome ─────────
@@ -1947,3 +1951,251 @@ def jutsu_escolher(payload: JutsuReq, db: Session = Depends(get_db)):
     p.jutsus = {**(p.jutsus or {}), str(payload.nivel): payload.jutsu_id}
     db.commit()
     return {"mensagem": f"Você aprendeu {JUTSUS[payload.jutsu_id]['nome']}."}
+
+
+# ───────── Forja: materiais, refino, desmontar e criar equipamentos ─────────
+# Materiais caem de vitórias nos mapas e empilham fora da mochila. O tier do material acompanha o perigo do mapa
+# (mapas 1-3 = tier 1, 4-6 = tier 2, ... 13-15 = tier 5).
+MAT_NOME = {"mat_1": "Lascas de Ferro", "mat_2": "Aço Temperado", "mat_3": "Cristal de Chakra",
+            "mat_4": "Essência Elemental", "mat_5": "Fragmento Celestial"}
+REFINO_MAX = 10
+REFINO_CHANCE = [1.0, 1.0, 1.0, 0.85, 0.70, 0.55, 0.40, 0.30, 0.20, 0.10]  # chance de cada degrau (+1 a +10)
+REFINO_PASSO = 0.10  # cada refino soma 10% do bônus original de cada atributo (mínimo +1)
+
+
+def mat_do_mapa(perigo: int) -> str:
+    return f"mat_{min(5, (perigo - 1) // 3 + 1)}"
+
+
+def dropar_materiais(p: Player, mp: dict, boss: bool, mult: float) -> list:
+    """Sorteia materiais após uma vitória. Chefes sempre dão (3 a 5); lutas comuns têm ~35% de chance (1 a 2)."""
+    if not boss and random.random() >= min(0.9, 0.35 * (0.6 + 0.4 * mult)):
+        return []
+    mid, qtd = mat_do_mapa(mp["perigo"]), random.randint(3, 5) if boss else random.randint(1, 2)
+    est = dict(p.materiais or {})
+    est[mid] = est.get(mid, 0) + qtd
+    p.materiais = est
+    return [f"{qtd}x {MAT_NOME[mid]}"]
+
+
+def _gasta_material(p: Player, mid: str, qtd: int) -> None:
+    est = dict(p.materiais or {})
+    est[mid] = est.get(mid, 0) - qtd
+    p.materiais = est
+
+
+def forja_base(it: InventoryItem) -> dict:
+    """Bônus original do item (sem refino). Itens nunca refinados ainda não têm o campo _base."""
+    b = it.status_bonus or {}
+    return dict(b["_base"]) if isinstance(b.get("_base"), dict) else {k: v for k, v in b.items() if not k.startswith("_") and isinstance(v, (int, float))}
+
+
+def forja_refino(it: InventoryItem) -> int:
+    return int((it.status_bonus or {}).get("_ref", 0))
+
+
+def forja_tier(it: InventoryItem) -> int:
+    """Tier do item (1 a 5): o gravado na criação (itens forjados) ou, senão, o do maior bônus ORIGINAL. O refino não muda o tier."""
+    t = (it.status_bonus or {}).get("_tier")
+    return int(t) if t else min(5, 1 + int(max(forja_base(it).values(), default=1)) // 8)
+
+
+def forja_rendimento(it: InventoryItem) -> int:
+    """Materiais devolvidos ao desmontar: cresce com o tier, as estrelas ★ e o refino."""
+    return 1 + forja_tier(it) + 2 * it.item_name.count("★") + forja_refino(it) // 2
+
+
+def refino_proximo(it: InventoryItem) -> Optional[dict]:
+    n = forja_refino(it) + 1
+    if n > REFINO_MAX or it.item_name in RELIQUIAS:
+        return None
+    t = forja_tier(it)
+    return {"nivel": n, "chance": round(100 * REFINO_CHANCE[n - 1]), "ryos": 60 * n * t, "mat": f"mat_{t}", "mat_nome": MAT_NOME[f"mat_{t}"], "qtd": n + 1}
+
+
+def aplicar_refino(it: InventoryItem, n: int) -> None:
+    base = forja_base(it)
+    novo = {k: v + n * max(1, round(v * REFINO_PASSO)) for k, v in base.items()}
+    extra = {"_tier": it.status_bonus["_tier"]} if (it.status_bonus or {}).get("_tier") else {}
+    it.status_bonus = {**novo, **extra, "_base": base, "_ref": n}  # objeto novo: o SQLAlchemy só persiste JSON reatribuído
+
+
+# Receitas: 7 tipos x 5 tiers. Cobrem o que a Loja não vende (ela para no nível 24) e usam a mesma tabela de bônus, em degraus acima.
+FORJA_NIVEL, FORJA_RYOS, FORJA_QTD = [20, 35, 50, 70, 90], [1500, 4000, 9000, 20000, 45000], [8, 10, 12, 14, 16]
+FORJA_BASE = {"Arma": "Lâmina", "Armadura": "Armadura", "Pergaminho": "Pergaminho", "Botas": "Botas", "Luvas": "Luvas", "Colar": "Colar", "Anel": "Anel"}
+FORJA_SUFIXO = ["de Ferro", "de Aço", "de Cristal", "Elemental", "Celestial"]
+RECEITAS = {f"{tipo.lower()}_f{t}": {"id": f"{tipo.lower()}_f{t}", "tipo": tipo, "tier": t, "nome": f"{FORJA_BASE[tipo]} {FORJA_SUFIXO[t - 1]}",
+                                     "nivel": FORJA_NIVEL[t - 1], "ryos": FORJA_RYOS[t - 1], "mat": f"mat_{t}", "qtd": FORJA_QTD[t - 1],
+                                     "bonus": _BONUS[tipo](t + 5)}
+            for tipo in FORJA_BASE for t in range(1, 6)}
+
+
+class CriarReq(BaseModel):
+    telegram_id: int = Field(gt=0)
+    receita: str
+
+
+def _item_da_forja(p: Player, item_id: int) -> InventoryItem:
+    it = next((i for i in p.inventory if i.id == item_id), None)
+    if it is None:
+        raise HTTPException(404, "Item não encontrado na sua mochila.")
+    return it
+
+
+@router.get("/api/player/{telegram_id}/forja")
+def forja_info(telegram_id: int, db: Session = Depends(get_db)):
+    p = get_player(db, telegram_id)
+    est = p.materiais or {}
+    itens = []
+    for i in p.inventory:
+        rel = i.item_name in RELIQUIAS
+        itens.append({"id": i.id, "nome": i.item_name, "tipo": i.item_type.value, "bonus": i.status_bonus or {}, "equipado": i.is_equipped,
+                      "refino": forja_refino(i), "tier": forja_tier(i), "reliquia": rel, "prox": refino_proximo(i),
+                      "desmonta": None if rel or i.is_equipped else {"mat": f"mat_{forja_tier(i)}", "nome": MAT_NOME[f"mat_{forja_tier(i)}"], "qtd": forja_rendimento(i)}})
+    return {"materiais": [{"id": k, "nome": n, "tier": int(k[-1]), "qtd": est.get(k, 0)} for k, n in MAT_NOME.items()],
+            "itens": itens, "refino_max": REFINO_MAX, "bolsa": {"usado": len(p.inventory), "max": BOLSA_MAX},
+            "receitas": [{**r, "mat_nome": MAT_NOME[r["mat"]], "pode_nivel": p.level >= r["nivel"]} for r in RECEITAS.values()]}
+
+
+@router.post("/api/forja/refinar")
+def forja_refinar(payload: ItemReq, db: Session = Depends(get_db)):
+    """Refina +1 (até +10). Cada tentativa gasta ryos e materiais do tier do item; falhar perde o custo, mas o item nunca é destruído."""
+    p = get_player(db, payload.telegram_id, lock=True)
+    if p.luta:
+        raise HTTPException(409, "Termine a luta antes de usar a Forja.")
+    it = _item_da_forja(p, payload.item_id)
+    if it.item_name in RELIQUIAS:
+        raise HTTPException(403, "Relíquias de clã já são únicas e não podem ser refinadas.")
+    c = refino_proximo(it)
+    if c is None:
+        raise HTTPException(400, f"Este item já está no refino máximo (+{REFINO_MAX}).")
+    if p.ryos < c["ryos"]:
+        raise HTTPException(400, f"Ryos insuficientes: o refino custa {c['ryos']}.")
+    if (p.materiais or {}).get(c["mat"], 0) < c["qtd"]:
+        raise HTTPException(400, f"Faltam materiais: {c['qtd']}x {c['mat_nome']} (você tem {(p.materiais or {}).get(c['mat'], 0)}).")
+    p.ryos -= c["ryos"]
+    _gasta_material(p, c["mat"], c["qtd"])
+    ok = random.random() < REFINO_CHANCE[c["nivel"] - 1]
+    if ok:
+        aplicar_refino(it, c["nivel"])
+        msg = f"Sucesso! {it.item_name} agora está +{c['nivel']}."
+    else:
+        msg = f"O refino falhou. Os materiais e os ryos se perderam, mas {it.item_name} segue em +{c['nivel'] - 1}."
+    db.commit()
+    return {"mensagem": msg, "sucesso": ok, "refino": forja_refino(it)}
+
+
+@router.post("/api/forja/desmontar")
+def forja_desmontar(payload: ItemReq, db: Session = Depends(get_db)):
+    """Destrói um equipamento fora de uso e devolve materiais do tier dele."""
+    p = get_player(db, payload.telegram_id, lock=True)
+    if p.luta:
+        raise HTTPException(409, "Termine a luta antes de usar a Forja.")
+    it = _item_da_forja(p, payload.item_id)
+    if it.is_equipped:
+        raise HTTPException(409, "Desequipe o item antes.")
+    if it.item_name in RELIQUIAS:
+        raise HTTPException(403, "Relíquias de clã não podem ser desmontadas.")
+    mid, qtd = f"mat_{forja_tier(it)}", forja_rendimento(it)
+    nome = it.item_name
+    est = dict(p.materiais or {})
+    est[mid] = est.get(mid, 0) + qtd
+    p.materiais = est
+    db.delete(it)
+    db.commit()
+    return {"mensagem": f"{nome} desmontado: +{qtd}x {MAT_NOME[mid]}."}
+
+
+@router.post("/api/forja/criar")
+def forja_criar(payload: CriarReq, db: Session = Depends(get_db)):
+    p = get_player(db, payload.telegram_id, lock=True)
+    if p.luta:
+        raise HTTPException(409, "Termine a luta antes de usar a Forja.")
+    r = RECEITAS.get(payload.receita)
+    if r is None:
+        raise HTTPException(404, "Receita não encontrada.")
+    if p.level < r["nivel"]:
+        raise HTTPException(403, f"Exige nível {r['nivel']}.")
+    if not bolsa_livre(p):
+        raise HTTPException(409, f"Mochila cheia ({BOLSA_MAX} itens). Venda, desmonte ou anuncie algo antes.")
+    if p.ryos < r["ryos"]:
+        raise HTTPException(400, f"Ryos insuficientes: custa {r['ryos']}.")
+    if (p.materiais or {}).get(r["mat"], 0) < r["qtd"]:
+        raise HTTPException(400, f"Faltam materiais: {r['qtd']}x {MAT_NOME[r['mat']]}.")
+    p.ryos -= r["ryos"]
+    _gasta_material(p, r["mat"], r["qtd"])
+    db.add(InventoryItem(player_id=p.id, item_name=r["nome"], item_type=ItemType(r["tipo"]), status_bonus={**r["bonus"], "_tier": r["tier"]}))
+    db.commit()
+    return {"mensagem": f"Você forjou {r['nome']}."}
+
+
+# ───────── Dojo: senseis e maestria ─────────
+# Sessão com sensei: gasta 1 de energia e ryos, e rende mais pontos que o treino comum (25 ryos por ponto, sem energia).
+# Mestres melhores dão mais pontos por energia, mas cobram mais por ponto.
+SENSEIS = [{"id": "s1", "nome": "Instrutor Kuro", "nivel": 1, "preco": 40, "ganho": 2},
+           {"id": "s2", "nome": "Mestre Hanzo", "nivel": 15, "preco": 100, "ganho": 5},
+           {"id": "s3", "nome": "Grão-Mestre Ryuzen", "nivel": 35, "preco": 300, "ganho": 11},
+           {"id": "s4", "nome": "Lenda Oboro", "nivel": 60, "preco": 800, "ganho": 22}]
+SENSEI_POR_ID = {s["id"]: s for s in SENSEIS}
+MAESTRIA_PTS, MAESTRIA_MAX, MAESTRIA_BONUS = 40, 10, 0.05  # pontos por grau, grau máximo, +5% de ganho por grau
+XP_POR_PONTO = 6
+
+
+def maestria_grau(p: Player, attr: str) -> int:
+    return min(MAESTRIA_MAX, (p.maestria or {}).get(attr, 0) // MAESTRIA_PTS)
+
+
+class DojoReq(BaseModel):
+    telegram_id: int = Field(gt=0)
+    atributo: str
+    sensei: str
+    sessoes: int = Field(default=1, ge=1, le=5)
+
+
+@router.get("/api/player/{telegram_id}/dojo")
+def dojo_info(telegram_id: int, db: Session = Depends(get_db)):
+    p = get_player(db, telegram_id)
+    m = p.maestria or {}
+    return {"senseis": [{**s, "pode": p.level >= s["nivel"]} for s in SENSEIS],
+            "maestria": [{"attr": a, "pontos": m.get(a, 0), "grau": maestria_grau(p, a),
+                          "prox": None if maestria_grau(p, a) >= MAESTRIA_MAX else MAESTRIA_PTS - m.get(a, 0) % MAESTRIA_PTS} for a in ATTRS],
+            "grau_max": MAESTRIA_MAX, "pts_grau": MAESTRIA_PTS, "bonus_grau": int(MAESTRIA_BONUS * 100)}
+
+
+@router.post("/api/dojo/treinar")
+def dojo_treinar(payload: DojoReq, db: Session = Depends(get_db)):
+    p = get_player(db, payload.telegram_id, lock=True)
+    s = SENSEI_POR_ID.get(payload.sensei)
+    if p.luta:
+        raise HTTPException(409, "Termine a luta antes de treinar.")
+    if payload.atributo not in ATTRS:
+        raise HTTPException(400, "Atributo inválido.")
+    if s is None:
+        raise HTTPException(404, "Sensei não encontrado.")
+    if p.level < s["nivel"]:
+        raise HTTPException(403, f"{s['nome']} só aceita alunos a partir do nível {s['nivel']}.")
+    if p.energia < payload.sessoes:
+        raise HTTPException(400, f"Energia insuficiente: {payload.sessoes} sessão(ões) custam {payload.sessoes} de energia (você tem {p.energia}).")
+    custo = s["preco"] * payload.sessoes
+    if p.ryos < custo:
+        raise HTTPException(400, f"Ryos insuficientes: custa {custo}.")
+    attr, grau_antes, ganho = payload.atributo, maestria_grau(p, payload.atributo), 0
+    mae = dict(p.maestria or {})
+    for _ in range(payload.sessoes):  # o grau pode subir no meio das sessões e já vale para a seguinte
+        g = min(MAESTRIA_MAX, mae.get(attr, 0) // MAESTRIA_PTS)
+        pts = max(s["ganho"], round(s["ganho"] * (1 + MAESTRIA_BONUS * g)))
+        ganho += pts
+        mae[attr] = mae.get(attr, 0) + pts
+    p.maestria = mae
+    p.energia -= payload.sessoes
+    p.ryos -= custo
+    dar_atributo(p, attr, ganho)
+    niveis = apply_exp(p, XP_POR_PONTO * ganho)
+    grau = maestria_grau(p, attr)
+    db.commit()
+    msg = f"{s['nome']} treinou você: +{ganho} de {attr} e +{XP_POR_PONTO * ganho} de XP."
+    if grau > grau_antes:
+        msg += f" Maestria de {attr}: grau {grau}!"
+    if niveis:
+        msg += " Você subiu de nível!"
+    return {"mensagem": msg, "ganho": ganho, "grau": grau, "niveis_ganhos": niveis}

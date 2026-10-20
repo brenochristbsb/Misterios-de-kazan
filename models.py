@@ -233,6 +233,9 @@ class Player(TimestampMixin, Base):
     # Ovos e alimentos de pet em estoque: {id: quantidade}
     ovos: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     alimentos: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    # Forja: materiais em estoque {id: quantidade} (não ocupam a mochila). Dojo: pontos de maestria por atributo {atributo: pontos}
+    materiais: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    maestria: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
 
     # Chaves estrangeiras
     village_id: Mapped[int] = mapped_column(

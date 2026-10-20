@@ -115,6 +115,7 @@
   <section id="tab-bolsa" class="tab space-y-3 hidden"></section>
   <section id="tab-treino" class="tab space-y-3 hidden"></section>
   <section id="tab-hospital" class="tab space-y-3 hidden"></section>
+  <section id="tab-forja" class="tab space-y-3 hidden"></section>
   <section id="tab-jutsus" class="tab space-y-3 hidden"></section>
   <section id="tab-perfil" class="tab space-y-3"></section>
   <section id="tab-jornada" class="tab space-y-3 hidden"></section>
@@ -183,9 +184,10 @@ const ATTRS = [['taijutsu', 'Taijutsu', 'golpes físicos'], ['ninjutsu', 'Ninjut
 const ELEM = { fogo: ['Fogo', '🔥'], agua: ['Água', '💧'], raio: ['Raio', '⚡'], terra: ['Terra', '🪨'], vento: ['Vento', '🌪️'] };
 const REG = ATTRS.slice(3);  // os 7 atributos de combate que recebem os 5 pontos do cadastro
 const TIPOS = { Arma: 'Armas', Armadura: 'Armaduras', Pergaminho: 'Pergaminhos', Botas: 'Botas', Luvas: 'Luvas', Colar: 'Colares', Anel: 'Anéis' };
-const bonusTxt = b => Object.entries(b).map(([k, v]) => `+${v} ${k}`).join(', ');
+const bonusTxt = b => Object.entries(b).filter(([k]) => k[0] !== '_').map(([k, v]) => `+${v} ${k}`).join(', ') + (b._ref ? ` (refino +${b._ref})` : '');
 const dur = s => s >= 60 ? Math.round(s / 60) + ' min' : s + ' s';
 let P, X, J, G, K, R, LU, CL, LJ, PT, BO, ljSec = 'itens', boSec = 'equipados', VILS, battle = null, reps = 1;
+let FJ, DO, fjSec = 'refinar', doAttr = 'taijutsu', dsess = 1;
 
 function toast(msg, ok = true, ms = 3000) {
   const t = $('toast');
@@ -237,6 +239,8 @@ function showTab(name, back) {
   $('backBtn').classList.toggle('hidden', MAIN.includes(name));
   if (name === 'ranking') loadRanking();
   if (name === 'loja') loadLoja();
+  if (name === 'forja') loadForja();
+  if (name === 'treino') loadDojo();
   document.querySelectorAll('.tab').forEach(s => s.classList.toggle('hidden', s.id !== 'tab-' + name));
   document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.tab === (MAIN.includes(name) ? name : PAI[name] || 'menu')));
   tg?.HapticFeedback?.selectionChanged?.();
@@ -256,7 +260,7 @@ function renderHeader() {
 function render() {
   renderHeader();
   renderPerfil(); renderJornada(); renderMapas(); renderVila(); renderGuilda();
-  renderJutsus(); renderMenu(); renderBolsa(); renderAtributos(); renderStatus(); renderOpcoes(); renderLutaBox(); renderTreino(); renderHospital();
+  renderJutsus(); renderMenu(); renderBolsa(); renderAtributos(); renderStatus(); renderOpcoes(); renderLutaBox(); renderTreino(); renderHospital(); renderForja();
 }
 
 /* Perfil: atributos (com treino), equipamento e invocações */
@@ -270,7 +274,7 @@ const tile = (id, ico, nome, sub_, fn, i = 0, soon = false) => `<button class="t
 const mini = (id, ico, nome, fn, soon = false) => `<button class="mini" onclick="${soon ? `toast('${nome}: em breve.', true)` : fn}">
   <img src="img/${id}.jpg" alt="" onerror="this.remove()"><span class="ico">${ico}</span><b>${nome}</b>${soon ? '<i class="soon">breve</i>' : ''}</button>`;
 function renderMenu() {
-  const T = [['dojo', '🥋', 'Dojo', "showTab('treino')"], ['kage', '👘', 'Sala do Kage', "showTab('vila')"], ['forja', '⚒️', 'Forja', '', 1], ['arena', '⚔️', 'Arena', '', 1],
+  const T = [['dojo', '🥋', 'Dojo', "showTab('treino')"], ['kage', '👘', 'Sala do Kage', "showTab('vila')"], ['forja', '⚒️', 'Forja', "showTab('forja')"],['arena', '⚔️', 'Arena', '', 1],
     ['masmorras', '🕳️', 'Masmorras', '', 1], ['torre', '🗼', 'Torre', '', 1], ['vila', '🏘️', 'Vila e clãs', "showTab('vila')"], ['ranking', '🏆', 'Ranking', "showTab('ranking')"]];
   $('tab-menu').innerHTML = `<h2>Menu</h2><div class="grid grid-cols-4 gap-2">${T.map(([id, ico, n, fn, soon]) => mini(id, ico, n, fn, !!soon)).join('')}</div>`;
 }
@@ -304,7 +308,10 @@ function renderBolsa() {
       `<button class="chip" ${LU ? 'disabled' : ''} onclick="act('/api/pocao/usar', { pocao: '${c.id}' }, r => r.mensagem)">Usar</button>`)).join('') || '<p class="lbl mt-2">Nenhuma poção. Compre na Loja.</p>'}
       <p class="lbl mt-3">Poções empilham e não ocupam espaço na mochila.</p></div>`;
   } else if (boSec === 'materiais') {
-    body = '<div class="card"><h2>Materiais</h2><p class="lbl mt-2">Aqui ficarão os materiais de forja e os fragmentos de chave, que caem de chefes. A Forja e as Masmorras chegam nos próximos blocos.</p></div>';
+    body = `<div class="card"><h2>Materiais</h2>${BO.materiais.map(m => row(`<div class="text-sm font-semibold">${esc(m.nome)} <span class="tag">x${m.qtd}</span></div>`, `Tier ${m.tier}`, '')).join('')
+      || '<p class="lbl mt-2">Nenhum material ainda. Eles caem de vitórias nos mapas, e os chefes sempre dão.</p>'}
+      <p class="lbl mt-3">Materiais empilham e não ocupam espaço na mochila. Use-os na Forja, pelo Menu.</p>
+      <button class="btn btn-ghost w-full mt-3" onclick="showTab('forja')">⚒️ Ir à Forja</button></div>`;
   } else {
     body = `<div class="card"><h2>Itens de quest</h2>${BO.quests.map(q => row(`<div class="text-sm font-semibold">${esc(q.nome)} <span class="tag">${q.qtd}/${q.meta}</span></div>`, `Colete em ${esc(q.mapa)}`,
       `<div class="w-20"><div class="bar"><i class="bg-gold" style="width:${pct(q.qtd, q.meta)}"></i></div></div>`)).join('') || '<p class="lbl mt-2">Nenhum item de quest agora. Missões de coleta aparecem aqui.</p>'}</div>`;
@@ -321,7 +328,65 @@ function renderTreino() {
       <button class="round" aria-label="Treinar ${n}" onclick="train('${k}')">+</button></div>`; }).join('');
   $('tab-treino').innerHTML = `<div class="card space-y-4"><div class="flex items-center justify-between"><h2>Dojo</h2>
     <div class="flex gap-1.5">${[1, 5, 10].map(n => `<button class="chip ${n === reps ? 'on' : ''}" onclick="setReps(${n})">×${n}</button>`).join('')}</div></div>
-    ${rows}<p class="lbl">Cada treino custa ${25 * reps} ryos e rende ${3 * reps} de XP.</p></div>`;
+    ${rows}<p class="lbl">Cada treino custa ${25 * reps} ryos e rende ${3 * reps} de XP.</p></div>${senseiHtml()}`;
+}
+/* Senseis: sessões que gastam energia, rendem mais pontos e sobem a maestria do atributo */
+async function loadDojo() {
+  try { DO = await api(`/api/player/${tgUser.id}/dojo`); renderTreino(); } catch (e) { toast(e.message, false); }
+}
+const treinarSensei = id => act('/api/dojo/treinar', { atributo: doAttr, sensei: id, sessoes: dsess }, r => r.mensagem).then(loadDojo);
+function senseiHtml() {
+  if (!DO) return '';
+  const m = DO.maestria.find(x => x.attr === doAttr) || { grau: 0, pontos: 0, prox: null };
+  const chips = ATTRS.map(([k, n]) => `<button class="chip ${k === doAttr ? 'on' : ''}" onclick="doAttr='${k}'; renderTreino()">${n}</button>`).join('');
+  const sess = [1, 3, 5].map(n => `<button class="chip ${n === dsess ? 'on' : ''}" onclick="dsess=${n}; renderTreino()">${n} sessão${n > 1 ? 'ões' : ''}</button>`).join('');
+  const lista = DO.senseis.map(s => { const pts = Math.max(s.ganho, Math.round(s.ganho * (1 + DO.bonus_grau / 100 * m.grau))), custo = s.preco * dsess;
+    const off = !s.pode || P.energia < dsess || P.ryos < custo || LU;
+    return `<div class="py-3 border-t border-line"><div class="flex items-center gap-2"><div class="flex-1 min-w-0"><div class="text-sm font-semibold">${esc(s.nome)}</div>
+      <div class="text-xs text-gold">+${pts} por sessão, ${fmt(s.preco)} ryos e 1 de energia cada${s.pode ? '' : `. Libera no nível ${s.nivel}`}</div></div>
+      <button class="chip" ${off ? 'disabled' : ''} onclick="treinarSensei('${s.id}')">${fmt(custo)}</button></div></div>`; }).join('');
+  return `<div class="card"><div class="flex items-center justify-between"><h2>Senseis</h2><b class="text-sm text-gold">Energia ${P.energia}/25</b></div>
+    <p class="lbl mt-1">Sessões com sensei custam energia, mas rendem bem mais pontos que o treino comum. Cada grau de maestria soma ${DO.bonus_grau}% ao ganho do atributo (grau máximo ${DO.grau_max}).</p>
+    <div class="flex gap-1.5 flex-wrap mt-3">${chips}</div>
+    <div class="flex justify-between text-xs mt-3 mb-1"><span>Maestria: grau ${m.grau}</span><span>${m.prox === null ? 'máxima' : `faltam ${m.prox} pontos para o próximo grau`}</span></div>
+    <div class="bar"><i class="bg-gold" style="width:${m.prox === null ? '100%' : pct(DO.pts_grau - m.prox, DO.pts_grau)}"></i></div>
+    <div class="flex gap-1.5 flex-wrap mt-3">${sess}</div>${lista}</div>`;
+}
+
+/* Forja: refinar (+10), desmontar e criar equipamentos com materiais que caem das lutas */
+async function loadForja() {
+  try { FJ = await api(`/api/player/${tgUser.id}/forja`); renderForja(); } catch (e) { toast(e.message, false); }
+}
+async function fj(path, body, msg) { await act(path, body, msg); await loadForja(); }
+function renderForja() {
+  if (!FJ) return;
+  const mats = FJ.materiais.map(m => `<div class="rounded-xl border border-line p-2 text-center"><div class="lbl leading-tight">${esc(m.nome)}</div><div class="font-bold ${m.qtd ? 'text-gold' : 'text-paper/40'}">${m.qtd}</div></div>`).join('');
+  const chips = [['refinar', 'Refinar'], ['desmontar', 'Desmontar'], ['criar', 'Criar']].map(([k, n]) => `<button class="chip ${k === fjSec ? 'on' : ''}" onclick="fjSec='${k}'; renderForja()">${n}</button>`).join('');
+  const matQtd = id => (FJ.materiais.find(m => m.id === id) || { qtd: 0 }).qtd;
+  const nome = i => `<div class="text-sm font-semibold truncate ${/★/.test(i.nome) ? 'text-gold' : ''}">${esc(i.nome)} <span class="tag">${esc(i.tipo)}</span>${i.refino ? ` <span class="tag gold">+${i.refino}</span>` : ''}${i.equipado ? ' <span class="tag">equipado</span>' : ''}</div><div class="text-xs text-gold">${esc(bonusTxt(i.bonus))}</div>`;
+  let body;
+  if (fjSec === 'refinar') {
+    body = `<div class="card"><h2>Refinar</h2><p class="lbl mt-1">Cada refino soma 10% do bônus original (mínimo +1). A chance cai a partir do +4. Falhar perde os materiais e os ryos, mas o item nunca é destruído. O material depende do tier do item.</p>
+      ${FJ.itens.map(i => { const c = i.prox;
+        const acao = i.reliquia ? '<span class="lbl">Relíquia: não refina</span>' : !c ? `<span class="tag gold">+${FJ.refino_max} máximo</span>`
+          : `<button class="chip" ${P.ryos >= c.ryos && matQtd(c.mat) >= c.qtd ? '' : 'disabled'} onclick="fj('/api/forja/refinar', { item_id: ${i.id} }, r => r.mensagem)">Refinar +${c.nivel}</button>`;
+        return `<div class="py-3 border-t border-line"><div class="flex items-center gap-2"><div class="flex-1 min-w-0">${nome(i)}</div>${acao}</div>
+          ${c ? `<div class="text-xs text-paper/60 mt-1">Chance ${c.chance}%. Custa ${fmt(c.ryos)} ryos e ${c.qtd}x ${esc(c.mat_nome)} (você tem ${matQtd(c.mat)}).</div>` : ''}</div>`; }).join('')
+        || '<p class="lbl mt-2">Mochila vazia. Explore o Portão para conseguir equipamentos.</p>'}</div>`;
+  } else if (fjSec === 'desmontar') {
+    body = `<div class="card"><h2>Desmontar</h2><p class="lbl mt-1">Destrói um equipamento e devolve materiais do tier dele. Itens ★ e refinados rendem mais. Desequipe antes.</p>
+      ${FJ.itens.map(i => { const d = i.desmonta;
+        return `<div class="flex items-center gap-2 py-3 border-t border-line"><div class="flex-1 min-w-0">${nome(i)}</div>
+          ${d ? `<button class="chip" onclick="askOk('Desmontar este item? Ele será destruído.',() => fj('/api/forja/desmontar', { item_id: ${i.id} }, r => r.mensagem))">+${d.qtd} ${esc(d.nome)}</button>` : `<span class="lbl">${i.reliquia ? 'Relíquia' : 'Equipado'}</span>`}</div>`; }).join('')
+        || '<p class="lbl mt-2">Mochila vazia.</p>'}</div>`;
+  } else {
+    body = `<div class="card"><h2>Criar</h2><p class="lbl mt-1">Equipamentos fortes para os níveis que a Loja não cobre. Mochila: ${FJ.bolsa.usado}/${FJ.bolsa.max}.</p>
+      ${FJ.receitas.map(r => `<div class="flex items-center gap-2 py-3 border-t border-line"><div class="flex-1 min-w-0"><div class="text-sm font-semibold truncate">${esc(r.nome)} <span class="tag">${esc(r.tipo)}</span></div>
+        <div class="text-xs text-gold">${esc(bonusTxt(r.bonus))}</div><div class="text-xs text-paper/60">${r.pode_nivel ? '' : `Nível ${r.nivel}. `}${fmt(r.ryos)} ryos e ${r.qtd}x ${esc(r.mat_nome)} (você tem ${matQtd(r.mat)})</div></div>
+        <button class="chip" ${r.pode_nivel && P.ryos >= r.ryos && matQtd(r.mat) >= r.qtd && FJ.bolsa.usado < FJ.bolsa.max ? '' : 'disabled'} onclick="fj('/api/forja/criar', { receita: '${r.id}' }, x => x.mensagem)">Forjar</button></div>`).join('')}</div>`;
+  }
+  $('tab-forja').innerHTML = `<div class="card"><h2>Forja</h2><p class="lbl mt-1">Materiais caem de vitórias nos mapas (chefes sempre dão) e empilham fora da mochila.</p><div class="grid grid-cols-5 gap-2 mt-3">${mats}</div></div>
+    <div class="flex gap-2 flex-wrap">${chips}</div>${body}`;
 }
 function renderJutsus() {
   const Jt = X.jutsus, el = e => `${ELEM[e][1]} ${ELEM[e][0]}`;
