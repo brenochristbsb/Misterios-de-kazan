@@ -33,11 +33,11 @@ ATRIBUTOS = ("str", "int", "agi", "dex", "vig")
 
 # Atributo principal / secundário de dano por classe (mesmos valores do schema.sql)
 CLASSES = {
-    "taijutsu":     {"principal": "str", "secundario": "agi", "ignora_elemento": True,  "dano_verdadeiro": False, "bonus_elemental": 1.25},
-    "ninjutsu":     {"principal": "int", "secundario": "dex", "ignora_elemento": False, "dano_verdadeiro": False, "bonus_elemental": 1.50},
-    "genjutsu":     {"principal": "int", "secundario": "agi", "ignora_elemento": False, "dano_verdadeiro": False, "bonus_elemental": 1.25},
-    "marionetista": {"principal": "int", "secundario": "dex", "ignora_elemento": False, "dano_verdadeiro": False, "bonus_elemental": 1.25},
-    "ninja_medico": {"principal": "int", "secundario": "dex", "ignora_elemento": False, "dano_verdadeiro": True,  "bonus_elemental": 1.25},
+    "taijutsu":     {"nome": "Taijutsu", "equip": ('manopla', 'armadura_pesada'), "principal": "str", "secundario": "agi", "ignora_elemento": True,  "dano_verdadeiro": False, "bonus_elemental": 1.25},
+    "ninjutsu":     {"nome": "Ninjutsu", "equip": ('katana', 'manto'), "principal": "int", "secundario": "dex", "ignora_elemento": False, "dano_verdadeiro": False, "bonus_elemental": 1.50},
+    "genjutsu":     {"nome": "Genjutsu", "equip": ('leque', 'flauta', 'traje_couro'), "principal": "int", "secundario": "agi", "ignora_elemento": False, "dano_verdadeiro": False, "bonus_elemental": 1.25},
+    "marionetista": {"nome": "Marionetista", "equip": ('nucleo', 'componente_madeira'), "principal": "int", "secundario": "dex", "ignora_elemento": False, "dano_verdadeiro": False, "bonus_elemental": 1.25},
+    "ninja_medico": {"nome": "Ninja Médico", "equip": ('bisturi', 'tunica_alva'), "principal": "int", "secundario": "dex", "ignora_elemento": False, "dano_verdadeiro": True,  "bonus_elemental": 1.25},
 }
 
 

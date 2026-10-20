@@ -251,6 +251,20 @@ class Player(TimestampMixin, Base):
     org_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
     arena_temp: Mapped[int] = mapped_column(Integer, default=0, nullable=False)  # temporada em que os troféus valem
 
+    # ── Shadow Clan, fase 1 (aditivo; ensure_columns cria estas colunas em bancos existentes) ──
+    # Classe: taijutsu | ninjutsu | genjutsu | marionetista | ninja_medico (None = ainda não escolheu)
+    classe: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    # Ouro Ninja (moeda forte): compra slots de pet, reset de classe, VIP e Passe
+    ouro_ninja: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    # Slots de pet liberados: 2 iniciais, +1 por 100 Ouro Ninja, máximo 20 (limite validado no código)
+    pet_slots: Mapped[int] = mapped_column(Integer, default=2, nullable=False)
+    # 5 atributos universais (Bloco 2). Só preenchidos quando os pontos antigos forem convertidos.
+    atr_str: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
+    atr_int: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
+    atr_agi: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
+    atr_dex: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
+    atr_vig: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
+
     # Chaves estrangeiras
     village_id: Mapped[int] = mapped_column(
         ForeignKey("villages.id", use_alter=True, name="fk_players_village"),
@@ -561,3 +575,65 @@ class Organizacao(Base):
     nome: Mapped[str] = mapped_column(String(40), unique=True, nullable=False)
     lider_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)  # sem FK: a liderança passa de mão em mão
     dados: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+
+
+# ─────────────────────────────────────────────────────────────
+# Shadow Clan, fase 1 — tabelas novas (o create_all cria; nenhuma tabela existente é alterada ou apagada)
+# ─────────────────────────────────────────────────────────────
+class ClasseDef(Base):
+    """Catálogo das 5 especializações (Bloco 3). Dados semeados por semear_classes()."""
+    __tablename__ = "classes"
+
+    codigo: Mapped[str] = mapped_column(String(16), primary_key=True)  # taijutsu, ninjutsu, ...
+    nome: Mapped[str] = mapped_column(String(32), nullable=False)
+    recurso: Mapped[str] = mapped_column(String(8), nullable=False)  # "chakra" ou "furia" (Taijutsu)
+    atributo_principal: Mapped[str] = mapped_column(String(3), nullable=False)  # str|int|agi|dex|vig
+    atributo_secundario: Mapped[str] = mapped_column(String(3), nullable=False)
+    ignora_elemento: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)  # Taijutsu: modificador sempre 1.0
+    dano_verdadeiro: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)  # Ninja Médico: ignora Vigor
+    bonus_elemental: Mapped[float] = mapped_column(Float, default=1.25, nullable=False)  # Ninjutsu: 1.50
+    equip_permitido: Mapped[list] = mapped_column(JSON, default=list, nullable=False)  # tipos de item liberados (Bloco 5)
+
+    __table_args__ = (
+        CheckConstraint("recurso IN ('chakra','furia')", name="ck_classe_recurso"),
+        CheckConstraint("atributo_principal IN ('str','int','agi','dex','vig')", name="ck_classe_attr_p"),
+        CheckConstraint("atributo_secundario IN ('str','int','agi','dex','vig')", name="ck_classe_attr_s"),
+    )
+
+
+class QuestInventory(Base):
+    """Itens de entrega/coleta de missão (ex.: Carvão Brilhante). Oculta e NÃO ocupa espaço na mochila (Bloco 1)."""
+    __tablename__ = "quest_inventory"
+
+    player_id: Mapped[int] = mapped_column(ForeignKey("players.id", ondelete="CASCADE"), primary_key=True)
+    item_id: Mapped[str] = mapped_column(String(48), primary_key=True)  # id do item no catálogo do jogo
+    quantidade: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+    __table_args__ = (CheckConstraint("quantidade > 0", name="ck_quest_inv_qtd"),)
+
+
+class BossThreat(Base):
+    """Pity do Boss: Pontos de Ameaça por jogador e por mapa (Bloco 4). +1 por Explorar sem Boss; 100 = Boss garantido."""
+    __tablename__ = "boss_threat"
+
+    player_id: Mapped[int] = mapped_column(ForeignKey("players.id", ondelete="CASCADE"), primary_key=True)
+    mapa_id: Mapped[int] = mapped_column(Integer, primary_key=True)  # id do mapa (os mapas ficam em game_extra.py, sem tabela)
+    pontos: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    __table_args__ = (CheckConstraint("pontos >= 0 AND pontos <= 100", name="ck_boss_threat_pontos"),)
+
+
+def semear_classes(db) -> None:
+    """Idempotente: insere as 5 classes que ainda não existem. Chame junto do seed_initial_data()."""
+    from combate import CLASSES
+    existentes = {c for (c,) in db.execute(ClasseDef.__table__.select().with_only_columns(ClasseDef.codigo))}
+    for codigo, r in CLASSES.items():
+        if codigo in existentes:
+            continue
+        db.add(ClasseDef(
+            codigo=codigo, nome=r["nome"], recurso="furia" if codigo == "taijutsu" else "chakra",
+            atributo_principal=r["principal"], atributo_secundario=r["secundario"],
+            ignora_elemento=r["ignora_elemento"], dano_verdadeiro=r["dano_verdadeiro"],
+            bonus_elemental=r["bonus_elemental"], equip_permitido=list(r["equip"]),
+        ))
+    db.commit()
