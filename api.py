@@ -458,7 +458,13 @@ def regen(player: Player) -> None:
         player.regen_at = now
         return
     secs = (now - as_utc(player.regen_at)).total_seconds()
-    chakra, hp = int(secs // CHAKRA_REGEN_SECS), int(secs // HP_REGEN_SECS)
+    # Bloco 2: o Vigor (VIG) acelera a regeneração de vida fora de combate (+2% por ponto acima dos 5 iniciais)
+    try:
+        vig = sum(int(v) for v in (effective_stats(player).get(k) or 0 for k in ("vigor", "defesa")))
+    except Exception:
+        vig = (player.vigor or 0) + (player.defesa or 0)
+    hp_secs = HP_REGEN_SECS / (1 + 0.02 * max(0, vig - 5))
+    chakra, hp = int(secs // CHAKRA_REGEN_SECS), int(secs // hp_secs)
     if chakra:
         player.chakra_atual = min(player.chakra_max, player.chakra_atual + chakra)
     if hp:
@@ -672,7 +678,7 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
         taijutsu=0, ninjutsu=0, genjutsu=0, chakra_attr=0, defesa=0,
         forca=5 + payload.forca, inteligencia=5 + payload.inteligencia, agilidade=5 + payload.agilidade,
         destreza=5 + payload.destreza, vigor=5 + payload.vigor, elemento="" if payload.classe == "taijutsu" else elemento_do_teste(payload.respostas),
-        vida_max=100 + 5 * payload.vigor, vida_atual=100 + 5 * payload.vigor,
+        vida_max=100 + 5 * payload.forca, vida_atual=100 + 5 * payload.forca,  # Bloco 2: a vida máxima escala com a Força (STR)
         chakra_max=100 + 4 * payload.inteligencia, chakra_atual=100 + 4 * payload.inteligencia,
     ))
     try:
@@ -713,7 +719,7 @@ def train(payload: TrainRequest, db: Session = Depends(get_db)):
     player.ryos -= ryos_cost
     attr = payload.atributo.value
     setattr(player, attr, getattr(player, attr) + TRAIN_ATTR_GAIN * payload.repeticoes)
-    if attr == "vigor":  # cada ponto de vigor aumenta a vida máxima
+    if attr in ("forca", "taijutsu"):  # Bloco 2: cada ponto de Força (STR) aumenta a vida máxima
         player.vida_max += 5 * payload.repeticoes
         player.vida_atual += 5 * payload.repeticoes
     elif attr in ("chakra_attr", "inteligencia"):  # cada ponto de chakra (ou de Inteligência) aumenta a reserva

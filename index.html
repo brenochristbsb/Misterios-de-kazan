@@ -193,12 +193,12 @@ const pct = (a, b) => Math.max(0, Math.min(100, a / (b || 1) * 100)) + '%';
 const expFloor = l => 50 * l * (l - 1);
 const RANKS = ['Estudante', 'Genin', 'Chunin', 'Jonin', 'Anbu', 'Sannin', 'Kage'];
 const ATTRS = [['taijutsu', 'Taijutsu', 'golpes físicos'], ['ninjutsu', 'Ninjutsu', 'técnicas de chakra'], ['genjutsu', 'Genjutsu', 'ilusões que atordoam'],
-  ['forca', 'Força', 'dano físico'], ['agilidade', 'Agilidade', 'iniciativa e esquiva'], ['inteligencia', 'Inteligência', 'controle de chakra e missões secretas'],
-  ['chakra_attr', 'Chakra', 'reserva de chakra'], ['defesa', 'Defesa', 'reduz o dano'], ['vigor', 'Vigor', 'vida máxima'], ['destreza', 'Destreza', 'armas e crítico']];
+  ['forca', 'Força', 'dano físico e vida máxima'], ['agilidade', 'Agilidade', 'iniciativa e esquiva'], ['inteligencia', 'Inteligência', 'controle de chakra e missões secretas'],
+  ['chakra_attr', 'Chakra', 'reserva de chakra'], ['defesa', 'Defesa', 'reduz o dano'], ['vigor', 'Vigor', 'redução de dano e regeneração de vida'], ['destreza', 'Destreza', 'armas e crítico']];
 const ELEM = { fogo: ['Fogo', '🔥'], agua: ['Água', '💧'], raio: ['Raio', '⚡'], terra: ['Terra', '🪨'], vento: ['Vento', '🌪️'] };
 // Os 5 Atributos Universais (Bloco 2): [coluna usada no treino, sigla, nome, o que faz]
-const UNIV = [['forca', 'str', 'Força', 'dano físico bruto'], ['inteligencia', 'int', 'Inteligência', 'dano espiritual e reserva de chakra'],
-  ['agilidade', 'agi', 'Agilidade', 'ordem dos turnos e esquiva'], ['destreza', 'dex', 'Destreza', 'precisão e crítico'], ['vigor', 'vig', 'Vigor', 'vida máxima e redução de dano']];
+const UNIV = [['forca', 'str', 'Força', 'dano físico bruto e vida máxima'], ['inteligencia', 'int', 'Inteligência', 'dano espiritual e reserva de chakra'],
+  ['agilidade', 'agi', 'Agilidade', 'ordem dos turnos e esquiva'], ['destreza', 'dex', 'Destreza', 'precisão e crítico'], ['vigor', 'vig', 'Vigor', 'redução de dano e regeneração de vida fora de combate']];
 // Pontos antigos que somam em cada universal (mesma conversão do servidor, atributos5.py)
 const POOL_UI = { str: ['taijutsu', 'forca'], int: ['ninjutsu', 'genjutsu', 'inteligencia', 'chakra_attr'], agi: ['agilidade'], dex: ['destreza'], vig: ['vigor', 'defesa'] };
 const univVal = (src, u) => POOL_UI[u].reduce((s, k) => s + (src[k] || 0), 0);
