@@ -92,6 +92,25 @@ _NOVOS_MAPAS = [
 ]
 MAPS += [{"id": i, "nome": n, "min_level": a, "max_level": b, "perigo": p, "tipo": t, "itens": it, "inimigo": ini, "chefe": c,
           "extras": ex, "recurso": rec} for i, n, a, b, p, t, it, c, ini, ex, rec in _NOVOS_MAPAS]
+# ───────── Atributos Universais: todo bônus novo de item usa só os 5 (Força, Inteligência, Agilidade, Destreza, Vigor) ─────────
+# Os pontos antigos viram o universal onde somam (mesma conversão do atributos5.py), então nenhum poder some. Itens que já
+# estão no banco com as chaves antigas continuam valendo (o effective_stats soma os dois) e a tela os mostra como universais.
+UNIVERSAL = {"taijutsu": "forca", "ninjutsu": "inteligencia", "genjutsu": "inteligencia", "chakra_attr": "inteligencia", "defesa": "vigor"}
+
+
+def uni(attr: str) -> str:
+    return UNIVERSAL.get(attr, attr)
+
+
+def _uni_bonus(b: dict) -> dict:
+    out: dict = {}
+    for k, v in b.items():
+        out[uni(k)] = out.get(uni(k), 0) + v
+    return out
+
+
+for _m in MAPS:  # os itens que caem nos mapas reforçam um atributo universal
+    _m["itens"] = [(it[0], uni(it[1]), *it[2:]) for it in _m["itens"]]
 MAPS_BY_ID = {m["id"]: m for m in MAPS}
 vila_idx = lambda p: (p.village_id - 1) % len(VILAS)  # as vilas são semeadas na ordem de vilas_dados.py
 
@@ -1502,8 +1521,12 @@ _BONUS.update({"Botas": lambda t: {"agilidade": 2 * t + 1, "defesa": t},
                "Luvas": lambda t: {"destreza": 2 * t + 1, "taijutsu": t + 1},
                "Colar": lambda t: {"inteligencia": t + 1, "ninjutsu": t + 1, "defesa": t},
                "Anel": lambda t: {"genjutsu": t + 1, "destreza": t + 1, "forca": t}})
+_BONUS_LEGADO = dict(_BONUS)  # tabela antiga (10 atributos): só serve para manter o tier de forja dos itens da loja
+_BONUS = {tipo: (lambda f: (lambda t: _uni_bonus(f(t))))(f) for tipo, f in _BONUS_LEGADO.items()}
+# "_tier" fixa o tier de forja que o item já tinha: juntar atributos (Pergaminho e Colar) não pode mudar o rendimento do desmonte
 ITENS_LOJA = {f"{tipo.lower()}_{i + 1}": {"id": f"{tipo.lower()}_{i + 1}", "nome": _NOMES[tipo][i], "tipo": tipo,
-                                          "nivel": TIER_NIVEL[i], "preco": TIER_PRECO[i], "bonus": _BONUS[tipo](i + 1)}
+                                          "nivel": TIER_NIVEL[i], "preco": TIER_PRECO[i],
+                                          "bonus": {**_BONUS[tipo](i + 1), "_tier": min(5, 1 + int(max(_BONUS_LEGADO[tipo](i + 1).values())) // 8)}}
               for tipo in _NOMES for i in range(5)}
 PRECO_POR_NOME = {v["nome"]: v["preco"] for v in ITENS_LOJA.values()}
 RELIQUIAS = {d["reliquia"] for d in CLAN_DATA.values()}  # únicas no mundo: só circulam no mercado entre jogadores

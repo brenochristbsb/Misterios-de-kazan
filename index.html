@@ -210,7 +210,9 @@ const CLS_UI = [['taijutsu', 'Taijutsu', 'Dano por Força e Agilidade. Sem bônu
   ['ninja_medico', 'Ninja Médico', 'Dano por Inteligência e Destreza. Seus ataques ignoram o Vigor do alvo.']];
 const REG = UNIV.map(([k, , n, ds]) => [k, n, ds]);  // os 5 atributos que recebem os 5 pontos do cadastro
 const TIPOS = { Arma: 'Armas', Armadura: 'Armaduras', Pergaminho: 'Pergaminhos', Botas: 'Botas', Luvas: 'Luvas', Colar: 'Colares', Anel: 'Anéis' };
-const bonusTxt = b => Object.entries(b).filter(([k]) => k[0] !== '_').map(([k, v]) => `+${v} ${k}`).join(', ') + (b._ref ? ` (refino +${b._ref})` : '');
+const bonusTxt = b => { const u = {};  // bônus de item sempre em atributos universais (itens antigos somam por universal)
+  for (const [k, v] of Object.entries(b)) { if (k[0] === '_' || typeof v !== 'number') continue; const x = UNIV.find(([, s]) => POOL_UI[s].includes(k)), n = x ? x[2] : k; u[n] = (u[n] || 0) + v; }
+  return Object.entries(u).map(([n, v]) => `+${v} ${n}`).join(', ') + (b._ref ? ` (refino +${b._ref})` : ''); };
 const dur = s => s >= 60 ? Math.round(s / 60) + ' min' : s + ' s';
 let P, X, J, G, K, R, LU, CL, LJ, PT, BO, ljSec = 'itens', boSec = 'equipados', VILS, battle = null, reps = 1;
 let arRk = 'd', FJ, DO, MS, TR, AR, fjSec = 'refinar', doAttr = 'forca', dsess = 1;
@@ -849,7 +851,7 @@ function renderLoja() {
   }
   $('tab-loja').innerHTML = `<div class="flex gap-2 flex-wrap">${chips}</div>${body}`;
 }
-const attrNome = k => (ATTRS.find(a => a[0] === k) || [k, k])[1];
+const attrNome = k => { const x = UNIV.find(([, s]) => POOL_UI[s].includes(k)); return x ? x[2] : (ATTRS.find(a => a[0] === k) || [k, k])[1]; };
 function caminhoHtml(m) {
   const c = m.caminho, nomes = { reliquia: 'da Relíquia', poder: 'do Poder', segredo: 'do Segredo' }, cu = c.custos;
   const esc_ = (id, txt, on = true) => `<button class="btn" ${on ? '' : 'disabled'} onclick="act('/api/clan/caminho', { caminho: '${id}' }, () => 'Caminho escolhido.')">${txt}</button>`;
