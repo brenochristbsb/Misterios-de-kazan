@@ -243,6 +243,8 @@ class Player(TimestampMixin, Base):
     trofeus: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     moedas_arena: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     arena: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    torre_sessao: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)  # dentro da Torre: sem hospital nem descanso
+    progresso: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)  # missões, conquistas, login e passe (progresso_extra.py)
     arena_temp: Mapped[int] = mapped_column(Integer, default=0, nullable=False)  # temporada em que os troféus valem
 
     # Chaves estrangeiras

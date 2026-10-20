@@ -119,6 +119,7 @@
   <section id="tab-masmorras" class="tab space-y-3 hidden"></section>
   <section id="tab-torre" class="tab space-y-3 hidden"></section>
   <section id="tab-arena" class="tab space-y-3 hidden"></section>
+  <section id="tab-prog" class="tab space-y-3 hidden"></section>
   <section id="tab-jutsus" class="tab space-y-3 hidden"></section>
   <section id="tab-perfil" class="tab space-y-3"></section>
   <section id="tab-jornada" class="tab space-y-3 hidden"></section>
@@ -247,6 +248,7 @@ function showTab(name, back) {
   if (name === 'masmorras') loadMasm();
   if (name === 'torre') loadTorre();
   if (name === 'arena') loadArena();
+  if (name === 'prog') loadProg();
   document.querySelectorAll('.tab').forEach(s => s.classList.toggle('hidden', s.id !== 'tab-' + name));
   document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.tab === (MAIN.includes(name) ? name : PAI[name] || 'menu')));
   tg?.HapticFeedback?.selectionChanged?.();
@@ -281,7 +283,8 @@ const mini = (id, ico, nome, fn, soon = false) => `<button class="mini" onclick=
   <img src="img/${id}.jpg" alt="" onerror="this.remove()"><span class="ico">${ico}</span><b>${nome}</b>${soon ? '<i class="soon">breve</i>' : ''}</button>`;
 function renderMenu() {
   const T = [['dojo', '🥋', 'Dojo', "showTab('treino')"], ['kage', '👘', 'Sala do Kage', "showTab('vila')"], ['forja', '⚒️', 'Forja', "showTab('forja')"],['arena', '⚔️', 'Arena', "showTab('arena')"],
-    ['masmorras', '🕳️', 'Masmorras', "showTab('masmorras')"], ['torre', '🗼', 'Torre', "showTab('torre')"],['vila', '🏘️', 'Vila e clãs', "showTab('vila')"], ['ranking', '🏆', 'Ranking', "showTab('ranking')"]];
+    ['masmorras', '🕳️', 'Masmorras', "showTab('masmorras')"], ['torre', '🗼', 'Torre', "showTab('torre')"],['vila', '🏘️', 'Vila e clãs', "showTab('vila')"], ['ranking', '🏆', 'Ranking', "showTab('ranking')"],
+    ['missoes', '📜', PGP ? `Missões (${PGP})` : 'Missões', "abrirProg('missoes')"], ['conq', '🏅', 'Conquistas', "abrirProg('conq')"], ['login', '📅', 'Login', "abrirProg('login')"], ['passe', '🎫', 'Passe', "abrirProg('passe')"]];
   $('tab-menu').innerHTML = `<h2>Menu</h2><div class="grid grid-cols-4 gap-2">${T.map(([id, ico, n, fn, soon]) => mini(id, ico, n, fn, !!soon)).join('')}</div>`;
 }
 function renderHospital() {
@@ -970,10 +973,81 @@ setInterval(async () => {
   try { P = await api('/api/player/' + tgUser.id); renderHeader(); } catch {}
 }, 30000);
 
+/* Progresso: missões diárias e semanais, conquistas, login diário, eventos e passe de temporada */
+let PG, PGP = 0, pgSec = 'missoes';
+const PG_SEC = [['missoes', '📜 Missões'], ['conq', '🏅 Conquistas'], ['login', '📅 Login'], ['passe', '🎫 Passe']];
+const abrirProg = sec => { pgSec = sec; showTab('prog'); renderProg(); };
+async function loadProg() {
+  try { PG = await api(`/api/player/${tgUser.id}/progresso`); PGP = PG.pendentes; renderProg(); renderMenu(); } catch (e) { toast(e.message, false); }
+}
+async function pgPend() {
+  try {
+    PGP = (await api(`/api/player/${tgUser.id}/progresso`)).pendentes; renderMenu();
+    if (PGP) toast(`Você tem ${PGP} recompensa${PGP > 1 ? 's' : ''} para coletar: Menu → Missões.`, true, 5000);
+  } catch {}
+}
+async function progColetar(path, body = {}) {
+  try { toast((await api(path, { telegram_id: tgUser.id, ...body })).mensagem, true, 4500); await refresh(); loadProg(); } catch (e) { toast(e.message, false); }
+}
+const rwTxt = r => [r.ryos && `${fmt(r.ryos)} ryos`, r.exp && `${fmt(r.exp)} XP`, r.arena && `${r.arena} moedas da Arena`, r.pocao && `${r.pocao[1]}x ${r.pocao[0]}`,
+  r.mat && `${r.mat[1]}x ${r.mat[0]}`, r.ovo, r.passe && `${r.passe} XP do passe`].filter(Boolean).map(esc).join(', ');
+const pgBtn = (pronta, feita, rota, corpo) => feita ? '<span class="tag">✓ coletado</span>'
+  : `<button class="btn ${pronta ? 'btn-gold' : ''}" ${pronta ? '' : 'disabled'} onclick='progColetar("${rota}", ${corpo})'>Coletar</button>`;
+function renderProg() {
+  if (!PG) return;
+  const nav = `<div class="flex gap-1.5 flex-wrap">${PG_SEC.map(([k, n]) => `<button class="chip ${k === pgSec ? 'on' : ''}" onclick="pgSec='${k}'; renderProg()">${n}</button>`).join('')}</div>`;
+  $('tab-prog').innerHTML = nav + ({ missoes: pgMissoes, conq: pgConq, login: pgLogin, passe: pgPasse }[pgSec])();
+}
+function pgMissoes() {
+  const ev = PG.evento, m = PG.missoes;
+  const lin = (x, rota) => `<div class="py-2 border-t border-line"><div class="flex items-center justify-between gap-2"><div class="min-w-0"><div class="text-sm font-semibold">${esc(x.texto)}</div>
+    <div class="lbl">${x.prog}/${x.qtd}. Prêmio: ${rwTxt(x.premio)}</div></div>${pgBtn(x.pronta, x.coletada, rota, JSON.stringify({ id: x.id }))}</div>
+    <div class="bar mt-1"><i class="bg-gold" style="width:${pct(x.prog, x.qtd)}"></i></div></div>`;
+  const bonus = (b, id, txt) => `<div class="py-2 border-t border-line flex items-center justify-between gap-2"><div class="min-w-0"><div class="text-sm font-semibold">${txt}</div>
+    <div class="lbl">Prêmio: ${rwTxt(b.premio)}</div></div>${pgBtn(b.pronto, b.coletado, '/api/prog/missao/coletar', JSON.stringify({ id }))}</div>`;
+  return `<div class="card border-gold"><div class="flex items-center justify-between"><h2>${esc(ev.nome)}</h2><span class="tag gold">${ev.dias} dia${ev.dias === 1 ? '' : 's'}</span></div>
+    <p class="text-sm mt-1">${esc(ev.desc)}</p><div class="py-2 mt-2 border-t border-line"><div class="flex items-center justify-between gap-2"><div class="min-w-0"><div class="text-sm font-semibold">${esc(ev.meta_texto)}</div>
+    <div class="lbl">${ev.prog}/${ev.qtd}. Prêmio: ${rwTxt(ev.premio)}</div></div>${pgBtn(ev.pronta, ev.coletada, '/api/prog/evento/coletar', '{}')}</div>
+    <div class="bar mt-1"><i class="bg-gold" style="width:${pct(ev.prog, ev.qtd)}"></i></div></div></div>
+    <div class="card"><h2>Missões diárias</h2><p class="lbl mt-1">Renovam à meia-noite UTC (21h em Brasília).</p>${m.diarias.map(x => lin(x, '/api/prog/missao/coletar')).join('')}
+    ${bonus(m.bonus_dia, 'd_tudo', 'Bônus: colete as 3 do dia')}</div>
+    <div class="card"><div class="flex items-center justify-between"><h2>Missões semanais</h2><span class="tag">${PG.dias_semana} dia${PG.dias_semana === 1 ? '' : 's'}</span></div>
+    ${m.semanais.map(x => lin(x, '/api/prog/missao/coletar')).join('')}${bonus(m.bonus_semana, 's_tudo', 'Bônus: colete as 3 da semana')}</div>`;
+}
+function pgConq() {
+  return PG.conquistas.map(c => {
+    const pend = c.degraus.filter(d => d.ok && !d.coletada).length, feitas = c.degraus.filter(d => d.coletada).length;
+    return `<div class="card"><div class="flex items-center justify-between"><h2>${esc(c.nome)}</h2><span class="tag ${pend ? 'gold' : ''}">${feitas}/${c.degraus.length}${pend ? ` · ${pend} a coletar` : ''}</span></div>
+      ${c.degraus.map(d => `<div class="py-2 border-t border-line flex items-center justify-between gap-2"><div class="min-w-0"><div class="text-sm ${d.coletada ? 'text-paper/50' : 'font-semibold'}">${esc(d.texto)}</div>
+      <div class="lbl">${d.coletada ? 'Concluída' : `${fmt(Math.min(c.valor, d.meta))}/${fmt(d.meta)}. Prêmio: ${rwTxt(d.premio)}`}</div></div>
+      ${d.coletada ? '<span class="tag">✓</span>' : pgBtn(d.ok, false, '/api/prog/conquista/coletar', JSON.stringify({ id: d.id }))}</div>`).join('')}</div>`;
+  }).join('');
+}
+function pgLogin() {
+  const L = PG.login;
+  const dias = L.ciclo.map((r, i) => {
+    const n = i + 1, feito = !L.pode ? n <= L.dia_ciclo : n < L.dia_ciclo, hoje = L.pode && n === L.dia_ciclo;
+    return `<div class="rounded-xl p-2 text-center border ${hoje ? 'border-gold' : 'border-line'} ${feito ? 'opacity-50' : ''}"><div class="lbl">Dia ${n}</div><div class="text-xs mt-1">${feito ? '✓' : rwTxt(r)}</div></div>`;
+  }).join('');
+  return `<div class="card"><div class="flex items-center justify-between"><h2>Login diário</h2><span class="tag gold">${L.seq} seguido${L.seq === 1 ? '' : 's'}</span></div>
+    <p class="lbl mt-1">Entre todo dia para manter a sequência. Faltar um dia reinicia no dia 1. Melhor sequência: ${L.melhor}.</p>
+    <div class="grid grid-cols-2 gap-2 mt-3">${dias}</div>
+    <button class="btn ${L.pode ? 'btn-gold' : ''} w-full mt-3" ${L.pode ? '' : 'disabled'} onclick="progColetar('/api/prog/login/coletar')">${L.pode ? '🎁 Coletar recompensa de hoje' : 'Volte amanhã'}</button></div>`;
+}
+function pgPasse() {
+  const S = PG.passe, rest = S.xp - S.nivel * S.xp_nivel;
+  const niv = S.niveis.map(n => `<div class="py-2 border-t border-line flex items-center justify-between gap-2"><div class="min-w-0"><div class="text-sm ${n.ok ? 'font-semibold' : 'text-paper/60'}">Nível ${n.n}</div>
+    <div class="lbl">${rwTxt(n.premio)}</div></div>${n.coletado ? '<span class="tag">✓</span>' : pgBtn(n.ok, false, '/api/prog/passe/coletar', JSON.stringify({ nivel: n.n }))}</div>`).join('');
+  return `<div class="card"><div class="flex items-center justify-between"><h2>Passe da temporada ${S.temporada}</h2><span class="tag gold">${S.dias} dia${S.dias === 1 ? '' : 's'}</span></div>
+    <p class="lbl mt-1">Ganhe XP do passe lutando, treinando, forjando e cumprindo missões. Cada nível libera um prêmio. O passe zera a cada 28 dias, então colete antes de acabar.</p>
+    <div class="flex items-center justify-between mt-3 text-sm"><b>Nível ${S.nivel}/${S.max}</b><span class="lbl">${S.nivel >= S.max ? 'máximo' : `${rest}/${S.xp_nivel} XP`}</span></div>
+    <div class="bar mt-1"><i class="bg-gold" style="width:${S.nivel >= S.max ? '100%' : pct(rest, S.xp_nivel)}"></i></div></div><div class="card">${niv}</div>`;
+}
+
 (async function init() {
   showTab('perfil');
   if (!tgUser.id) return fatal('Abra este app pelo Telegram. Para testar no navegador, use ?tid=123 no endereço.');
-  try { await refresh(); } catch (e) { e.status === 404 ? showRegister() : fatal(e.message); }
+  try { await refresh(); pgPend(); } catch (e) { e.status === 404 ? showRegister() : fatal(e.message); }
 })();
 </script>
 </body>

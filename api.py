@@ -912,5 +912,8 @@ def guild_war_attack(payload: WarAttackRequest, db: Session = Depends(get_db)):
 from game_extra import router as extra_router  # noqa: E402
 
 app.include_router(extra_router)
+from progresso_extra import router as progresso_router  # noqa: E402
+
+app.include_router(progresso_router)
 # Backup/restauração (protegido por ADMIN_TOKEN; fica fora do login do Telegram de propósito)
 app.mount("/api/admin", persistencia.criar_app_admin(engine, Base))

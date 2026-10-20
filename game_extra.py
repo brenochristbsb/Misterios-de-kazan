@@ -23,6 +23,15 @@ from models import Clan, Guild, InventoryItem, ItemType, MarketListing, NinjaRan
 
 router = APIRouter()
 
+
+def prog(p, ev: str, n: int = 1) -> None:
+    """Avisa o módulo de progresso (missões, conquistas, passe) que algo aconteceu. Nunca atrapalha a ação original."""
+    try:
+        from progresso_extra import registrar
+        registrar(p, ev, n)
+    except Exception:
+        pass
+
 RANKS = list(NinjaRank)  # Estudante -> Kage
 EXPLORE_CHAKRA = 15
 CLAN_TEST_CHAKRA = 20
@@ -566,6 +575,11 @@ def fim_luta(db: Session, p: Player, L: dict, won: bool) -> dict:
     res["niveis_ganhos"] = apply_exp(p, res["exp"])
     if len(p.elementos_extra or []) > antes:
         res["elemento_novo"] = p.elementos_extra[-1]
+    try:  # missões, conquistas, passe e bônus de evento
+        from progresso_extra import registrar_luta
+        registrar_luta(p, L, res, won)
+    except Exception:
+        pass
     return res
 
 
@@ -880,6 +894,7 @@ def jornada_entregar(payload: JornadaDone, db: Session = Depends(get_db)):
         promover(p, m["exame"])
         promovido = m["exame"]
     levels = apply_exp(p, m["exp"])
+    prog(p, "jornada")
     db.commit()
     return {"exp": m["exp"], "ryos": ryos, "fama": m["fama"], "niveis_ganhos": levels, "promovido": promovido}
 
@@ -998,6 +1013,7 @@ def guild_donate(payload: DonateReq, db: Session = Depends(get_db)):
     p.ryos -= payload.valor
     g.recursos_doados += payload.valor
     g.level = max(g.level, 1 + int((g.recursos_doados / 500) ** 0.5))
+    prog(p, "doacao")
     db.commit()
     return {"nivel": g.level}
 
@@ -2112,6 +2128,7 @@ def forja_refinar(payload: ItemReq, db: Session = Depends(get_db)):
         msg = f"Sucesso! {it.item_name} agora está +{c['nivel']}."
     else:
         msg = f"O refino falhou. Os materiais e os ryos se perderam, mas {it.item_name} segue em +{c['nivel'] - 1}."
+    prog(p, "forja")
     db.commit()
     return {"mensagem": msg, "sucesso": ok, "refino": forja_refino(it)}
 
@@ -2156,6 +2173,7 @@ def forja_criar(payload: CriarReq, db: Session = Depends(get_db)):
     p.ryos -= r["ryos"]
     _gasta_material(p, r["mat"], r["qtd"])
     db.add(InventoryItem(player_id=p.id, item_name=r["nome"], item_type=ItemType(r["tipo"]), status_bonus={**r["bonus"], "_tier": r["tier"]}))
+    prog(p, "forja")
     db.commit()
     return {"mensagem": f"Você forjou {r['nome']}."}
 
@@ -2223,6 +2241,7 @@ def dojo_treinar(payload: DojoReq, db: Session = Depends(get_db)):
     dar_atributo(p, attr, ganho)
     niveis = apply_exp(p, XP_POR_PONTO * ganho)
     grau = maestria_grau(p, attr)
+    prog(p, "dojo", payload.sessoes)
     db.commit()
     msg = f"{s['nome']} treinou você: +{ganho} de {attr} e +{XP_POR_PONTO * ganho} de XP."
     if grau > grau_antes:
