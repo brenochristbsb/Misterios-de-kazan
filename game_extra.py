@@ -20,7 +20,9 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, object_session
 
 from api import ATTRS, NO_CLAN_NAME, active_summon_link, apply_exp, as_utc, effective_stats, get_db, get_player, rank_titulo
-from models import Clan, Guild, InventoryItem, ItemType, MarketListing, NinjaRank, Pet, Player, PlayerSummon, Summon, Village
+import atributos5
+import bloco4
+from models import BossThreat, Clan, Guild, InventoryItem, ItemType, MarketListing, NinjaRank, Pet, Player, PlayerSummon, Summon, Village
 
 router = APIRouter()
 
@@ -260,8 +262,19 @@ def mod_elem(atq, defe) -> float:
     return 0.75 if VANTAGEM.get(defe) == atq else 1.0
 
 
+USAR_BLOCO7 = True  # False volta à fórmula antiga de dano (golpe_legado)
+
+
 def golpe(att: dict, dfn: dict, acao: str, poder: float = 1.0, mod: float = 1.0, crit_extra: float = 0.0):
-    """Retorna (dano, crítico, atordoa). Dano 0 = esquivou. `poder` é o multiplicador do jutsu e `mod` o elemental."""
+    """Retorna (dano, crítico, atordoa). Dano 0 = esquivou. `poder` é o multiplicador do jutsu e `mod` o elemental.
+    Usa a fórmula do Bloco 7 (atributos5.golpe), com os 10 atributos antigos convertidos nos 5 universais."""
+    if USAR_BLOCO7:
+        return atributos5.golpe(att, dfn, acao, poder, mod, crit_extra)
+    return golpe_legado(att, dfn, acao, poder, mod, crit_extra)
+
+
+def golpe_legado(att: dict, dfn: dict, acao: str, poder: float = 1.0, mod: float = 1.0, crit_extra: float = 0.0):
+    """Fórmula antiga (10 atributos), mantida para comparação e para desligar o Bloco 7 se precisar."""
     if random.random() < 0.5 * dfn["agilidade"] / (dfn["agilidade"] + att["agilidade"] + 10):
         return 0, False, False
     if acao == "fisico":
@@ -288,6 +301,40 @@ STATUS_INFO = {"queimado": "🔥", "sangrando": "🩸", "congelado": "🧊", "pa
 STATUS_TURNOS = {"queimado": 3, "sangrando": 3, "congelado": 1, "paralisado": 2, "cego": 3}
 ELEM_STATUS = {"fogo": "queimado", "agua": "congelado", "raio": "paralisado", "vento": "sangrando", "terra": "cego"}
 ESTRELA_BONUS = {1: 1.25, 2: 1.5, 3: 2.0}
+
+
+def dif_por_nivel(p: Player, nivel: int) -> str:
+    """Dificuldade pela distância entre o nível do inimigo e o do jogador (mesma régua de antes)."""
+    d = nivel - p.level
+    return "fácil" if d <= -3 else "normal" if d <= 1 else "difícil" if d <= 3 else "desafiante"
+
+
+def rolar_drops_exploracao(db: Session, p: Player, mp: dict) -> list:
+    """Bloco 4: dois rolos independentes por clique em Explorar. Devolve os textos dos drops para a tela.
+    Rolo A: materiais (o raro é do tier acima). Rolo B: fragmento de mapa ou equipamento comum/incomum/raro do mapa
+    (raridade vira estrelas: incomum = 1★, raro = 2★). Equipamento sem espaço na mochila se perde."""
+    out = []
+    tier = int(mat_do_mapa(mp["perigo"]).split("_")[1])
+    m = bloco4.rolar_materiais()
+    if m:
+        tipo, qtd = m
+        mid = f"mat_{tier if tipo == 'basico' else min(5, tier + 1)}"
+        est = dict(p.materiais or {})
+        est[mid] = est.get(mid, 0) + qtd
+        p.materiais = est
+        out.append(f"{qtd}x {MAT_NOME[mid]}" + (" (raro)" if tipo == "raro" else ""))
+    e = bloco4.rolar_equipamento()
+    if e == "fragmento":
+        k = f"frag_{mp['id']}"
+        p.materiais = {**(p.materiais or {}), k: (p.materiais or {}).get(k, 0) + 1}
+        out.append(frag_nome(mp["id"], vila_idx(p)))
+    elif e:
+        if bolsa_livre(p):
+            nome, attr, *t = random.choice(mp["itens"])
+            out.append(criar_item(db, p, mp, nome, attr, t[0] if t else mp["tipo"], {"comum": 0, "incomum": 1, "raro": 2}[e])["nome"])
+        else:
+            out.append("um equipamento (mochila cheia, perdido)")
+    return out
 
 
 def sortear_inimigo(p: Player, mp: dict, chefe_forcado: bool = False):
@@ -453,6 +500,7 @@ def _me(p: Player, L: dict) -> dict:
     s = effective_stats(p)
     if L.get("pet"):
         s[L["pet"]["attr"]] += L["pet"]["n"]
+    s["_classe"] = atributos5.classe_efetiva(p)  # Bloco 3/7: o atributo principal do dano vem da classe
     return s
 
 
@@ -563,17 +611,10 @@ def fim_luta(db: Session, p: Player, L: dict, won: bool) -> dict:
             ab[L["nome"]] = ab.get(L["nome"], 0) + 1
             p.abates = ab
             moral_antes = res["moral"] - 1
-            itens = mp["itens"]
-            for nome, attr, *t in itens:  # drops temáticos do mapa; a chance total por luta continua parecida com a de antes
-                if random.random() < min(0.9, (0.5 / len(itens)) * (0.5 + 0.5 * mult) * (1.3 if L.get("emboscada") else 1)) and bolsa_livre(p, len(res["drops"])):
-                    est = sortear_estrelas(moral_antes)
-                    res["drops"].append(criar_item(db, p, mp, nome, attr, t[0] if t else mp["tipo"], est))
             for pid, chance, perigo_min in CONSUMIVEIS_DROP:  # consumíveis também caem, com os melhores nos mapas perigosos
                 if mp["perigo"] >= perigo_min and random.random() < chance:
                     p.pocoes = {**(p.pocoes or {}), pid: (p.pocoes or {}).get(pid, 0) + 1}
                     res["extras"].append(POCOES[pid][0])
-            res["extras"] += dropar_materiais(p, mp, L["boss"], mult)  # materiais de forja: o tier acompanha o perigo do mapa
-            res["extras"] += dropar_fragmento(p, L)  # chefes podem soltar fragmentos da chave da masmorra do mapa
             if L["on_mission"]:  # coleta: 70% por vitória; caçada: 1 por vitória; procurado: só ao vencer o chefe
                 mis = mission_for(p.journey + 1, vila_idx(p))
                 gain = {"coleta": int(random.random() < 0.7), "caca": 1, "busca": int(L["boss"])}[mis["tipo"]]
@@ -614,13 +655,23 @@ def explore(payload: ExploreReq, db: Session = Depends(get_db)):
 
     mis = mission_for(player.journey + 1, vila_idx(player))
     on_mission = mis["mapa"] == mp["id"] and player.level >= mis["req_nivel"] and player.journey_prog < mis["qtd"]
-    ev = sortear_evento()
+    # Bloco 4: Pity do Boss (Pontos de Ameaça por mapa) + curva de spawn 55/33/11/1
+    ameaca = db.get(BossThreat, (player.id, mp["id"]))
+    if ameaca is None:
+        ameaca = BossThreat(player_id=player.id, mapa_id=mp["id"], pontos=0)
+        db.add(ameaca)
+    sp = bloco4.rolar_spawn(ameaca.pontos, mp["min_level"], mp["max_level"],
+                            forcar_chefe=on_mission and mis["tipo"] == "busca" and random.random() < 0.5)
+    ameaca.pontos = sp.pontos  # +1 sem chefe; 0 no instante em que o chefe aparece
+    drops = rolar_drops_exploracao(db, player, mp)  # Bloco 4: dois rolos independentes por clique
+    info = lambda: {"drops": drops, "ameaca": {"pontos": ameaca.pontos, "chance_chefe": bloco4.chance_chefe(ameaca.pontos)}}
+    ev = None if sp.chefe else sortear_evento()
     if ev in ("curandeiro", "tesouro"):
         player.energia -= 1
         res = evento_passivo(db, player, mp, ev)
         db.commit()
-        return {"luta": None, "evento": res}
-    dif, nivel = sortear_inimigo(player, mp, on_mission and mis["tipo"] == "busca" and random.random() < 0.5)
+        return {"luta": None, "evento": res, **info()}
+    dif, nivel = ("chefe", sp.nivel) if sp.chefe else (dif_por_nivel(player, sp.nivel), sp.nivel)
     emboscada = ev == "emboscada" and dif in ("fácil", "normal", "difícil")
     if emboscada:  # os inimigos surgem em maior número: um degrau acima na dificuldade e o primeiro golpe é deles
         dif = {"fácil": "normal", "normal": "difícil", "difícil": "desafiante"}[dif]
@@ -631,8 +682,12 @@ def explore(payload: ExploreReq, db: Session = Depends(get_db)):
     player.energia -= 1
     iniciar_luta(player, "pve", nome, stats, hp, ck, boss, mapa=mp["id"], on_mission=on_mission,
                  elemento=elem_mapa(vila_idx(player)), dif=dif, nivel=nivel, emboscada=emboscada)
+    if drops and player.luta:  # os drops do clique aparecem no log da luta
+        L = dict(player.luta)
+        L["log"] = L["log"] + ["Você encontrou: " + ", ".join(drops) + "."]
+        player.luta = L
     db.commit()
-    return {"luta": luta_view(player), "evento": {"tipo": "emboscada", "emoji": "⚠️", "titulo": "Emboscada!",
+    return {**info(), "luta": luta_view(player), "evento": {"tipo": "emboscada", "emoji": "⚠️", "titulo": "Emboscada!",
                                                    "texto": "Você caiu numa emboscada: o inimigo é mais forte e ataca primeiro, mas a recompensa é 30% maior."} if emboscada else None}
 
 
@@ -652,7 +707,7 @@ def pvp_desafiar(payload: PvpReq, db: Session = Depends(get_db)):
     if p.vida_atual < 10:
         raise HTTPException(400, "Vida baixa demais. Descanse antes de duelar.")
     p.energia -= 2
-    iniciar_luta(p, "pvp", t.ninja_name, {k: int(v) for k, v in effective_stats(t).items()}, t.vida_max, t.chakra_max, elemento=t.elemento, alvo_id=t.id)
+    iniciar_luta(p, "pvp", t.ninja_name, {**{k: int(v) for k, v in effective_stats(t).items()}, "_classe": atributos5.classe_efetiva(t)}, t.vida_max, t.chakra_max, elemento=t.elemento, alvo_id=t.id)
     db.commit()
     return {"luta": luta_view(p)}
 
@@ -1656,7 +1711,11 @@ def mercado_cancelar(payload: AnuncioReq, db: Session = Depends(get_db)):
 # ───────── Pets: ovos, naturezas, afinidade e loja pet ─────────
 AFINIDADE_MAX = 5000
 RARIDADE = ["Comum", "Incomum", "Raro", "Lendário"]
-MAX_PETS = 20
+MAX_PETS = 20  # teto absoluto; o limite de cada jogador é Player.pet_slots (2 iniciais, +1 por 100 Ouro Ninja)
+
+
+def pet_limite(p) -> int:
+    return min(MAX_PETS, max(2, p.pet_slots or 0))
 # id: (nome, raridade, preço, nível mínimo)
 OVOS = {"ovo_comum": ("Ovo Comum", 0, 200, 1), "ovo_incomum": ("Ovo Incomum", 1, 900, 5),
         "ovo_raro": ("Ovo Raro", 2, 3500, 12), "ovo_lendario": ("Ovo Lendário", 3, 15000, 20)}
@@ -1737,7 +1796,7 @@ def pets_info(telegram_id: int, db: Session = Depends(get_db)):
         attr, n = bonus_pet(x)
         out.append({"id": x.id, "especie": x.especie, "raridade": RARIDADE[x.raridade], "tier": x.raridade, "natureza": x.natureza,
                     "atributo": attr, "bonus": n, "afinidade": x.afinidade, "chance": round(100 * chance_pet(x.afinidade)), "ativo": x.ativo})
-    return {"pets": out, "max": MAX_PETS, "afinidade_max": AFINIDADE_MAX,
+    return {"pets": out, "max": pet_limite(p), "afinidade_max": AFINIDADE_MAX,
             "ovos": [{"id": k, "nome": n, "tier": t, "preco": pr, "nivel": nv, "pode": p.level >= nv, "qtd": (p.ovos or {}).get(k, 0),
                       "especies": ESPECIES[t], "naturezas": chances_natureza(t)} for k, (n, t, pr, nv) in OVOS.items()],
             "alimentos": [{"id": k, "nome": n, "valor": v, "preco": pr, "qtd": (p.alimentos or {}).get(k, 0)}
@@ -1776,8 +1835,8 @@ def pet_chocar(payload: OvoReq, db: Session = Depends(get_db)):
     if qtd <= 0:
         raise HTTPException(400, "Você não tem esse ovo.")
     total = db.scalar(select(func.count()).select_from(Pet).where(Pet.player_id == p.id))
-    if total >= MAX_PETS:
-        raise HTTPException(409, f"Você já tem {MAX_PETS} pets. Solte algum antes de chocar.")
+    if total >= pet_limite(p):
+        raise HTTPException(409, f"Seus {pet_limite(p)} slots de pet estão cheios. Solte um pet ou compre mais slots com Ouro Ninja.")
     _, tier, _, _ = OVOS[payload.ovo]
     especie = random.choice(ESPECIES[tier])
     nat = random.choices(NATUREZAS, weights=_pesos(tier))[0]
@@ -2716,7 +2775,7 @@ def arena_lutar(payload: ArenaReq, db: Session = Depends(get_db)):
         raise HTTPException(400, f"Você já enfrentou {t.ninja_name} {ARENA_VS_DIA} vezes hoje. Escolha outro adversário.")
     a["vs"][t.ninja_name] = a["vs"].get(t.ninja_name, 0) + 1
     a["n"] += 1
-    nome, stats, hp, ck = t.ninja_name, {k: int(v) for k, v in effective_stats(t).items()}, t.vida_max, t.chakra_max
+    nome, stats, hp, ck = t.ninja_name, {**{k: int(v) for k, v in effective_stats(t).items()}, "_classe": atributos5.classe_efetiva(t)}, t.vida_max, t.chakra_max
     extra, elem, boss = {"npc": None, "alvo_trof": t.trofeus or 0, "nivel": t.level}, t.elemento, False
     p.arena = a
     p.energia -= ARENA_ENERGIA

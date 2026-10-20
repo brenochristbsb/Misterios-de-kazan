@@ -922,6 +922,10 @@ app.include_router(blocos_router)
 from boneco_extra import router as boneco_router  # noqa: E402
 
 app.include_router(boneco_router)
+# Escolha/reset de classe e slots de pet (Ouro Ninja)
+from classes_extra import router as classes_router  # noqa: E402
+
+app.include_router(classes_router)
 # Chat (global, guilda e privado) e troca de nome
 from social_reserva import router as social_router  # noqa: E402
 
