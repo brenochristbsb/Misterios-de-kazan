@@ -239,6 +239,10 @@ class Player(TimestampMixin, Base):
     # Masmorra em andamento {mapa, andar} (None fora de uma) e maior andar já vencido na Torre
     masmorra: Mapped[Optional[dict]] = mapped_column(JSON)
     torre_andar: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # Arena: troféus (ranking), moedas gastas na loja da Arena e registro {v, d, seq, melhor, dia, vs: {nome: lutas hoje}}
+    trofeus: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    moedas_arena: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    arena: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
 
     # Chaves estrangeiras
     village_id: Mapped[int] = mapped_column(
@@ -366,6 +370,8 @@ class Guild(TimestampMixin, Base):
     level: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     recursos_doados: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
     vitorias_guerra: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # Guilda completa: mural, vices [player_id], chefe da guilda {n, hp, hp_max, dano}, recompensas pendentes e tentativas por dia
+    dados: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
 
     leader: Mapped["Player"] = relationship(
         foreign_keys=[leader_id], post_update=True

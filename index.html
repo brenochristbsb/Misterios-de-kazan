@@ -118,6 +118,7 @@
   <section id="tab-forja" class="tab space-y-3 hidden"></section>
   <section id="tab-masmorras" class="tab space-y-3 hidden"></section>
   <section id="tab-torre" class="tab space-y-3 hidden"></section>
+  <section id="tab-arena" class="tab space-y-3 hidden"></section>
   <section id="tab-jutsus" class="tab space-y-3 hidden"></section>
   <section id="tab-perfil" class="tab space-y-3"></section>
   <section id="tab-jornada" class="tab space-y-3 hidden"></section>
@@ -189,7 +190,7 @@ const TIPOS = { Arma: 'Armas', Armadura: 'Armaduras', Pergaminho: 'Pergaminhos',
 const bonusTxt = b => Object.entries(b).filter(([k]) => k[0] !== '_').map(([k, v]) => `+${v} ${k}`).join(', ') + (b._ref ? ` (refino +${b._ref})` : '');
 const dur = s => s >= 60 ? Math.round(s / 60) + ' min' : s + ' s';
 let P, X, J, G, K, R, LU, CL, LJ, PT, BO, ljSec = 'itens', boSec = 'equipados', VILS, battle = null, reps = 1;
-let FJ, DO, MS, TR, fjSec = 'refinar', doAttr = 'taijutsu', dsess = 1;
+let FJ, DO, MS, TR, AR, fjSec = 'refinar', doAttr = 'taijutsu', dsess = 1;
 
 function toast(msg, ok = true, ms = 3000) {
   const t = $('toast');
@@ -245,6 +246,7 @@ function showTab(name, back) {
   if (name === 'treino') loadDojo();
   if (name === 'masmorras') loadMasm();
   if (name === 'torre') loadTorre();
+  if (name === 'arena') loadArena();
   document.querySelectorAll('.tab').forEach(s => s.classList.toggle('hidden', s.id !== 'tab-' + name));
   document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.tab === (MAIN.includes(name) ? name : PAI[name] || 'menu')));
   tg?.HapticFeedback?.selectionChanged?.();
@@ -278,7 +280,7 @@ const tile = (id, ico, nome, sub_, fn, i = 0, soon = false) => `<button class="t
 const mini = (id, ico, nome, fn, soon = false) => `<button class="mini" onclick="${soon ? `toast('${nome}: em breve.', true)` : fn}">
   <img src="img/${id}.jpg" alt="" onerror="this.remove()"><span class="ico">${ico}</span><b>${nome}</b>${soon ? '<i class="soon">breve</i>' : ''}</button>`;
 function renderMenu() {
-  const T = [['dojo', '🥋', 'Dojo', "showTab('treino')"], ['kage', '👘', 'Sala do Kage', "showTab('vila')"], ['forja', '⚒️', 'Forja', "showTab('forja')"],['arena', '⚔️', 'Arena', '', 1],
+  const T = [['dojo', '🥋', 'Dojo', "showTab('treino')"], ['kage', '👘', 'Sala do Kage', "showTab('vila')"], ['forja', '⚒️', 'Forja', "showTab('forja')"],['arena', '⚔️', 'Arena', "showTab('arena')"],
     ['masmorras', '🕳️', 'Masmorras', "showTab('masmorras')"], ['torre', '🗼', 'Torre', "showTab('torre')"],['vila', '🏘️', 'Vila e clãs', "showTab('vila')"], ['ranking', '🏆', 'Ranking', "showTab('ranking')"]];
   $('tab-menu').innerHTML = `<h2>Menu</h2><div class="grid grid-cols-4 gap-2">${T.map(([id, ico, n, fn, soon]) => mini(id, ico, n, fn, !!soon)).join('')}</div>`;
 }
@@ -430,7 +432,7 @@ function renderAtributos() {
 }
 function renderStatus() {
   const pat = X.patente;
-  const rec = [['Dinheiro', fmt(P.ryos) + ' ryos'], ['Fama', fmt(P.fama)], ['Troféus', '0'], ['Moedas da Arena', '0'], ['Moedas VIP', '0'], ['Moral', `${X.moral}/25`]].map(([a, b]) =>
+  const rec = [['Dinheiro', fmt(P.ryos) + ' ryos'], ['Fama', fmt(P.fama)], ['Troféus', fmt(X.trofeus || 0)], ['Moedas da Arena', fmt(X.moedas_arena || 0)], ['Moedas VIP', '0'], ['Moral', `${X.moral}/25`]].map(([a, b]) =>
     `<div class="rounded-xl border border-line p-2.5"><div class="lbl">${a}</div><div class="font-bold text-gold">${b}</div></div>`).join('');
   const neg = (X.status || []).length ? `<div class="card border-vermil"><h2>Status negativos</h2><div class="flex gap-1.5 flex-wrap mt-2">${X.status.map(s => `<span class="tag red">${STATUS_EMO[s]} ${s}</span>`).join('')}</div><p class="lbl mt-2">Eles seguem para a próxima luta. Use um Antídoto na Mochila ou procure o Hospital.</p></div>` : '';
   $('tab-status').innerHTML = `${neg}<div class="card"><h2>Recursos</h2><div class="grid grid-cols-2 gap-2 mt-3">${rec}</div><button class="chip mt-3" onclick="showTab('ranking')">Ver rankings</button></div>
@@ -521,7 +523,7 @@ const FOE_EMOJI = [['salamandra', '🦎'], ['aranha', '🕷️'], ['colosso', '�
   ['pescador', '🎣'], ['mergulhador', '🤿'], ['pirata', '🏴‍☠️'], ['mineiro', '⛏️'], ['aprendiz', '🥋'], ['cacador', '🎯'], ['corredor', '🏃'], ['batedor', '🔭'], ['vigia', '👁️'], ['ninja', '🥷']];
 function foeIcon(nome, tipo, chefe, elem, cls = 'w-14 h-14 text-3xl') {
   const s = slug(nome), hit = FOE_EMOJI.find(([k]) => s.includes(k));
-  const emo = tipo === 'pvp' ? '⚔️' : tipo === 'clan' ? '🏯' : hit ? hit[1] : chefe ? '👹' : ELEM[elem] ? ELEM[elem][1] : '🥷';
+  const emo = tipo === 'pvp' || tipo === 'arena' ? '⚔️' : tipo === 'clan' ? '🏯' : hit ? hit[1] : chefe ? '👹' : ELEM[elem] ? ELEM[elem][1] : '🥷';
   return `<div class="seal foe ${cls} shrink-0 relative overflow-hidden"><span>${emo}</span><img src="img/inimigos/${s}.jpg" alt="" class="absolute inset-0 w-full h-full object-cover" onerror="this.remove()"></div>`;
 }
 const ITEM_EMO = { Arma: '⚔️', Armadura: '🥋', Botas: '👢', Luvas: '🧤', Colar: '📿', Anel: '💍', Pergaminho: '📜' };
@@ -557,7 +559,7 @@ function lutaHtml() {
   const temAnt = (l.pocoes || []).some(x => x.id === 'antidoto');
   return `<div class="card border-vermil"><div class="flex items-center gap-3">${foeIcon(l.inimigo, l.tipo, l.chefe, l.elemento)}
       <div class="min-w-0"><h2 class="truncate">${esc(l.inimigo)}${l.nivel ? ` <span class="text-gold">lvl ${l.nivel}</span>` : ''}</h2>
-        <div class="flex gap-1.5 mt-1 flex-wrap">${l.emboscada ? '<span class="tag red">⚠️ Emboscada</span>' : ''}${l.andar ? `<span class="tag gold">${l.tipo === 'torre' ? 'Torre' : 'Masmorra'}: andar ${l.andar}${l.total ? ' de ' + l.total : ''}</span>` : ''}${l.dif ? `<span class="${DIF_TAG[l.dif] || 'tag'}">${l.dif}</span>` : l.tipo === 'pvp' ? '<span class="tag gold">Duelo</span>' : ''}${ELEM[l.elemento] ? `<span class="tag">${ELEM[l.elemento][1]} ${ELEM[l.elemento][0]}</span>` : ''}</div></div></div>
+        <div class="flex gap-1.5 mt-1 flex-wrap">${l.emboscada ? '<span class="tag red">⚠️ Emboscada</span>' : ''}${l.andar ? `<span class="tag gold">${l.tipo === 'torre' ? 'Torre' : 'Masmorra'}: andar ${l.andar}${l.total ? ' de ' + l.total : ''}</span>` : ''}${l.dif ? `<span class="${DIF_TAG[l.dif] || 'tag'}">${l.dif}</span>` : l.tipo === 'pvp' ? '<span class="tag gold">Duelo</span>' : ''}${l.tipo === 'arena' ? '<span class="tag gold">Arena</span>' : ''}${l.tipo === 'gchefe' ? '<span class="tag gold">Chefe da guilda</span>' : ''}${ELEM[l.elemento] ? `<span class="tag">${ELEM[l.elemento][1]} ${ELEM[l.elemento][0]}</span>` : ''}</div></div></div>
     <div class="flex justify-between text-xs mt-3 mb-1"><span>Vida do inimigo</span><span>${l.hp}/${l.hp_max}</span></div>
     <div class="bar"><i class="bg-vermil" style="width:${pc(l.hp, l.hp_max)}"></i></div></div>
   <div class="card"><div class="grid grid-cols-2 gap-3 text-xs"><div><div class="flex justify-between mb-1"><span>Sua vida</span><span>${P.vida.atual}/${P.vida.max}</span></div><div class="bar"><i class="bg-gradient-to-r from-red-900 to-vermil" style="width:${pc(P.vida.atual, P.vida.max)}"></i></div></div>
@@ -571,7 +573,7 @@ function lutaHtml() {
       <button class="btn btn-ghost" onclick="agir('defender')">🛡️ Defender</button>
       <button class="btn btn-ghost ${lutaUI.itens ? 'on' : ''}" onclick="lutaTgl('itens')">🎒 Itens${temAnt && (l.status || []).length ? ' ❗' : ''}</button>
       <button class="btn btn-ghost" onclick="lutaTgl('log')">📜 ${lutaUI.log ? 'Menos log' : 'Ver log'}</button>
-      <button class="btn btn-ghost" onclick="agir('fugir')">🏃 Fugir</button>
+      ${l.tipo === 'arena' || l.tipo === 'gchefe' ? '' : `<button class="btn btn-ghost" onclick="agir('fugir')">🏃 Fugir</button>`}
       ${l.rapido ? `<button class="btn btn-gold col-span-2" onclick="rapida()">⏩ Combate rápido</button>` : ''}</div>
     ${lutaUI.itens ? `<div class="mt-3 grid grid-cols-2 gap-2">${(l.pocoes || []).map(x => `<button class="btn btn-ghost" onclick="agir('pocao', '${x.id}')">${esc(x.nome)} x${x.qtd}</button>`).join('') || '<p class="lbl col-span-2">Nenhum item de uso. Compre poções e antídotos na Loja.</p>'}</div>
       <p class="lbl mt-2">Usar um item gasta o turno. O Antídoto cura todos os status.</p>` : ''}</div>`;
@@ -586,7 +588,7 @@ function resultadoHtml() {
     <div class="grid grid-cols-3 gap-2 mt-2"><button class="chip" onclick="dropAcao(${d.id}, 'guardar')">Guardar</button><button class="chip" onclick="dropAcao(${d.id}, 'vender')">Vender ${fmt(d.valor)}</button><button class="chip" onclick="dropAcao(${d.id}, 'jogar')">Jogar fora</button></div></div>`;
   const podeCont = r.tipo === 'pve' && r.mapa, semEn = P.energia < 1 || P.vida.atual < 10;
   const feridoDemais = P.vida.atual < 0.4 * P.vida.max;
-  const mm = r.masmorra, tt = r.torre, emMasm = r.tipo === 'masmorra', emTorre = r.tipo === 'torre';
+  const mm = r.masmorra, tt = r.torre, ar = r.arena, gc = r.gchefe, emGuilda = r.tipo === 'gchefe', emMasm = r.tipo === 'masmorra', emTorre = r.tipo === 'torre', emArena = r.tipo === 'arena';
   const proxMasm = emMasm && r.vitoria && mm && !mm.fim, proxTorre = emTorre && r.vitoria && tt;
   return `<div class="card border-${r.vitoria ? 'gold' : 'vermil'}"><div class="flex items-center gap-3">${foeIcon(r.inimigo, r.tipo, r.chefe, null)}
       <div class="min-w-0"><h2>${titulo} ${esc(r.inimigo)}${r.nivel ? ` <span class="text-gold">lvl ${r.nivel}</span>` : ''}</h2>
@@ -598,6 +600,8 @@ function resultadoHtml() {
     ${r.missao ? `<div class="text-xs text-gold mt-1">Missão: ${r.missao.progresso} de ${r.missao.qtd}</div>` : ''}
     ${mm ? `<div class="text-sm text-gold mt-2">${mm.falhou ? `A masmorra terminou no andar ${mm.andar}.` : mm.fim ? 'Masmorra concluída! O baú final foi aberto.' : `Masmorra: andar ${mm.andar} de ${mm.total} vencido.`}</div>` : ''}
     ${tt ? `<div class="text-sm text-gold mt-2">${tt.falhou ? `O andar ${tt.andar} resistiu. Seu recorde segue em ${tt.recorde}.` : `Andar ${tt.andar} da Torre vencido${tt.boss ? ' (chefe)' : ''}. Recorde: ${tt.recorde}.`}</div>` : ''}
+    ${ar ? `<div class="text-sm text-gold mt-2">${ar.delta >= 0 ? '+' : ''}${ar.delta} troféus (total ${fmt(ar.trofeus)}, liga ${esc(ar.liga)}), +${ar.moedas} moedas da Arena${ar.seq > 1 ? `. Sequência de ${ar.seq} vitórias!` : ''}${ar.npc && r.vitoria && ar.delta === 0 ? '. Você já passou do teto de troféus deste gladiador.' : ''}</div>` : ''}
+    ${gc ? `<div class="text-sm text-gold mt-2">${gc.sem_credito ? 'O dano não contou: você saiu da guilda ou o chefe já havia caído.' : gc.morto ? `Você causou ${fmt(gc.dealt)} de dano e o chefe caiu! A recompensa espera na tela da guilda. Um novo chefe apareceu: ${esc(gc.nome)}.` : `Você causou ${fmt(gc.dealt)} de dano. ${esc(gc.nome)}: ${fmt(gc.hp)} de ${fmt(gc.hp_max)} de vida restante.`}</div>` : ''}
     ${r.xp_reduzido ? '<p class="text-xs text-vermil mt-1">Você já passou da faixa deste mapa: o XP é reduzido.</p>' : ''}
     <div class="flex justify-between lbl mt-3"><span>Moral</span><span>${r.moral}/25</span></div><div class="bar mt-1"><i class="bg-gold" style="width:${pct(r.moral, 25)}"></i></div>
     ${r.vitoria === false && !r.fuga ? '<p class="text-xs text-vermil mt-2">Você caiu em combate: a moral voltou a zero.</p>' : ''}</div>
@@ -605,10 +609,12 @@ function resultadoHtml() {
   <div class="card"><h2>O que fazer agora?</h2><div class="grid grid-cols-1 gap-2 mt-3">
     ${proxMasm ? `<button class="btn" ${P.vida.atual < 10 ? 'disabled' : ''} onclick="masmAvancar()">🕳️ Próximo andar (${mm.andar + 1} de ${mm.total})</button>` : ''}
     ${proxTorre ? `<button class="btn" ${P.energia < 2 || P.vida.atual < 10 ? 'disabled' : ''} onclick="torreLutar()">🗼 Subir ao andar ${tt.andar + 1}${P.energia < 2 ? ' (sem energia)' : ''}</button>` : ''}
+    ${emArena ? `<button class="btn" onclick="fecharRes('arena')">⚔️ Voltar à Arena</button>` : ''}
+    ${emGuilda ? `<button class="btn" onclick="fecharRes('guilda')">🛡️ Voltar à Guilda</button>` : ''}
     ${emTorre && !proxTorre ? `<button class="btn" ${P.energia < 2 || P.vida.atual < 10 ? 'disabled' : ''} onclick="torreLutar()">🗼 Tentar o andar ${tt ? tt.andar : ''} de novo</button>` : ''}
     ${podeCont ? `<button class="btn ${feridoDemais ? 'btn-ghost' : ''}" ${semEn ? 'disabled' : ''} onclick="continuar(${r.mapa})">${r.on_mission ? '⚔️ Continuar missão' : '⚔️ Continuar caçada'}${semEn ? ' (sem energia ou vida)' : ''}</button>` : ''}
     <button class="btn ${feridoDemais ? '' : 'btn-ghost'}" onclick="fecharRes('hospital')">🏥 Ir ao Hospital${feridoDemais ? ' (vida baixa)' : ''}</button>
-    <button class="btn btn-ghost" onclick="fecharRes('${emMasm ? 'masmorras' : emTorre ? 'torre' : 'mapas'}')">${emMasm ? 'Voltar às Masmorras' : emTorre ? 'Voltar à Torre' : 'Voltar ao Portão'}</button></div></div>`;
+    <button class="btn btn-ghost" onclick="fecharRes('${emMasm ? 'masmorras' : emTorre ? 'torre' : emArena ? 'arena' : emGuilda ? 'guilda' : 'mapas'}')">${emMasm ? 'Voltar às Masmorras' : emTorre ? 'Voltar à Torre' : emArena ? 'Voltar à Arena' : emGuilda ? 'Voltar à Guilda' : 'Voltar ao Portão'}</button></div></div>`;
 }
 
 /* Masmorras: 5 andares seguidos, entrada por fragmentos de chave que caem de chefes */
@@ -650,6 +656,38 @@ function renderTorre() {
     <p class="text-sm text-paper/70 mt-3">Recompensa: ${fmt(r.exp)} XP, ${fmt(r.ryos)} ryos, ${r.fama} de fama e materiais de forja.</p>
     <button class="btn w-full mt-3" ${off ? 'disabled' : ''} onclick="torreLutar()">Subir ao andar ${TR.andar}${P.energia < TR.energia ? ' (sem energia)' : ''}</button></div>
     <div class="card"><h2>Mais altos</h2>${rank || '<p class="lbl mt-2">Ninguém subiu ainda. Seja o primeiro.</p>'}</div>`;
+}
+/* Arena: duelos ranqueados (troféus), gladiadores NPC e loja de moedas */
+async function loadArena() {
+  try { AR = await api(`/api/player/${tgUser.id}/arena`); renderArena(); } catch (e) { toast(e.message, false); }
+}
+const arenaLutar = (corpo) => iniciarLuta('/api/arena/lutar', corpo, 'arena');
+async function arenaComprar(id) {
+  try { toast((await api('/api/arena/comprar', { telegram_id: tgUser.id, item_id: id })).mensagem, true); await refresh(); loadArena(); } catch (e) { toast(e.message, false); }
+}
+function renderArena() {
+  if (!AR) return;
+  const off = LU || P.energia < AR.energia || P.vida.atual < 0.3 * P.vida.max;
+  const opp = AR.oponentes.map(o => `<div class="flex items-center gap-3 py-2 border-t border-line"><span class="text-xl">${esc(o.avatar)}</span>
+    <div class="flex-1 min-w-0"><div class="text-sm font-semibold truncate">${esc(o.nome)}</div><div class="lbl truncate">Nv ${o.nivel}, ${esc(o.liga)}, ${fmt(o.trofeus)} 🏆</div></div>
+    <button class="chip" ${off || o.hoje >= AR.vs_dia ? 'disabled' : ''} onclick="arenaLutar({ alvo: '${esc(o.nome).replace(/'/g, "\\'")}' })">${o.hoje >= AR.vs_dia ? 'Limite hoje' : 'Duelar'}</button></div>`).join('');
+  const npcs = AR.npcs.map(n => `<div class="flex items-center gap-3 py-2 border-t border-line"><span class="text-xl">🗡️</span>
+    <div class="flex-1 min-w-0"><div class="text-sm font-semibold truncate">${esc(n.nome)}</div><div class="lbl">${esc(n.dif)}: +${n.ganha} / -${n.perde} troféus, ${n.moedas} moedas${n.rende ? '' : '. Sem troféus (teto ' + fmt(n.teto) + ')'}</div></div>
+    <button class="chip" ${off ? 'disabled' : ''} onclick="arenaLutar({ npc: ${n.id} })">Lutar</button></div>`).join('');
+  const loja = AR.loja.map(i => `<div class="flex items-center gap-3 py-2 border-t border-line"><div class="flex-1 min-w-0"><div class="text-sm font-semibold truncate">${esc(i.nome)}</div>
+    <div class="lbl">${i.restam === null ? 'Sem limite diário' : 'Restam ' + i.restam + ' hoje'}</div></div>
+    <button class="chip" ${AR.moedas < i.custo || i.restam === 0 ? 'disabled' : ''} onclick="arenaComprar('${i.id}')">${i.custo} moedas</button></div>`).join('');
+  const rank = AR.ranking.map((m, i) => `<div class="flex items-center gap-3 py-2 border-t border-line"><span class="w-6 text-center font-bold ${i < 3 ? 'text-gold' : 'text-paper/50'}">${i + 1}</span><span class="text-xl">${esc(m.avatar)}</span>
+    <div class="flex-1 min-w-0 text-sm font-semibold truncate">${esc(m.nome)} ${m.eu ? '<span class="tag gold">Você</span>' : ''}</div><b class="text-sm">${fmt(m.trofeus)} 🏆</b></div>`).join('');
+  $('tab-arena').innerHTML = `<div class="card"><h2>Arena</h2><p class="lbl mt-1">Duelos ranqueados: ${AR.energia} de energia cada, sem fuga e com vida mínima de 30%. Contra jogadores, os troféus seguem o nível de cada um, e você duela no máximo ${AR.vs_dia} vezes por dia com o mesmo adversário. Moedas compram itens na loja.</p>
+    <div class="grid grid-cols-3 gap-2 mt-3 text-center"><div class="rounded-xl border border-line p-2.5"><div class="lbl">Troféus</div><div class="font-bold text-gold">${fmt(AR.trofeus)}</div></div>
+      <div class="rounded-xl border border-line p-2.5"><div class="lbl">Liga</div><div class="font-bold">${esc(AR.liga)}</div></div>
+      <div class="rounded-xl border border-line p-2.5"><div class="lbl">Moedas</div><div class="font-bold text-gold">${fmt(AR.moedas)}</div></div></div>
+    <p class="lbl mt-2">${AR.v} vitórias, ${AR.d} derrotas, sequência atual ${AR.seq}, melhor marca ${fmt(AR.melhor)} troféus.</p></div>
+    <div class="card"><h2>Adversários</h2>${opp || '<p class="lbl mt-2">Nenhum outro jogador ainda. Enfrente os gladiadores.</p>'}</div>
+    <div class="card"><h2>Gladiadores</h2>${npcs}</div>
+    <div class="card"><h2>Loja da Arena</h2>${loja}</div>
+    <div class="card"><h2>Maiores troféus</h2>${rank || '<p class="lbl mt-2">Ninguém pontuou ainda.</p>'}</div>`;
 }
 async function dropAcao(id, tipo) {
   const d = battle.drops.find(x => x.id === id);
@@ -820,13 +858,32 @@ function renderGuilda() {
     return;
   }
   const prevLv = 500 * (g.nivel - 1) ** 2, cofre = pct(g.doado - prevLv, g.proximo_nivel - prevLv);
-  const members = g.membros.map(m => `<div class="flex items-center justify-between py-1.5 border-t border-line text-sm"><span>${esc(m.nome)}${m.lider ? ' <span class="tag gold">Líder</span>' : ''}</span><span class="lbl">Nv ${m.nivel}, ${esc(m.rank)}</span></div>`).join('');
+  const souLider = g.cargo === 'lider', souVice = g.cargo === 'vice', nomeJs = n => esc(n).replace(/'/g, "\\'");
+  const cg = (m, acao, rot, conf) => `<button class="chip" onclick="${conf ? `askOk('${conf}', () => guildaCargo('${nomeJs(m.nome)}', '${acao}'))` : `guildaCargo('${nomeJs(m.nome)}', '${acao}')`}">${rot}</button>`;
+  const gestao = m => {
+    if (m.nome === P.ninja_name || m.cargo === 'lider') return '';
+    const b = [];
+    if (souLider) b.push(m.cargo === 'vice' ? cg(m, 'rebaixar', 'Rebaixar') : cg(m, 'promover', 'Promover a vice'));
+    if (souLider || (souVice && m.cargo === 'membro')) b.push(cg(m, 'expulsar', 'Expulsar', 'Expulsar ' + nomeJs(m.nome) + ' da guilda?'));
+    if (souLider) b.push(cg(m, 'lider', 'Passar liderança', 'Passar a liderança para ' + nomeJs(m.nome) + '? Você vira membro.'));
+    return b.length ? `<div class="flex gap-1.5 flex-wrap mt-1.5">${b.join('')}</div>` : '';
+  };
+  const members = g.membros.map(m => `<div class="py-2 border-t border-line text-sm"><div class="flex items-center justify-between gap-2"><span class="min-w-0 truncate">${esc(m.avatar || '')} ${esc(m.nome)}${m.cargo === 'lider' ? ' <span class="tag gold">Líder</span>' : m.cargo === 'vice' ? ' <span class="tag">Vice</span>' : ''}</span><span class="lbl shrink-0">Nv ${m.nivel}${m.dano ? ', ' + fmt(m.dano) + ' de dano' : ''}</span></div>${gestao(m)}</div>`).join('');
+  const ch = g.chefe, pend = g.pendente;
+  const chefeCard = `<div class="card"><h2>Chefe da guilda</h2><p class="lbl mt-1">Todos os membros enfrentam o mesmo chefe: o dano de cada luta entra no total. Cada um tem ${2} tentativas por dia (${ch.energia} de energia, sem fuga). Quando ele cai, quem bateu recebe ryos, fama e materiais proporcionais ao dano.</p>
+    <div class="flex justify-between text-xs mt-3"><span>${esc(ch.nome)} <span class="tag red">Chefe ${ch.n}</span></span><span>${fmt(ch.hp)} / ${fmt(ch.hp_max)}</span></div><div class="bar mt-1.5"><i class="bg-vermil" style="width:${pct(ch.hp, ch.hp_max)}"></i></div>
+    <p class="lbl mt-2">Seu dano neste chefe: ${fmt(ch.meu_dano)}. Tentativas hoje: ${ch.restam}.</p>
+    <button class="btn w-full mt-3" ${LU || ch.restam < 1 || P.energia < ch.energia || P.vida.atual < 0.3 * P.vida.max ? 'disabled' : ''} onclick="iniciarLuta('/api/guild/chefe/lutar', {}, 'guilda')">👹 Atacar o chefe</button>
+    ${pend ? `<button class="btn btn-gold w-full mt-2" onclick="act('/api/guild/chefe/coletar', {}, r => r.mensagem)">🎁 Coletar recompensa (${fmt(pend.ryos)} ryos, ${pend.fama} de fama e materiais)</button>` : ''}</div>`;
+  const mural = `<div class="card"><h2>Mural</h2><p class="text-sm text-paper/80 mt-2 whitespace-pre-line">${g.mural ? esc(g.mural) : '<span class="lbl">Sem recado do líder ainda.</span>'}</p>
+    ${souLider || souVice ? `<textarea id="gMural" class="inp mt-3" rows="2" maxlength="200" placeholder="Novo recado (até 200 caracteres)">${esc(g.mural || '')}</textarea><button class="chip mt-2" onclick="act('/api/guild/mural', { texto: $('gMural').value }, r => r.mensagem)">Salvar mural</button>` : ''}</div>`;
   $('tab-guilda').innerHTML = `
     <div class="card"><div class="flex items-center gap-3"><div class="seal w-12 h-12 text-xl">${g.nivel}</div>
-      <div class="flex-1 min-w-0"><h2 class="truncate">${esc(g.nome)}</h2><div class="lbl">${g.total_membros} membros, ${g.vitorias} vitórias de guerra</div></div></div>
+      <div class="flex-1 min-w-0"><h2 class="truncate">${esc(g.nome)}</h2><div class="lbl">${g.total_membros} de ${g.limite} membros, ${g.vitorias} vitórias de guerra</div><div class="lbl">Bônus nas caçadas: +${g.bonus}% de XP e ryos (+1% por nível, até 15%)</div></div></div>
       <div class="flex justify-between text-xs mt-4"><span>Cofre</span><span>${fmt(g.doado)} de ${fmt(g.proximo_nivel)} para o nível ${g.nivel + 1}</span></div><div class="bar mt-1.5"><i class="bg-gold" style="width:${cofre}"></i></div>
       <div class="flex gap-2 mt-3">${[100, 500, 1000].map(v => `<button class="chip" onclick="doar(${v})">${fmt(v)}</button>`).join('')}
         <input id="gDoar" type="number" min="10" inputmode="numeric" class="inp !py-1 !px-2 text-sm min-w-0" placeholder="Outro valor"><button class="chip" onclick="doar(Number($('gDoar').value))">Doar</button></div></div>
+    ${mural}${chefeCard}
     <div class="card"><h2>Guerra</h2>${G.guildas.length ? `<p class="lbl mt-1">Atacar custa 20 de chakra. A vitória rende ryos, XP e uma vitória para a guilda.</p>
       <select id="gAlvo" class="inp mt-3">${G.guildas.map(o => `<option value="${o.id}">${esc(o.nome)} (nível ${o.nivel}, ${o.membros} membros)</option>`).join('')}</select>
       <button class="btn w-full mt-3" onclick="atacar()">Atacar guilda</button><div id="wRes"></div>` : '<p class="lbl mt-2">Nenhuma outra guilda para enfrentar ainda.</p>'}</div>
@@ -834,6 +891,7 @@ function renderGuilda() {
     <button class="btn btn-ghost w-full" onclick="if (confirm('Sair da guilda?')) act('/api/guild/leave', {})">Sair da guilda</button>
     ${list ? `<div class="card"><h2>Outras guildas</h2>${list}</div>` : ''}`;
 }
+const guildaCargo = (alvo, acao) => act('/api/guild/cargo', { alvo, acao }, r => r.mensagem);
 const criarGuilda = () => act('/api/guild/create', { nome: $('gName').value.trim() }, () => 'Guilda fundada!');
 const doar = v => v >= 10 ? act('/api/guild/donate', { valor: v }, r => `Doação feita. A guilda está no nível ${r.nivel}.`) : toast('Valor mínimo: 10 ryos.', false);
 async function atacar() {

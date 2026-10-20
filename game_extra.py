@@ -204,7 +204,7 @@ def extras(telegram_id: int, db: Session = Depends(get_db)):
         "invocacoes": [{"id": ps.summon_id, "nome": ps.summon.name, "nivel": ps.level, "ativo": ps.is_active,
                         "bonus_taijutsu": ps.summon.bonus_taijutsu, "bonus_ninjutsu": ps.summon.bonus_ninjutsu}
                        for ps in p.player_summons],
-        "moral": p.moral, "status": list(p.status_fora or []),
+        "moral": p.moral, "status": list(p.status_fora or []), "trofeus": p.trofeus or 0, "moedas_arena": p.moedas_arena or 0,
         "mapas": [{"id": m["id"], "nome": m["nome"], "min_level": m["min_level"], "max_level": m["max_level"],
                    "perigo": m["perigo"], "tipo": m["tipo"], "chefe": m["chefe"],
                    "itens": [i[0] for i in m["itens"]]} for m in [mapa_vila(x["id"], vila_idx(p)) for x in MAPS]],
@@ -518,6 +518,10 @@ def fim_luta(db: Session, p: Player, L: dict, won: bool) -> dict:
             p.fama += 10
             p.clan_id, p.prov_clan_id, p.prov_etapa, p.prov_prog, p.clan_pontos = clan.id, None, 0, 0, 0
             res["clan"] = f"Você foi aceito no {clan.name}!"
+    elif L["tipo"] == "gchefe":  # chefe cooperativo da guilda: o dano causado entra no HP compartilhado
+        fim_gchefe(db, p, L, won, res)
+    elif L["tipo"] == "arena":  # duelo ranqueado: troféus, moedas e registro
+        fim_arena(db, p, L, won, res)
     elif L["tipo"] == "masmorra":  # andar de uma masmorra: o resto da corrida segue em p.masmorra
         fim_masmorra(db, p, L, won, res)
     elif L["tipo"] == "torre":  # andar da Torre: a primeira vitória em cada andar rende a recompensa
@@ -530,6 +534,10 @@ def fim_luta(db: Session, p: Player, L: dict, won: bool) -> dict:
         if won:
             res["exp"] = max(1, int(6 * mp["perigo"] * mult * (0.25 if over else 1)))
             res["ryos"] = 8 * mp["perigo"] * mult
+            bg = bonus_guilda(p)  # perk de nível da guilda: +1% de XP e ryos por nível (até +15%)
+            if bg:
+                res["exp"], res["ryos"] = int(res["exp"] * (1 + bg / 100)), int(res["ryos"] * (1 + bg / 100))
+                res["extras"].append(f"bônus da guilda +{bg}%")
             p.ryos += res["ryos"]
             p.fama += 5 if L["boss"] else 1
             clan_hooks(db, p, L)
@@ -645,6 +653,8 @@ def luta_agir(payload: AgirReq, db: Session = Depends(get_db)):
         L["log"].append("Você está atordoado e perde o turno.")
     elif perdeu:
         pass  # o motivo (congelado ou paralisado) já foi ao log
+    elif acao == "fugir" and L["tipo"] in ("arena", "gchefe"):
+        raise HTTPException(400, "Não há fuga aqui: lute até o fim.")
     elif acao == "fugir":
         if random.random() < 0.3 + 0.5 * me["agilidade"] / (me["agilidade"] + L["stats"]["agilidade"]):
             p.luta = None
@@ -906,12 +916,15 @@ def guilda_info(telegram_id: int, db: Session = Depends(get_db)):
     if p.guild:
         g = p.guild
         membros = db.scalars(select(Player).where(Player.guilda_id == g.id)
-                             .order_by(Player.level.desc()).limit(10)).all()
+                             .order_by(Player.level.desc()).limit(50)).all()
         minha = {"id": g.id, "nome": g.name, "nivel": g.level, "vitorias": g.vitorias_guerra,
                  "doado": g.recursos_doados, "proximo_nivel": 500 * g.level ** 2, "sou_lider": g.leader_id == p.id,
                  "total_membros": counts.get(g.id, 0),
-                 "membros": [{"nome": m.ninja_name, "nivel": m.level, "rank": rank_titulo(m),
-                              "lider": m.id == g.leader_id} for m in membros]}
+                 "membros": [{"nome": m.ninja_name, "nivel": m.level, "rank": rank_titulo(m), "avatar": m.avatar,
+                              "lider": m.id == g.leader_id, "cargo": cargo_guilda(g, m.id),
+                              "dano": ((g.dados or {}).get("chefe") or {}).get("dano", {}).get(str(m.id), 0)} for m in membros],
+                 "cargo": cargo_guilda(g, p.id), "mural": (g.dados or {}).get("mural", ""), "limite": guild_limite(g),
+                 "bonus": bonus_guilda(p), "chefe": chefe_view(g, p), "pendente": _pendente(g, p)}
     return {"minha": minha, "guildas": others}
 
 
@@ -939,8 +952,11 @@ def guild_join(payload: GuildJoin, db: Session = Depends(get_db)):
     p = get_player(db, payload.telegram_id, lock=True)
     if p.guilda_id:
         raise HTTPException(409, "Você já está em uma guilda.")
-    if db.get(Guild, payload.guild_id) is None:
+    gj = db.get(Guild, payload.guild_id)
+    if gj is None:
         raise HTTPException(404, "Guilda não encontrada.")
+    if db.scalar(select(func.count()).select_from(Player).where(Player.guilda_id == gj.id)) >= guild_limite(gj):
+        raise HTTPException(409, f"A guilda está cheia (limite de {guild_limite(gj)} membros no nível {gj.level}).")
     p.guilda_id = payload.guild_id
     db.commit()
     return {"ok": True}
@@ -954,10 +970,14 @@ def guild_leave(payload: RestReq, db: Session = Depends(get_db)):
         raise HTTPException(409, "Você não está em uma guilda.")
     g = p.guild
     if g.leader_id == p.id:
+        vices = (g.dados or {}).get("vices", [])
         heir = db.scalar(select(Player).where(Player.guilda_id == g.id, Player.id != p.id)
-                         .order_by(Player.level.desc()).limit(1))
+                         .order_by(Player.id.in_(vices).desc(), Player.level.desc()).limit(1))
         if heir:
             g.leader_id = heir.id
+            _dados_set(g, vices=[v for v in vices if v != heir.id])
+    else:
+        _dados_set(g, vices=[v for v in (g.dados or {}).get("vices", []) if v != p.id])
     p.guilda_id = None
     db.flush()
     if g.leader_id == p.id:  # ninguém assumiu: guilda vazia
@@ -2425,3 +2445,365 @@ def torre_lutar(payload: RestReq, db: Session = Depends(get_db)):
                  dif=dif, nivel=nivel, andar=f)
     db.commit()
     return {"luta": luta_view(p)}
+
+
+# ───────── Arena: duelos ranqueados, troféus, moedas e loja ─────────
+# Cada duelo custa 2 de energia e não tem fuga. Contra jogadores, os troféus seguem uma fórmula de Elo (só o desafiante muda; o
+# defensor luta com os atributos reais e não perde nada). Os Gladiadores (NPC) garantem adversário mesmo com poucos jogadores,
+# mas só dão troféus até um teto. As moedas da Arena compram itens na loja da Arena.
+ARENA_ENERGIA, ARENA_VS_DIA = 2, 3  # custo por duelo; lutas por dia contra o mesmo jogador
+ARENA_LIGAS = [(0, "Bronze"), (100, "Prata"), (300, "Ouro"), (600, "Platina"), (1000, "Diamante"), (1500, "Lenda")]
+# (nome, dificuldade, troféus ao vencer, troféus ao perder, moedas ao vencer, teto de troféus em que ainda rende)
+ARENA_NPCS = [("Gladiador Aprendiz", "normal", 6, 3, 3, 300), ("Gladiador Veterano", "difícil", 12, 6, 6, 800),
+              ("Campeão da Arena", "chefe", 20, 10, 12, 1500)]
+# id: (nome, custo em moedas, limite por dia ou None, tipo, argumento, quantidade)
+ARENA_LOJA = {"energia": ("Recarga de energia", 25, 2, "energia", None, 25),
+              "elixir": ("3x Elixir de Vida", 25, None, "pocao", "vida_m", 3),
+              "mat3": ("5x Cristal de Chakra", 40, None, "mat", "mat_3", 5),
+              "mat4": ("5x Essência Elemental", 90, None, "mat", "mat_4", 5),
+              "mat5": ("3x Fragmento Celestial", 200, None, "mat", "mat_5", 3),
+              "ovo_incomum": ("Ovo Incomum", 60, None, "ovo", "ovo_incomum", 1),
+              "ovo_raro": ("Ovo Raro", 160, None, "ovo", "ovo_raro", 1)}
+
+
+class ArenaReq(BaseModel):
+    telegram_id: int = Field(gt=0)
+    alvo: Optional[str] = Field(default=None, min_length=3, max_length=32)  # jogador ...
+    npc: Optional[int] = Field(default=None, ge=0, le=len(ARENA_NPCS) - 1)  # ... ou gladiador (índice)
+
+
+class ArenaBuyReq(BaseModel):
+    telegram_id: int = Field(gt=0)
+    item_id: str = Field(max_length=32)
+
+
+def arena_liga(t: int) -> str:
+    return [n for lim, n in ARENA_LIGAS if t >= lim][-1]
+
+
+def _arena_reg(p: Player) -> dict:
+    """Registro da Arena, com os contadores diários zerados quando o dia (UTC) vira."""
+    a, hoje = dict(p.arena or {}), datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    if a.get("dia") != hoje:
+        a["dia"], a["vs"], a["loja"] = hoje, {}, {}
+    for k in ("v", "d", "seq", "melhor"):
+        a.setdefault(k, 0)
+    a.setdefault("vs", {})
+    a.setdefault("loja", {})
+    return a
+
+
+def fim_arena(db: Session, p: Player, L: dict, won: bool, res: dict) -> None:
+    a, t = _arena_reg(p), p.trofeus or 0
+    npc = L.get("npc")
+    if npc is not None:
+        _, _, ganha, perde, moedas, teto = ARENA_NPCS[npc]
+        delta = (ganha if t < teto else 0) if won else -perde
+    else:  # Elo: vencer um jogador de mais troféus rende mais, perder para um de menos custa mais
+        esperado = 1 / (1 + 10 ** ((L.get("alvo_trof", 0) - t) / 200))
+        delta = max(5, round(30 * (1 - esperado))) if won else -max(3, round(20 * esperado))
+        moedas = 4 + t // 250
+    novo = max(0, t + delta)
+    delta = novo - t
+    p.trofeus = novo
+    if won:
+        a["v"], a["seq"] = a["v"] + 1, a["seq"] + 1
+        ganho = moedas + min(5, a["seq"] - 1)  # bônus de sequência: +1 por vitória seguida, até +5
+        res["exp"] = 4 + p.level // 3
+        if npc is None:
+            p.fama += 3
+    else:
+        a["d"], a["seq"], ganho = a["d"] + 1, 0, 1
+        res["exp"] = 1
+    a["melhor"] = max(a["melhor"], novo)
+    p.moedas_arena = (p.moedas_arena or 0) + ganho
+    p.arena = a
+    res["arena"] = {"delta": delta, "trofeus": novo, "liga": arena_liga(novo), "moedas": ganho, "seq": a["seq"], "npc": npc is not None}
+
+
+@router.get("/api/player/{telegram_id}/arena")
+def arena_info(telegram_id: int, db: Session = Depends(get_db)):
+    p = get_player(db, telegram_id)
+    a, t = _arena_reg(p), p.trofeus or 0
+    vs = a["vs"]
+    cand = db.scalars(select(Player).where(Player.id != p.id).order_by(func.abs(Player.trofeus - t), func.abs(Player.level - p.level)).limit(5)).all()
+    top = db.scalars(select(Player).where(Player.trofeus > 0).order_by(Player.trofeus.desc(), Player.level.desc()).limit(10)).all()
+    return {"trofeus": t, "liga": arena_liga(t), "moedas": p.moedas_arena or 0, "v": a["v"], "d": a["d"], "seq": a["seq"], "melhor": a["melhor"],
+            "energia": ARENA_ENERGIA, "vs_dia": ARENA_VS_DIA,
+            "oponentes": [{"nome": x.ninja_name, "avatar": x.avatar, "nivel": x.level, "rank": rank_titulo(x), "trofeus": x.trofeus or 0,
+                           "liga": arena_liga(x.trofeus or 0), "hoje": vs.get(x.ninja_name, 0)} for x in cand],
+            "npcs": [{"id": i, "nome": n, "dif": d, "ganha": g, "perde": pe, "moedas": m, "teto": tt, "rende": t < tt} for i, (n, d, g, pe, m, tt) in enumerate(ARENA_NPCS)],
+            "loja": [{"id": k, "nome": v[0], "custo": v[1], "restam": None if v[2] is None else max(0, v[2] - a["loja"].get(k, 0))} for k, v in ARENA_LOJA.items()],
+            "ranking": [{"nome": x.ninja_name, "avatar": x.avatar, "trofeus": x.trofeus, "liga": arena_liga(x.trofeus), "eu": x.id == p.id} for x in top]}
+
+
+@router.post("/api/arena/lutar")
+def arena_lutar(payload: ArenaReq, db: Session = Depends(get_db)):
+    p = get_player(db, payload.telegram_id, lock=True)
+    if (payload.alvo is None) == (payload.npc is None):
+        raise HTTPException(400, "Escolha um jogador ou um gladiador.")
+    if p.luta:
+        raise HTTPException(409, "Você já está em uma luta.")
+    if p.masmorra:
+        raise HTTPException(409, "Termine ou abandone a masmorra antes de entrar na Arena.")
+    if p.energia < ARENA_ENERGIA:
+        raise HTTPException(400, f"Duelos da Arena custam {ARENA_ENERGIA} de energia.")
+    if p.vida_atual < 0.3 * p.vida_max:
+        raise HTTPException(400, "Vida baixa demais para a Arena (mínimo 30%). Descanse antes.")
+    a = _arena_reg(p)
+    if payload.npc is not None:
+        nome, dif, *_ = ARENA_NPCS[payload.npc]
+        stats, hp, ck = stats_inimigo(p, p.level, dif)
+        extra = {"npc": payload.npc, "dif": dif, "nivel": p.level}
+        elem, boss = random.choice(list(ELEMENTOS)), dif == "chefe"
+    else:
+        t = db.scalar(select(Player).where(Player.ninja_name == payload.alvo))
+        if t is None:
+            raise HTTPException(404, "Jogador não encontrado.")
+        if t.id == p.id:
+            raise HTTPException(400, "Você não pode duelar consigo mesmo.")
+        if a["vs"].get(t.ninja_name, 0) >= ARENA_VS_DIA:
+            raise HTTPException(400, f"Você já enfrentou {t.ninja_name} {ARENA_VS_DIA} vezes hoje. Escolha outro adversário.")
+        a["vs"][t.ninja_name] = a["vs"].get(t.ninja_name, 0) + 1
+        nome, stats, hp, ck = t.ninja_name, {k: int(v) for k, v in effective_stats(t).items()}, t.vida_max, t.chakra_max
+        extra, elem, boss = {"npc": None, "alvo_trof": t.trofeus or 0, "nivel": t.level}, t.elemento, False
+    p.arena = a
+    p.energia -= ARENA_ENERGIA
+    iniciar_luta(p, "arena", nome, stats, hp, ck, boss, elemento=elem, mapa=None, on_mission=False, **extra)
+    db.commit()
+    return {"luta": luta_view(p)}
+
+
+@router.post("/api/arena/comprar")
+def arena_comprar(payload: ArenaBuyReq, db: Session = Depends(get_db)):
+    p = get_player(db, payload.telegram_id, lock=True)
+    it = ARENA_LOJA.get(payload.item_id)
+    if it is None:
+        raise HTTPException(404, "Item não encontrado.")
+    nome, custo, lim, tipo, arg, qtd = it
+    a = _arena_reg(p)
+    if lim is not None and a["loja"].get(payload.item_id, 0) >= lim:
+        raise HTTPException(400, f"Limite diário atingido para {nome}.")
+    if (p.moedas_arena or 0) < custo:
+        raise HTTPException(400, f"Moedas da Arena insuficientes: {nome} custa {custo}.")
+    if tipo == "energia":
+        if p.energia >= 25:
+            raise HTTPException(400, "Sua energia já está cheia.")
+        p.energia = 25
+    elif tipo == "pocao":
+        p.pocoes = {**(p.pocoes or {}), arg: (p.pocoes or {}).get(arg, 0) + qtd}
+    elif tipo == "mat":
+        p.materiais = {**(p.materiais or {}), arg: (p.materiais or {}).get(arg, 0) + qtd}
+    else:
+        p.ovos = {**(p.ovos or {}), arg: (p.ovos or {}).get(arg, 0) + qtd}
+    p.moedas_arena -= custo
+    if lim is not None:
+        a["loja"][payload.item_id] = a["loja"].get(payload.item_id, 0) + 1
+    p.arena = a
+    db.commit()
+    return {"mensagem": f"Você comprou {nome}.", "moedas": p.moedas_arena}
+
+
+# ───────── Guilda completa: cargos, mural, perk de nível e chefe cooperativo ─────────
+# Cargos: líder (tudo), vice (até 2: expulsa membros e edita o mural) e membro. O nível da guilda libera vagas e um bônus de XP e ryos
+# nas caçadas. O chefe da guilda tem um HP compartilhado: cada membro luta contra ele até 2 vezes por dia e o dano entra no total;
+# quando cai, todo mundo que bateu recebe uma recompensa proporcional ao dano, para coletar na tela da guilda.
+GUILD_VICES, GUILD_CHEFE_ENERGIA, GUILD_CHEFE_TENT = 2, 3, 2
+GCHEFES = ["Colosso de Pedra Antiga", "Serpente das Névoas", "Samurai Sem Rosto", "Lorde das Sombras", "Dragão do Vale Esquecido",
+           "Imperatriz de Gelo", "Titã de Ferro Negro", "O Devorador de Chakra"]
+
+
+def cargo_guilda(g: Guild, pid: int) -> str:
+    return "lider" if g.leader_id == pid else "vice" if pid in (g.dados or {}).get("vices", []) else "membro"
+
+
+def guild_limite(g: Guild) -> int:
+    return min(50, 10 + 2 * g.level)
+
+
+def bonus_guilda(p: Player) -> int:
+    """Perk de nível da guilda: +1% de XP e ryos por nível, até +15%."""
+    return min(15, p.guild.level) if p.guilda_id and p.guild else 0
+
+
+def _dados_set(g: Guild, **kw) -> None:
+    g.dados = {**(g.dados or {}), **kw}  # reatribui o dict inteiro para o SQLAlchemy perceber a mudança
+
+
+def _hoje() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+def _chefe_hpmax(g: Guild, n: int) -> int:
+    return int((3000 + 1500 * g.level) * (1 + 0.1 * (n - 1)))
+
+
+def _chefe(g: Guild) -> dict:
+    c = (g.dados or {}).get("chefe")
+    if c:
+        return {**c, "dano": dict(c.get("dano", {}))}
+    hp = _chefe_hpmax(g, 1)
+    return {"n": 1, "nome": GCHEFES[0], "hp": hp, "hp_max": hp, "dano": {}}
+
+
+def _tentativas(g: Guild, p: Player) -> int:
+    t = (g.dados or {}).get("tent") or {}
+    return t.get("n", {}).get(str(p.id), 0) if t.get("dia") == _hoje() else 0
+
+
+def _pendente(g: Guild, p: Player):
+    return ((g.dados or {}).get("pend") or {}).get(str(p.id))
+
+
+def chefe_view(g: Guild, p: Player) -> dict:
+    c = _chefe(g)
+    return {"nome": c["nome"], "n": c["n"], "hp": c["hp"], "hp_max": c["hp_max"], "meu_dano": c["dano"].get(str(p.id), 0),
+            "restam": max(0, GUILD_CHEFE_TENT - _tentativas(g, p)), "energia": GUILD_CHEFE_ENERGIA}
+
+
+def fim_gchefe(db: Session, p: Player, L: dict, won: bool, res: dict) -> None:
+    res["exp"] = 4 + p.level // 2 if won else 2
+    g = db.scalar(select(Guild).where(Guild.id == L["gid"]).with_for_update())
+    c = _chefe(g) if g else None
+    dealt = L["hp_max"] if won else max(0, L["hp_max"] - max(0, L["hp"]))
+    if g is None or p.guilda_id != g.id or c["n"] != L["n"]:  # saiu da guilda ou outro membro derrubou esse chefe no meio da luta
+        res["gchefe"] = {"dealt": 0, "sem_credito": True, "nome": L["nome"]}
+        return
+    c["hp"] = max(0, c["hp"] - dealt)
+    c["dano"][str(p.id)] = c["dano"].get(str(p.id), 0) + dealt
+    morto, pend = c["hp"] <= 0, dict((g.dados or {}).get("pend") or {})
+    if morto:
+        total, n = sum(c["dano"].values()) or 1, c["n"]
+        mid = f"mat_{min(5, 1 + g.level // 3)}"
+        for pid, d in c["dano"].items():
+            share = d / total
+            old = pend.get(pid) or {"ryos": 0, "fama": 0, "mats": {}}
+            mats = dict(old["mats"])
+            mats[mid] = mats.get(mid, 0) + 2 + int(4 * share)
+            pend[pid] = {"ryos": old["ryos"] + int(200 * g.level * n * (0.5 + share)), "fama": old["fama"] + 5, "mats": mats}
+        hp = _chefe_hpmax(g, n + 1)
+        nome_morto, c = c["nome"], {"n": n + 1, "nome": GCHEFES[n % len(GCHEFES)], "hp": hp, "hp_max": hp, "dano": {}}
+    else:
+        nome_morto = None
+    _dados_set(g, chefe=c, pend=pend)
+    res["gchefe"] = {"dealt": dealt, "hp": c["hp"], "hp_max": c["hp_max"], "morto": morto, "nome": nome_morto or c["nome"]}
+
+
+class MuralReq(BaseModel):
+    telegram_id: int = Field(gt=0)
+    texto: str = Field(max_length=200)
+
+
+class CargoReq(BaseModel):
+    telegram_id: int = Field(gt=0)
+    alvo: str = Field(min_length=3, max_length=32)
+    acao: Literal["promover", "rebaixar", "expulsar", "lider"]
+
+
+@router.post("/api/guild/mural")
+def guild_mural(payload: MuralReq, db: Session = Depends(get_db)):
+    p = get_player(db, payload.telegram_id, lock=True)
+    if not p.guilda_id:
+        raise HTTPException(409, "Você não está em uma guilda.")
+    if cargo_guilda(p.guild, p.id) == "membro":
+        raise HTTPException(403, "Só o líder e os vices editam o mural.")
+    _dados_set(p.guild, mural=payload.texto.strip())
+    db.commit()
+    return {"mensagem": "Mural atualizado."}
+
+
+@router.post("/api/guild/cargo")
+def guild_cargo(payload: CargoReq, db: Session = Depends(get_db)):
+    """Promove a vice, rebaixa, expulsa ou passa a liderança. Só o líder promove, rebaixa e transfere; vices expulsam membros."""
+    p = get_player(db, payload.telegram_id, lock=True)
+    if not p.guilda_id:
+        raise HTTPException(409, "Você não está em uma guilda.")
+    g, meu = p.guild, cargo_guilda(p.guild, p.id)
+    t = db.scalar(select(Player).where(Player.ninja_name == payload.alvo, Player.guilda_id == g.id))
+    if t is None:
+        raise HTTPException(404, "Esse jogador não está na sua guilda.")
+    if t.id == p.id:
+        raise HTTPException(400, "Você não pode fazer isso consigo mesmo.")
+    alvo_cargo, vices = cargo_guilda(g, t.id), list((g.dados or {}).get("vices", []))
+    if payload.acao == "expulsar":
+        if meu == "membro" or alvo_cargo == "lider" or (meu == "vice" and alvo_cargo != "membro"):
+            raise HTTPException(403, "Você não tem autoridade para expulsar esse jogador.")
+        t.guilda_id = None
+        msg = f"{t.ninja_name} foi expulso da guilda."
+        pend = dict((g.dados or {}).get("pend") or {})
+        pend.pop(str(t.id), None)  # quem sai perde a recompensa pendente
+        _dados_set(g, vices=[v for v in vices if v != t.id], pend=pend)
+    else:
+        if meu != "lider":
+            raise HTTPException(403, "Só o líder faz isso.")
+        if payload.acao == "promover":
+            if alvo_cargo != "membro":
+                raise HTTPException(409, "Esse jogador já tem cargo.")
+            if len(vices) >= GUILD_VICES:
+                raise HTTPException(409, f"A guilda já tem {GUILD_VICES} vices.")
+            _dados_set(g, vices=vices + [t.id])
+            msg = f"{t.ninja_name} agora é vice."
+        elif payload.acao == "rebaixar":
+            if alvo_cargo != "vice":
+                raise HTTPException(409, "Esse jogador não é vice.")
+            _dados_set(g, vices=[v for v in vices if v != t.id])
+            msg = f"{t.ninja_name} voltou a ser membro."
+        else:  # lider: o antigo líder segue como membro
+            g.leader_id = t.id
+            _dados_set(g, vices=[v for v in vices if v != t.id])
+            msg = f"{t.ninja_name} é o novo líder da guilda."
+    db.commit()
+    return {"mensagem": msg}
+
+
+@router.post("/api/guild/chefe/lutar")
+def guild_chefe_lutar(payload: RestReq, db: Session = Depends(get_db)):
+    p = get_player(db, payload.telegram_id, lock=True)
+    if not p.guilda_id:
+        raise HTTPException(409, "Você não está em uma guilda.")
+    if p.luta:
+        raise HTTPException(409, "Você já está em uma luta.")
+    if p.masmorra:
+        raise HTTPException(409, "Termine ou abandone a masmorra antes.")
+    g = db.scalar(select(Guild).where(Guild.id == p.guilda_id).with_for_update())
+    if _tentativas(g, p) >= GUILD_CHEFE_TENT:
+        raise HTTPException(400, f"Você já usou as {GUILD_CHEFE_TENT} tentativas de hoje contra o chefe da guilda.")
+    if p.energia < GUILD_CHEFE_ENERGIA:
+        raise HTTPException(400, f"Energia insuficiente: cada tentativa custa {GUILD_CHEFE_ENERGIA}.")
+    if p.vida_atual < 0.3 * p.vida_max:
+        raise HTTPException(400, "Vida baixa demais (mínimo 30%). Descanse antes.")
+    c = _chefe(g)
+    t = dict((g.dados or {}).get("tent") or {})
+    if t.get("dia") != _hoje():
+        t = {"dia": _hoje(), "n": {}}
+    t["n"] = {**t["n"], str(p.id): t["n"].get(str(p.id), 0) + 1}
+    _dados_set(g, chefe=c, tent=t)
+    p.energia -= GUILD_CHEFE_ENERGIA
+    stats, hp, ck = stats_inimigo(p, p.level + 2, "chefe")
+    iniciar_luta(p, "gchefe", c["nome"], stats, hp, ck, True, elemento=random.choice(list(ELEMENTOS)), mapa=None, on_mission=False,
+                 dif="chefe", nivel=p.level + 2, gid=g.id, n=c["n"])
+    db.commit()
+    return {"luta": luta_view(p)}
+
+
+@router.post("/api/guild/chefe/coletar")
+def guild_chefe_coletar(payload: RestReq, db: Session = Depends(get_db)):
+    p = get_player(db, payload.telegram_id, lock=True)
+    if not p.guilda_id:
+        raise HTTPException(409, "Você não está em uma guilda.")
+    g = db.scalar(select(Guild).where(Guild.id == p.guilda_id).with_for_update())
+    pend = dict((g.dados or {}).get("pend") or {})
+    r = pend.pop(str(p.id), None)
+    if not r:
+        raise HTTPException(409, "Você não tem recompensa para coletar.")
+    p.ryos += r["ryos"]
+    p.fama += r["fama"]
+    p.materiais = {**(p.materiais or {}), **{k: (p.materiais or {}).get(k, 0) + q for k, q in r["mats"].items()}}
+    _dados_set(g, pend=pend)
+    db.commit()
+    mats = ", ".join(f"{q}x {MAT_NOME[k]}" for k, q in r["mats"].items())
+    return {"mensagem": f"Recompensa coletada: {fmt_num(r['ryos'])} ryos, {r['fama']} de fama e {mats}."}
+
+
+def fmt_num(n: int) -> str:
+    return f"{n:,}".replace(",", ".")
