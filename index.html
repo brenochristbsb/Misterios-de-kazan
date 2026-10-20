@@ -182,17 +182,17 @@ const ATTRS = [['taijutsu', 'Taijutsu', 'golpes físicos'], ['ninjutsu', 'Ninjut
   ['chakra_attr', 'Chakra', 'reserva de chakra'], ['defesa', 'Defesa', 'reduz o dano'], ['vigor', 'Vigor', 'vida máxima'], ['destreza', 'Destreza', 'armas e crítico']];
 const ELEM = { fogo: ['Fogo', '🔥'], agua: ['Água', '💧'], raio: ['Raio', '⚡'], terra: ['Terra', '🪨'], vento: ['Vento', '🌪️'] };
 const REG = ATTRS.slice(3);  // os 7 atributos de combate que recebem os 5 pontos do cadastro
-const TIPOS = { Arma: 'Armas', Armadura: 'Armaduras', Pergaminho: 'Pergaminhos' };
+const TIPOS = { Arma: 'Armas', Armadura: 'Armaduras', Pergaminho: 'Pergaminhos', Botas: 'Botas', Luvas: 'Luvas', Colar: 'Colares', Anel: 'Anéis' };
 const bonusTxt = b => Object.entries(b).map(([k, v]) => `+${v} ${k}`).join(', ');
 const dur = s => s >= 60 ? Math.round(s / 60) + ' min' : s + ' s';
 let P, X, J, G, K, R, LU, CL, LJ, PT, BO, ljSec = 'itens', boSec = 'equipados', VILS, battle = null, reps = 1;
 
-function toast(msg, ok = true) {
+function toast(msg, ok = true, ms = 3000) {
   const t = $('toast');
   t.textContent = msg;
   t.className = 'fixed left-4 right-4 z-50 rounded-xl px-4 py-3 text-sm font-semibold shadow-xl ' + (ok ? 'bg-gold text-sumi' : 'bg-vermil text-white');
   t.style.top = 'calc(env(safe-area-inset-top,0px) + .75rem)';
-  clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.add('hidden'), 3000);
+  clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.add('hidden'), ms);
   tg?.HapticFeedback?.notificationOccurred?.(ok ? 'success' : 'error');
 }
 function fatal(msg) { $('fatalMsg').textContent = msg; $('fatalBox').classList.remove('hidden'); }
@@ -245,7 +245,7 @@ document.querySelectorAll('nav button').forEach(b => b.onclick = () => showTab(b
 
 /* ───────── Renderização ───────── */
 function renderHeader() {
-  $('hName').textContent = P.ninja_name; $('hRank').textContent = `${P.rank} ${(ELEM[P.elemento] || [])[1] || ''}`; $('hAv').textContent = P.avatar;
+  $('hName').textContent = P.ninja_name; $('hRank').textContent = `${P.rank_titulo || P.rank} ${(ELEM[P.elemento] || [])[1] || ''}`; $('hAv').textContent = P.avatar;
   $('hSub').textContent = `Nível ${P.level}, fama ${fmt(P.fama)}, ${P.village.name}`;
   $('hRyos').textContent = fmt(P.ryos);
   $('tHp').textContent = `${P.vida.atual}/${P.vida.max}`; $('tCk').textContent = `${P.chakra.atual}/${P.chakra.max}`;
@@ -348,7 +348,7 @@ function renderPerfil() {
   $('tab-perfil').innerHTML = `
     <div class="card flex items-center gap-4"><button class="seal w-20 h-20 text-5xl shrink-0 relative" aria-label="Trocar avatar" onclick="openAvatar()">${P.avatar}<span class="absolute -bottom-1 -right-1 text-xs bg-sumi border border-gold rounded-full w-6 h-6 grid place-items-center">✎</span></button>
       <div class="min-w-0"><h2 class="truncate">${esc(P.ninja_name)}</h2>
-      <div class="lbl">${esc(P.rank)}, nível ${P.level}</div><div class="lbl">${esc(P.village.name)}</div></div></div>
+      <div class="lbl">${esc(P.rank_titulo || P.rank)}, nível ${P.level}</div><div class="lbl">${esc(P.village.name)}</div></div></div>
     <div class="grid grid-cols-5 gap-2">${T.map(([id, ico, nome, fn]) => mini(id, ico, nome, fn)).join('')}</div>
     <div class="card"><h2 class="mb-3">Equipados</h2>${equipGrid(false)}
       <button class="btn btn-ghost w-full mt-3" onclick="showTab('bolsa')">🎒 Mochila <span class="${n >= max ? 'text-vermil' : 'text-gold'}">${n}/${max}</span></button></div>`;
@@ -369,8 +369,17 @@ function renderStatus() {
 }
 function renderOpcoes() {
   const soon = t => `<button class="w-full flex justify-between items-center py-3 border-t border-line text-sm" onclick="toast('${t}: em breve.', true)"><span>${t}</span><span class="text-gold text-xs">em breve</span></button>`;
-  $('tab-opcoes').innerHTML = `<div class="card"><h2 class="mb-1">Opções</h2>${['Amigos', 'Skins', 'Conquistas', 'Livro Bingo', 'Trocar nome', 'Trocar classe e sexo', 'Fórum e tutoriais'].map(soon).join('')}</div>`;
+  $('tab-opcoes').innerHTML = `<div class="card"><h2 class="mb-1">Opções</h2>${['Amigos', 'Skins', 'Conquistas', 'Livro Bingo', 'Trocar nome', 'Trocar classe e sexo', 'Fórum e tutoriais'].map(soon).join('')}</div>
+    <div class="card"><h2>Nacionalidade</h2><p class="lbl mt-1">Você é de ${esc(P.village.name)}. Trocar de vila zera sua fama e reinicia a missão atual. Clãs de outra vila ficam para trás. Kage e Sannin não podem trocar.</p>
+      <button class="btn btn-ghost w-full mt-3" onclick="abrirTroca()">Trocar de vila</button><div id="trocaBox"></div></div>`;
 }
+async function abrirTroca() {
+  try {
+    const o = await api('/api/setup/options');
+    $('trocaBox').innerHTML = o.villages.filter(v => v.id !== P.village.id).map(v => `<button class="w-full flex justify-between items-center py-3 border-t border-line text-sm" onclick="trocarVila(${v.id}, '${esc(v.name)}')"><span>${esc(v.name)}</span><span class="text-gold text-xs">escolher</span></button>`).join('');
+  } catch (e) { toast(e.message, false); }
+}
+const trocarVila = (id, nome) => askOk(`Trocar para ${nome}? Sua fama (${fmt(P.fama)}) será zerada.`, () => act('/api/nacionalidade/trocar', { village_id: id }, r => r.mensagem));
 /* Troca de avatar: abre ao tocar na foto do perfil */
 function openAvatar() {
   $('avGrid').innerHTML = X.avatares.map(a => `<button class="round !w-full !h-11 !text-2xl ${a === P.avatar ? 'bg-gold/20' : ''}" aria-label="Avatar ${a}" onclick="pickAvatar('${a}')">${a}</button>`).join('');
@@ -388,12 +397,14 @@ function renderJornada() {
   const m = J, mapa = X.mapas.find(x => x.id === m.mapa);
   const acao = m.bloqueada
     ? `<button class="btn w-full" disabled>Exige nível ${m.req_nivel}</button><p class="lbl mt-2 text-center">Explore os mapas para ganhar nível.</p>`
+    : m.pronta && m.exame && P.fama + m.fama < m.exame_fama
+      ? `<button class="btn w-full" disabled>Exige ${fmt(m.exame_fama)} de fama</button><p class="lbl mt-2 text-center">Você tem ${fmt(P.fama)}. Vença lutas e missões para ganhar fama.</p>`
     : m.pronta
       ? `<div class="grid grid-cols-2 gap-2"><button class="btn btn-gold" onclick="entregar('honra')">Com honra</button><button class="btn" onclick="entregar('sombra')">Vender informações</button></div>`
       : `<button class="btn w-full" onclick="showTab('mapas')">Ir para ${esc(mapa ? mapa.nome : 'o mapa')}</button>`;
   $('tab-jornada').innerHTML = `<div class="card"><div class="flex items-center gap-3">
       <div class="seal w-12 h-12 text-2xl">${m.rank}</div>
-      <div class="flex-1 min-w-0"><div class="flex gap-1.5 mb-1"><span class="tag gold">${TIPO_J[m.tipo]}</span>${m.exame ? `<span class="tag red">Exame de promoção</span>` : ''}</div><h2>${esc(m.titulo)}</h2></div></div>
+      <div class="flex-1 min-w-0"><div class="flex gap-1.5 mb-1"><span class="tag gold">${TIPO_J[m.tipo]}</span>${m.exame ? `<span class="tag red">Exame: ${esc(m.exame)}${m.exame_fama ? ' · ' + fmt(m.exame_fama) + ' de fama' : ''}</span>` : ''}</div><h2>${esc(m.titulo)}</h2></div></div>
     <p class="text-sm text-paper/75 mt-3 leading-relaxed">${esc(m.historia)}</p>
     <div class="mt-4 text-sm font-semibold">${esc(m.objetivo)}</div>
     <div class="flex justify-between lbl mt-2"><span>Progresso</span><span>${m.progresso} de ${m.qtd}</span></div>
@@ -409,7 +420,7 @@ const entregar = escolha => act('/api/jornada/entregar', { escolha }, r =>
 /* Mapas: cada um tem faixa de nível ideal e um tipo de drop */
 function renderMapas() {
   const ideal = [...X.mapas].reverse().find(m => P.level >= m.min_level && P.level <= m.max_level);
-  $('tab-mapas').innerHTML = X.mapas.map(m => {
+  $('tab-mapas').innerHTML = '<p class="lbl text-center px-4">Ao explorar pode surgir um curandeiro, um tesouro escondido ou uma emboscada (inimigo mais forte, recompensa maior).</p>' + X.mapas.map(m => {
     const locked = P.level < m.min_level, over = P.level > m.max_level;
     const state = locked ? `<span class="tag">Libera no nível ${m.min_level}</span>`
       : over ? '<span class="tag red">Acima da faixa: XP reduzido</span>' : '<span class="tag gold">Faixa ideal</span>';
@@ -421,7 +432,12 @@ function renderMapas() {
   }).join('');
 }
 async function iniciarLuta(path, body) {
-  try { battle = null; await api(path, { telegram_id: tgUser.id, ...body }); showTab('mapas'); await refresh(); } catch (e) { toast(e.message, false); render(); }
+  try {
+    battle = null;
+    const r = await api(path, { telegram_id: tgUser.id, ...body });
+    showTab('mapas'); await refresh();
+    if (r.evento) toast(`${r.evento.emoji} ${r.evento.titulo}: ${r.evento.texto}`, r.evento.tipo !== 'emboscada', 6000);
+  } catch (e) { toast(e.message, false); render(); }
 }
 const explore = id => iniciarLuta('/api/maps/explore', { map_id: id });
 const duelar = nome => iniciarLuta('/api/pvp/desafiar', { alvo: nome });
@@ -472,7 +488,7 @@ function lutaHtml() {
   const temAnt = (l.pocoes || []).some(x => x.id === 'antidoto');
   return `<div class="card border-vermil"><div class="flex items-center gap-3">${foeIcon(l.inimigo, l.tipo, l.chefe, l.elemento)}
       <div class="min-w-0"><h2 class="truncate">${esc(l.inimigo)}${l.nivel ? ` <span class="text-gold">lvl ${l.nivel}</span>` : ''}</h2>
-        <div class="flex gap-1.5 mt-1 flex-wrap">${l.dif ? `<span class="${DIF_TAG[l.dif] || 'tag'}">${l.dif}</span>` : l.tipo === 'pvp' ? '<span class="tag gold">Duelo</span>' : ''}${ELEM[l.elemento] ? `<span class="tag">${ELEM[l.elemento][1]} ${ELEM[l.elemento][0]}</span>` : ''}</div></div></div>
+        <div class="flex gap-1.5 mt-1 flex-wrap">${l.emboscada ? '<span class="tag red">⚠️ Emboscada</span>' : ''}${l.dif ? `<span class="${DIF_TAG[l.dif] || 'tag'}">${l.dif}</span>` : l.tipo === 'pvp' ? '<span class="tag gold">Duelo</span>' : ''}${ELEM[l.elemento] ? `<span class="tag">${ELEM[l.elemento][1]} ${ELEM[l.elemento][0]}</span>` : ''}</div></div></div>
     <div class="flex justify-between text-xs mt-3 mb-1"><span>Vida do inimigo</span><span>${l.hp}/${l.hp_max}</span></div>
     <div class="bar"><i class="bg-vermil" style="width:${pc(l.hp, l.hp_max)}"></i></div></div>
   <div class="card"><div class="grid grid-cols-2 gap-3 text-xs"><div><div class="flex justify-between mb-1"><span>Sua vida</span><span>${P.vida.atual}/${P.vida.max}</span></div><div class="bar"><i class="bg-gradient-to-r from-red-900 to-vermil" style="width:${pc(P.vida.atual, P.vida.max)}"></i></div></div>
@@ -652,8 +668,9 @@ function sanninCard() {
   const msg = v.rank === 'Sannin' ? 'Você é um dos três Sannin. Só você e seus pares podem disputar o cargo de Kage.'
     : v.rank === 'Kage' ? 'Você é Kage.'
     : v.dias_restantes ? `Sua fama passa a do Sannin mais fraco. Faltam ${v.dias_restantes} dia(s) para tomar a cadeira.`
-    : v.rank === 'Anbu' ? `Anbu com ${fmt(P.fama)} de fama. Precisa de ${fmt(s.minimo)} e de mais fama que o Sannin mais fraco por 7 dias.`
-    : `Chegue a Anbu e a ${fmt(s.minimo)} de fama para disputar uma cadeira. Sua fama: ${fmt(P.fama)}.`;
+    : v.rank === 'Anbu' && !v.elite ? 'Para disputar uma cadeira você precisa ser Anbu de Elite. Continue os exames da Jornada.'
+    : v.rank === 'Anbu' ? `Anbu de Elite com ${fmt(P.fama)} de fama. Precisa de ${fmt(s.minimo)} e de mais fama que o Sannin mais fraco por 7 dias.`
+    : `Chegue a Anbu de Elite e a ${fmt(s.minimo)} de fama para disputar uma cadeira. Sua fama: ${fmt(P.fama)}.`;
   return `<div class="card"><h2>Os três Sannin</h2>
     <p class="lbl mt-1">Só eles disputam o cargo de Kage (${fmt(s.minimo_kage)} de fama). A cadeira se conquista a partir de ${fmt(s.minimo)}.</p>
     ${s.cadeiras.map(c => `<div class="flex items-center justify-between py-2 border-t border-line text-sm"><div class="min-w-0"><div class="font-semibold truncate">${esc(c.nome)} ${c.eu ? '<span class="tag gold">Você</span>' : ''}</div>
@@ -663,7 +680,7 @@ function sanninCard() {
 }
 function kageCard() {
   const k = K, ch = k.desafiante;
-  return `<div class="card"><div class="lbl">Kage da vila</div>
+  return `<div class="card"><div class="lbl">Kage da vila${k.vila ? ' de ' + esc(k.vila) : ''}. O desafio só vale na sua vila de origem.</div>
     <h2>${esc(k.kage.nome)} ${k.voce_e_kage ? '<span class="tag gold">Você</span>' : k.kage.npc ? '<span class="tag">NPC</span>' : ''}</h2>
     <div class="text-sm text-paper/70 mt-1">Fama do Kage: ${fmt(k.kage.fama)}. A sua: ${fmt(P.fama)}.</div>
     ${ch ? `<div class="text-sm mt-3">Desafiante: <b>${esc(ch.nome)}</b>, fama ${fmt(ch.fama)}. Assume o cargo em ${ch.dias_restantes} dia(s) se a fama dele seguir acima.</div>` : ''}

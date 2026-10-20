@@ -204,6 +204,8 @@ class Player(TimestampMixin, Base):
     luta: Mapped[Optional[dict]] = mapped_column(JSON)
     # Início do período em que este Anbu supera em fama o Sannin mais fraco (7 dias seguidos tomam a cadeira)
     sannin_desde: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    # Degrau de elite: Jonin de Elite e Anbu de Elite. A patente-base segue Jonin/Anbu, então o enum do banco não muda
+    elite: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     # Provação de ingresso em um clã (etapa atual e progresso dela) e pontos de clã
     prov_clan_id: Mapped[Optional[int]] = mapped_column(Integer)
     prov_etapa: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

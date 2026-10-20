@@ -18,7 +18,7 @@ from jutsus_dados import BASICO, ELEMENTOS, JUTSUS, MARCOS, VANTAGEM
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, object_session
 
-from api import ATTRS, NO_CLAN_NAME, active_summon_link, apply_exp, as_utc, effective_stats, get_db, get_player
+from api import ATTRS, NO_CLAN_NAME, active_summon_link, apply_exp, as_utc, effective_stats, get_db, get_player, rank_titulo
 from models import Clan, Guild, InventoryItem, ItemType, MarketListing, NinjaRank, Pet, Player, PlayerSummon, Summon, Village
 
 router = APIRouter()
@@ -40,14 +40,61 @@ _RAW_MAPS = [
 ]
 MAPS = [{"id": i, "nome": n, "min_level": a, "max_level": b, "perigo": p, "tipo": t, "itens": it,
          "inimigo": "Ninja da região", "chefe": c} for i, n, a, b, p, t, it, c in _RAW_MAPS]
+
+# ───────── Fase 3: mais inimigos e drops nos mapas 1 a 5, e mapas 6 a 15 (até o nível 100) ─────────
+# Itens: (nome, atributo) usam o tipo do mapa; (nome, atributo, tipo) sobrescrevem o tipo.
+_EXTRAS_ANTIGOS = {1: (["Bandido Errante", "Javali Selvagem"], ("Botas Leves de Treino", "agilidade", "Botas")),
+                   2: (["Ninja Desertor", "Macaco Ágil"], ("Anel de Bambu", "genjutsu", "Anel")),
+                   3: (["Morcego Gigante", "Mineiro Corrompido"], ("Luvas de Cristal", "taijutsu", "Luvas")),
+                   4: (["Sapo Venenoso", "Caçador de Pântano"], ("Colar do Pântano", "ninjutsu", "Colar")),
+                   5: (["Lobo da Geada", "Eremita Gélido"], ("Botas de Gelo", "agilidade", "Botas"))}
+for _m in MAPS:
+    _m["extras"], _it = _EXTRAS_ANTIGOS[_m["id"]]
+    _m["itens"] = _m["itens"] + [_it]
+    _m["recurso"] = None  # nos mapas 1 a 5 o recurso de coleta vem da vila (vilas_dados.py)
+
+# (id, nome, nível mín., nível máx., perigo, tipo, itens, chefe, inimigo, outros inimigos, recurso de coleta)
+_NOVOS_MAPAS = [
+    (6, "Ruínas Esquecidas", 32, 46, 6, "Botas", [("Botas de Musgo", "agilidade"), ("Sandálias Rúnicas", "taijutsu"), ("Colar de Runas", "genjutsu", "Colar")],
+     "Sentinela de Pedra", "Saqueador das Ruínas", ["Golem Menor", "Espectro de Pedra"], "Fragmento Rúnico"),
+    (7, "Floresta Carmesim", 40, 54, 7, "Luvas", [("Luvas de Espinho", "taijutsu"), ("Garras Carmesim", "agilidade"), ("Anel de Seiva", "ninjutsu", "Anel")],
+     "Rainha das Vespas", "Caçador Carmesim", ["Vespa Gigante", "Lobo Sangrento"], "Seiva Carmesim"),
+    (8, "Deserto das Dunas", 48, 62, 8, "Colar", [("Colar de Areia Vítrea", "ninjutsu"), ("Amuleto do Oásis", "genjutsu"), ("Manto das Dunas", "agilidade", "Armadura")],
+     "Verme das Dunas", "Nômade Renegado", ["Escorpião Colossal", "Bandido do Deserto"], "Cristal de Areia"),
+    (9, "Costa das Tempestades", 56, 68, 9, "Arma", [("Tridente de Maré", "taijutsu"), ("Lâmina de Coral", "ninjutsu"), ("Botas de Espuma", "agilidade", "Botas")],
+     "Leviatã Menor", "Pirata Shinobi", ["Caranguejo de Aço", "Sereia Sombria"], "Pérola Tempestuosa"),
+    (10, "Vulcão Adormecido", 64, 76, 10, "Armadura", [("Armadura de Magma", "taijutsu"), ("Traje de Cinzas", "agilidade"), ("Anel Incandescente", "ninjutsu", "Anel")],
+     "Titã de Lava", "Cultista das Cinzas", ["Salamandra de Fogo", "Golem de Magma"], "Rubi Vulcânico"),
+    (11, "Catacumbas Antigas", 72, 84, 11, "Pergaminho", [("Pergaminho Proibido", "genjutsu"), ("Grimório dos Mortos", "ninjutsu"), ("Colar de Ossos", "taijutsu", "Colar")],
+     "Rei Lich", "Necromante", ["Esqueleto Guerreiro", "Fantasma Errante"], "Osso Ancestral"),
+    (12, "Montanha das Tempestades", 78, 90, 12, "Luvas", [("Manoplas do Trovão", "taijutsu"), ("Luvas de Raio", "ninjutsu"), ("Botas do Vendaval", "agilidade", "Botas")],
+     "Dragão do Trovão", "Xamã do Vento", ["Águia Relâmpago", "Elemental de Raio"], "Pedra do Trovão"),
+    (13, "Templo Celestial", 84, 94, 13, "Anel", [("Anel Celestial", "genjutsu"), ("Selo do Templo", "ninjutsu"), ("Manto de Seda Divina", "agilidade", "Armadura")],
+     "Guardião Celestial", "Monge Corrompido", ["Estátua Viva", "Anjo Caído"], "Pétala Celestial"),
+    (14, "Abismo Sombrio", 90, 98, 14, "Arma", [("Lâmina do Abismo", "taijutsu"), ("Foice das Sombras", "ninjutsu"), ("Colar do Vazio", "genjutsu", "Colar")],
+     "Devorador de Almas", "Assassino das Sombras", ["Sombra Viva", "Demônio Menor"], "Essência Sombria"),
+    (15, "Portal do Fim", 94, 100, 15, "Armadura", [("Armadura do Fim", "taijutsu"), ("Anel do Vazio Eterno", "genjutsu", "Anel"),
+                                                    ("Pergaminho do Apocalipse", "ninjutsu", "Pergaminho"), ("Luvas do Destino", "taijutsu", "Luvas")],
+     "Senhor do Fim", "Arauto do Fim", ["Besta do Vazio", "Cavaleiro Espectral"], "Fragmento do Vazio"),
+]
+MAPS += [{"id": i, "nome": n, "min_level": a, "max_level": b, "perigo": p, "tipo": t, "itens": it, "inimigo": ini, "chefe": c,
+          "extras": ex, "recurso": rec} for i, n, a, b, p, t, it, c, ini, ex, rec in _NOVOS_MAPAS]
 MAPS_BY_ID = {m["id"]: m for m in MAPS}
 vila_idx = lambda p: (p.village_id - 1) % len(VILAS)  # as vilas são semeadas na ordem de vilas_dados.py
 
 
 def mapa_vila(mid: int, vi: int) -> dict:
     """Mapa do nível `mid` com nome, inimigo e chefe da vila: a dificuldade é igual, só a ambientação muda."""
-    nome, inimigo, chefe = VILAS[vi]["mapas"][mid - 1]
-    return {**MAPS_BY_ID[mid], "nome": nome, "inimigo": inimigo, "chefe": chefe}
+    mp, lista = MAPS_BY_ID[mid], VILAS[vi]["mapas"]
+    if mid > len(lista):  # mapas da Fase 3 ainda não têm versão por vila: usam o nome genérico
+        return dict(mp)
+    nome, inimigo, chefe = lista[mid - 1]
+    return {**mp, "nome": nome, "inimigo": inimigo, "chefe": chefe}
+
+
+def recurso_vila(vi: int, mid: int) -> str:
+    rec = VILAS[vi]["recursos"]
+    return rec[mid - 1] if mid <= len(rec) else MAPS_BY_ID[mid]["recurso"]
 
 # Requisitos de ingresso por clã (nível, rank). Clãs fora da lista usam o padrão.
 CLAN_DATA = {c[1]: {"vila": c[0], "nome": c[1], "atr": c[2], "bonus": c[3], "nivel": c[4], "rank": c[5], "historia": c[6],
@@ -62,6 +109,15 @@ clan_req = lambda c: (CLAN_DATA[c.name]["nivel"], CLAN_DATA[c.name]["rank"]) if 
 
 def rank_ok(player, min_rank: str) -> bool:
     return RANKS.index(player.rank) >= RANKS.index(NinjaRank(min_rank))
+
+
+# Escada de patentes. Jonin e Anbu têm um degrau de elite; Sannin e Kage vêm de fama, não de exame.
+PATENTES = ["Estudante", "Genin", "Chunin", "Jonin", "Jonin de Elite", "Anbu", "Anbu de Elite", "Sannin", "Kage"]
+posto = lambda p: PATENTES.index(rank_titulo(p))
+
+
+def promover(p: Player, alvo: str) -> None:
+    p.rank, p.elite = NinjaRank(alvo.replace(" de Elite", "")), alvo.endswith(" de Elite")
 
 
 def reputation_title(rep: int) -> str:
@@ -275,6 +331,51 @@ def sortear_estrelas(moral: int) -> int:
     return 3 if r < 0.001 * f else 2 if r < 0.005 * f else 1 if r < 0.02 * f else 0
 
 
+# (poção, chance por vitória, perigo mínimo do mapa)
+CONSUMIVEIS_DROP = [("antidoto", 0.08, 1), ("vida_p", 0.06, 1), ("chakra_p", 0.05, 1), ("energia", 0.008, 2),
+                    ("vida_m", 0.04, 3), ("chakra_m", 0.03, 3), ("vida_g", 0.03, 8), ("chakra_g", 0.025, 8)]
+# Eventos ao explorar (chance de cada um): curandeiro e tesouro resolvem na hora; a emboscada vira uma luta mais dura
+EVENTOS = (("curandeiro", 0.05), ("tesouro", 0.05), ("emboscada", 0.08))
+
+
+def sortear_evento() -> Optional[str]:
+    r, acc = random.random(), 0.0
+    for nome, chance in EVENTOS:
+        acc += chance
+        if r < acc:
+            return nome
+    return None
+
+
+def criar_item(db: Session, p: Player, mp: dict, nome: str, attr: str, tipo: str, est: int) -> dict:
+    """Cria o item no inventário (bônus cresce com o perigo do mapa e as estrelas) e devolve a visão dele."""
+    bonus = max(1, round(2 * mp["perigo"] * ESTRELA_BONUS.get(est, 1.0)))
+    it = InventoryItem(player_id=p.id, item_name=nome + (f" (superior {'★' * est})" if est else ""),
+                       item_type=ItemType(tipo), status_bonus={attr: bonus})
+    db.add(it)
+    db.flush()
+    return item_view(it, est)
+
+
+def evento_passivo(db: Session, p: Player, mp: dict, ev: str) -> dict:
+    """Eventos sem luta. Curandeiro: recupera metade da vida e do chakra e cura status. Tesouro: ryos e às vezes um item."""
+    if ev == "curandeiro":
+        p.vida_atual = min(p.vida_max, p.vida_atual + p.vida_max // 2)
+        p.chakra_atual = min(p.chakra_max, p.chakra_atual + p.chakra_max // 2)
+        curou = bool(p.status_fora)
+        p.status_fora = []
+        txt = "Um curandeiro itinerante cuidou dos seus ferimentos: +50% de vida e de chakra" + (" e curou seus status." if curou else ".")
+        return {"tipo": "curandeiro", "emoji": "🌿", "titulo": "Curandeiro itinerante", "texto": txt, "ryos": 0, "drops": []}
+    ryos = random.randint(12, 25) * mp["perigo"]
+    p.ryos += ryos
+    drops = []
+    if random.random() < 0.4 and bolsa_livre(p):
+        nome, attr, *t = random.choice(mp["itens"])
+        drops.append(criar_item(db, p, mp, nome, attr, t[0] if t else mp["tipo"], sortear_estrelas(min(MORAL_MAX, p.moral + 10))))
+    txt = f"Você encontrou um tesouro escondido: {ryos} ryos" + (f" e {drops[0]['nome']}." if drops else ".")
+    return {"tipo": "tesouro", "emoji": "💰", "titulo": "Tesouro escondido", "texto": txt, "ryos": ryos, "drops": drops}
+
+
 def item_view(it: InventoryItem, estrelas: int = 0) -> dict:
     return {"id": it.id, "nome": it.item_name, "tipo": it.item_type.value, "bonus": it.status_bonus or {}, "valor": valor_venda(it), "estrelas": estrelas}
 
@@ -357,8 +458,8 @@ def iniciar_luta(p: Player, tipo: str, nome: str, stats: dict, hp: int, chakra: 
     # Vigor e chakra acima do valor treinado (itens, clã, pet) viram escudo de vida e reserva de chakra na luta
     L["escudo"] = max(0, 5 * (me["vigor"] - p.vigor))
     L["reserva"] = max(0, 4 * (me["chakra_attr"] - p.chakra_attr))
-    if stats["agilidade"] > me["agilidade"] or (stats["agilidade"] == me["agilidade"] and random.random() < 0.5):  # iniciativa: o mais ágil começa; empate no sorteio
-        L["log"].append(f"{nome} é mais rápido e ataca primeiro.")
+    if L.get("emboscada") or stats["agilidade"] > me["agilidade"] or (stats["agilidade"] == me["agilidade"] and random.random() < 0.5):  # iniciativa: o mais ágil começa; empate no sorteio
+        L["log"].append(f"Emboscada! {nome} ataca primeiro." if L.get("emboscada") else f"{nome} é mais rápido e ataca primeiro.")
         turno_inimigo(L, me, p)
         p.vida_atual = max(1, p.vida_atual)
     p.luta = L
@@ -387,7 +488,7 @@ def luta_view(p: Player):
             "escudo": L.get("escudo", 0), "reserva": L.get("reserva", 0), "elemento": L.get("elemento"), "acoes": _acoes(p, L),
             "pocoes": [{"id": k, "nome": POCOES[k][0], "qtd": q} for k, q in (p.pocoes or {}).items()
                        if q > 0 and k in POCOES and POCOES[k][1] in ("vida", "chakra", "cura")],
-            "nivel": L.get("nivel"), "dif": L.get("dif"), "mapa": L.get("mapa"), "log_full": L["log"][-40:], "moral": p.moral,
+            "nivel": L.get("nivel"), "dif": L.get("dif"), "mapa": L.get("mapa"), "emboscada": bool(L.get("emboscada")), "log_full": L["log"][-40:], "moral": p.moral,
             "status": list(L.get("st", {})) + (["atordoado"] if L.get("me_atordoado") else []),
             "rapido": L["tipo"] == "pve" and (p.abates or {}).get(L["nome"], 0) >= ABATES_RAPIDO}
 
@@ -418,7 +519,7 @@ def fim_luta(db: Session, p: Player, L: dict, won: bool) -> dict:
             res["clan"] = f"Você foi aceito no {clan.name}!"
     else:
         mp = MAPS_BY_ID[L["mapa"]]
-        mult = DIFICULDADES[dif][2]
+        mult = DIFICULDADES[dif][2] * (1.3 if L.get("emboscada") else 1)
         over = p.level > mp["max_level"]
         res["xp_reduzido"] = over
         if won:
@@ -432,17 +533,13 @@ def fim_luta(db: Session, p: Player, L: dict, won: bool) -> dict:
             ab[L["nome"]] = ab.get(L["nome"], 0) + 1
             p.abates = ab
             moral_antes = res["moral"] - 1
-            for nome, attr in mp["itens"]:  # drops temáticos: cada mapa solta só o tipo dele
-                if random.random() < min(0.9, 0.25 * (0.5 + 0.5 * mult)) and bolsa_livre(p, len(res["drops"])):
+            itens = mp["itens"]
+            for nome, attr, *t in itens:  # drops temáticos do mapa; a chance total por luta continua parecida com a de antes
+                if random.random() < min(0.9, (0.5 / len(itens)) * (0.5 + 0.5 * mult) * (1.3 if L.get("emboscada") else 1)) and bolsa_livre(p, len(res["drops"])):
                     est = sortear_estrelas(moral_antes)
-                    bonus = max(1, round(2 * mp["perigo"] * ESTRELA_BONUS.get(est, 1.0)))
-                    it = InventoryItem(player_id=p.id, item_name=nome + (f" (superior {'★' * est})" if est else ""),
-                                       item_type=ItemType(mp["tipo"]), status_bonus={attr: bonus})
-                    db.add(it)
-                    db.flush()
-                    res["drops"].append(item_view(it, est))
-            for pid, chance in (("antidoto", 0.08), ("vida_p", 0.06)):  # consumíveis também caem
-                if random.random() < chance:
+                    res["drops"].append(criar_item(db, p, mp, nome, attr, t[0] if t else mp["tipo"], est))
+            for pid, chance, perigo_min in CONSUMIVEIS_DROP:  # consumíveis também caem, com os melhores nos mapas perigosos
+                if mp["perigo"] >= perigo_min and random.random() < chance:
                     p.pocoes = {**(p.pocoes or {}), pid: (p.pocoes or {}).get(pid, 0) + 1}
                     res["extras"].append(POCOES[pid][0])
             if L["on_mission"]:  # coleta: 70% por vitória; caçada: 1 por vitória; procurado: só ao vencer o chefe
@@ -480,15 +577,26 @@ def explore(payload: ExploreReq, db: Session = Depends(get_db)):
 
     mis = mission_for(player.journey + 1, vila_idx(player))
     on_mission = mis["mapa"] == mp["id"] and player.level >= mis["req_nivel"] and player.journey_prog < mis["qtd"]
+    ev = sortear_evento()
+    if ev in ("curandeiro", "tesouro"):
+        player.energia -= 1
+        res = evento_passivo(db, player, mp, ev)
+        db.commit()
+        return {"luta": None, "evento": res}
     dif, nivel = sortear_inimigo(player, mp, on_mission and mis["tipo"] == "busca" and random.random() < 0.5)
+    emboscada = ev == "emboscada" and dif in ("fácil", "normal", "difícil")
+    if emboscada:  # os inimigos surgem em maior número: um degrau acima na dificuldade e o primeiro golpe é deles
+        dif = {"fácil": "normal", "normal": "difícil", "difícil": "desafiante"}[dif]
     boss = dif in ("chefe", "impossível")
-    nome = mp["chefe"] if boss else f"{mp['inimigo']} Alfa" if dif == "mini-chefe" else mp["inimigo"]
+    comum = random.choice([mp["inimigo"]] * 2 + mp.get("extras", []))  # o inimigo da vila é o mais comum; os outros dão variedade
+    nome = mp["chefe"] if boss else f"{comum} Alfa" if dif == "mini-chefe" else comum
     stats, hp, ck = stats_inimigo(player, nivel, dif)
     player.energia -= 1
     iniciar_luta(player, "pve", nome, stats, hp, ck, boss, mapa=mp["id"], on_mission=on_mission,
-                 elemento=elem_mapa(vila_idx(player)), dif=dif, nivel=nivel)
+                 elemento=elem_mapa(vila_idx(player)), dif=dif, nivel=nivel, emboscada=emboscada)
     db.commit()
-    return {"luta": luta_view(player)}
+    return {"luta": luta_view(player), "evento": {"tipo": "emboscada", "emoji": "⚠️", "titulo": "Emboscada!",
+                                                   "texto": "Você caiu numa emboscada: o inimigo é mais forte e ataca primeiro, mas a recompensa é 30% maior."} if emboscada else None}
 
 
 @router.post("/api/pvp/desafiar")
@@ -687,8 +795,10 @@ def rest(payload: RestReq, db: Session = Depends(get_db)):
 
 
 # ───────── Jornada: missões por tarefa (coleta, caçada, procurado), sem tempo ─────────
-EXAMES = {6: ("Exame Genin", 5, "Genin"), 16: ("Exame Chunin", 12, "Chunin"),
-          32: ("Exame Jonin", 20, "Jonin"), 54: ("Exame Anbu", 30, "Anbu")}
+# seq da missão: (nome, nível mínimo, patente, fama mínima). A fama vem das missões da Jornada e das lutas.
+EXAMES = {6: ("Exame Genin", 5, "Genin", 0), 16: ("Exame Chunin", 12, "Chunin", 0), 32: ("Exame Jonin", 20, "Jonin", 500),
+          46: ("Exame Jonin de Elite", 28, "Jonin de Elite", 1000), 62: ("Exame Anbu", 38, "Anbu", 2500),
+          84: ("Exame Anbu de Elite", 52, "Anbu de Elite", 6000)}
 TIPO_NOME = {"coleta": "Coleta", "caca": "Caçada", "busca": "Procurado"}
 
 
@@ -702,7 +812,7 @@ def mission_for(seq: int, vi: int = 0) -> dict:
     mid = next((m["id"] for m in reversed(MAPS) if m["min_level"] <= req), 1)
     mp = mapa_vila(mid, vi)
     qtd = {"coleta": 4 + seq // 4, "caca": 5 + seq // 3, "busca": 1}[tipo]
-    objetivo = {"coleta": f"Colete {qtd} {v['recursos'][mid - 1]} em {mp['nome']}",
+    objetivo = {"coleta": f"Colete {qtd} {recurso_vila(vi, mid)} em {mp['nome']}",
                 "caca": f"Derrote {qtd} inimigos em {mp['nome']}",
                 "busca": f"Capture {mp['chefe']}, procurado em {mp['nome']}"}[tipo]
     arco, sinopse = v["arcos"][((seq - 1) // 6) % len(v["arcos"])]
@@ -711,7 +821,7 @@ def mission_for(seq: int, vi: int = 0) -> dict:
     else:
         titulo, historia = f"{arco}: {TIPO_NOME[tipo]}", sinopse
     return {"seq": seq, "titulo": titulo, "historia": historia, "tipo": tipo, "mapa": mid, "objetivo": objetivo,
-            "qtd": qtd, "req_nivel": req, "exame": exame[2] if exame else None, "rank": "DCBAS"[min(4, seq // 12)],
+            "qtd": qtd, "req_nivel": req, "exame": exame[2] if exame else None, "exame_fama": exame[3] if exame else 0, "rank": "DCBAS"[min(4, seq // 12)],
             "exp": 10 + 4 * seq, "ryos": 20 + 8 * seq, "fama": (10 + seq) * (3 if tipo == "busca" else 1)}
 
 
@@ -735,6 +845,8 @@ def jornada_entregar(payload: JornadaDone, db: Session = Depends(get_db)):
     m = mission_for(p.journey + 1, vila_idx(p))
     if p.journey_prog < m["qtd"]:
         raise HTTPException(409, "O objetivo ainda não foi cumprido.")
+    if m["exame"] and posto(p) < PATENTES.index(m["exame"]) and p.fama + m["fama"] < m["exame_fama"]:
+        raise HTTPException(403, f"O {m['titulo']} exige {_n(m['exame_fama'])} de fama (você tem {_n(p.fama)}). Vença lutas e missões para ganhar fama.")
     sombra = payload.escolha == "sombra"
     ryos = int(m["ryos"] * (1.3 if sombra else 1))
     p.ryos += ryos
@@ -743,8 +855,9 @@ def jornada_entregar(payload: JornadaDone, db: Session = Depends(get_db)):
     p.journey += 1
     p.journey_prog = 0
     promovido = None
-    if m["exame"] and RANKS.index(p.rank) < RANKS.index(NinjaRank(m["exame"])):
-        p.rank, promovido = NinjaRank(m["exame"]), m["exame"]
+    if m["exame"] and posto(p) < PATENTES.index(m["exame"]):
+        promover(p, m["exame"])
+        promovido = m["exame"]
     levels = apply_exp(p, m["exp"])
     db.commit()
     return {"exp": m["exp"], "ryos": ryos, "fama": m["fama"], "niveis_ganhos": levels, "promovido": promovido}
@@ -786,7 +899,7 @@ def guilda_info(telegram_id: int, db: Session = Depends(get_db)):
         minha = {"id": g.id, "nome": g.name, "nivel": g.level, "vitorias": g.vitorias_guerra,
                  "doado": g.recursos_doados, "proximo_nivel": 500 * g.level ** 2, "sou_lider": g.leader_id == p.id,
                  "total_membros": counts.get(g.id, 0),
-                 "membros": [{"nome": m.ninja_name, "nivel": m.level, "rank": m.rank.value,
+                 "membros": [{"nome": m.ninja_name, "nivel": m.level, "rank": rank_titulo(m),
                               "lider": m.id == g.leader_id} for m in membros]}
     return {"minha": minha, "guildas": others}
 
@@ -894,8 +1007,8 @@ def kage_tick(db: Session, v: Village) -> None:
         ch = None
     if ch and datetime.now(timezone.utc) - as_utc(v.challenger_since) >= timedelta(days=KAGE_DAYS):
         if leader:
-            leader.rank = NinjaRank.ANBU
-        ch.rank = NinjaRank.KAGE
+            leader.rank, leader.elite = NinjaRank.ANBU, True
+        ch.rank, ch.elite = NinjaRank.KAGE, False
         v.leader_kage_id = ch.id
         v.challenger_id = v.challenger_since = None
 
@@ -905,11 +1018,11 @@ def sannin_tick(db: Session) -> None:
     Cadeiras cheias: o Anbu que superar a fama do Sannin mais fraco por 7 dias seguidos toma o lugar dele."""
     now = datetime.now(timezone.utc)
     sannins = list(db.scalars(select(Player).where(Player.rank == NinjaRank.SANNIN)))
-    cands = list(db.scalars(select(Player).where(Player.rank == NinjaRank.ANBU, Player.fama >= SANNIN_MIN_FAMA)
+    cands = list(db.scalars(select(Player).where(Player.rank == NinjaRank.ANBU, Player.elite.is_(True), Player.fama >= SANNIN_MIN_FAMA)
                             .order_by(Player.fama.desc())))
     while cands and len(sannins) < SANNIN_VAGAS:
         c = cands.pop(0)
-        c.rank, c.sannin_desde = NinjaRank.SANNIN, None
+        c.rank, c.elite, c.sannin_desde = NinjaRank.SANNIN, False, None
         sannins.append(c)
     fraco = min(sannins, key=lambda s: s.fama) if len(sannins) >= SANNIN_VAGAS else None
     for i, c in enumerate(cands):
@@ -917,7 +1030,7 @@ def sannin_tick(db: Session) -> None:
             if c.sannin_desde is None:
                 c.sannin_desde = now
             elif now - as_utc(c.sannin_desde) >= timedelta(days=KAGE_DAYS):
-                fraco.rank, c.rank, c.sannin_desde = NinjaRank.ANBU, NinjaRank.SANNIN, None
+                fraco.rank, fraco.elite, c.rank, c.elite, c.sannin_desde = NinjaRank.ANBU, True, NinjaRank.SANNIN, False, None
         else:
             c.sannin_desde = None
     db.commit()
@@ -932,7 +1045,7 @@ def _sannin_view(db: Session, p: Player) -> dict:
     return {"cadeiras": [{"nome": s.ninja_name, "fama": s.fama, "vila": vilas.get(s.village_id, ""), "eu": s.id == p.id}
                          for s in cadeiras],
             "vagas": max(0, SANNIN_VAGAS - len(cadeiras)), "minimo": SANNIN_MIN_FAMA, "minimo_kage": KAGE_MIN_FAMA,
-            "voce": {"rank": p.rank.value, "dias_restantes": dias}}
+            "voce": {"rank": p.rank.value, "elite": bool(p.elite), "titulo": rank_titulo(p), "dias_restantes": dias}}
 
 
 def _kage_view(db: Session, p: Player) -> dict:
@@ -948,7 +1061,7 @@ def _kage_view(db: Session, p: Player) -> dict:
             and (ch is None or ch.id == p.id or p.fama > ch.fama))
     return {"kage": {"nome": leader.ninja_name if leader else v.npc_kage, "fama": atual, "npc": leader is None},
             "desafiante": {"nome": ch.ninja_name, "fama": ch.fama, "dias_restantes": days} if ch else None,
-            "voce_e_kage": sou, "pode_desafiar": pode}
+            "voce_e_kage": sou, "pode_desafiar": pode, "vila": v.name}
 
 
 @router.get("/api/player/{telegram_id}/kage")
@@ -968,7 +1081,7 @@ def kage_desafiar(payload: RestReq, db: Session = Depends(get_db)):
     sannin_tick(db)
     kage_tick(db, v)
     if not _kage_view(db, p)["pode_desafiar"]:
-        raise HTTPException(403, "Exige ser Sannin, ter 20.000 de fama e mais fama que o Kage (e que o desafiante atual).")
+        raise HTTPException(403, "Só na sua vila de origem: exige ser Sannin, ter 20.000 de fama e mais fama que o Kage (e que o desafiante atual).")
     if v.challenger_id != p.id:
         v.challenger_id, v.challenger_since = p.id, datetime.now(timezone.utc)
     db.commit()
@@ -982,7 +1095,7 @@ def ranking(db: Session = Depends(get_db)):
     def top(order):
         rows = db.execute(select(Player, Village.name).join(Village, Village.id == Player.village_id)
                           .order_by(*order).limit(20)).all()
-        return [{"nome": p.ninja_name, "avatar": p.avatar, "vila": v, "rank": p.rank.value,
+        return [{"nome": p.ninja_name, "avatar": p.avatar, "vila": v, "rank": rank_titulo(p),
                  "nivel": p.level, "fama": p.fama} for p, v in rows]
     kages = []
     for v in db.scalars(select(Village).order_by(Village.id)):
@@ -990,12 +1103,15 @@ def ranking(db: Session = Depends(get_db)):
         kages.append({"vila": v.name, "nome": leader.ninja_name if leader else v.npc_kage,
                       "fama": leader.fama if leader else v.npc_fama, "jogador": leader is not None})
     grads = []
-    for rk in reversed(list(NinjaRank)):  # Kage -> Estudante
+    for nome in reversed(PATENTES):  # Kage -> Estudante
+        cond = [Player.rank == NinjaRank(nome.replace(" de Elite", ""))]
+        if nome.split()[0] in ("Jonin", "Anbu"):
+            cond.append(Player.elite.is_(nome.endswith(" de Elite")))
         rows = db.execute(select(Player, Village.name).join(Village, Village.id == Player.village_id)
-                          .where(Player.rank == rk).order_by(Player.fama.desc(), Player.level.desc()).limit(5)).all()
-        total = db.scalar(select(func.count()).select_from(Player).where(Player.rank == rk))
-        grads.append({"rank": rk.value, "total": total, "top": [
-            {"nome": p.ninja_name, "avatar": p.avatar, "vila": v, "rank": p.rank.value, "nivel": p.level, "fama": p.fama}
+                          .where(*cond).order_by(Player.fama.desc(), Player.level.desc()).limit(5)).all()
+        total = db.scalar(select(func.count()).select_from(Player).where(*cond))
+        grads.append({"rank": nome, "total": total, "top": [
+            {"nome": p.ninja_name, "avatar": p.avatar, "vila": v, "rank": rank_titulo(p), "nivel": p.level, "fama": p.fama}
             for p, v in rows]})
     return {"fama": top([Player.fama.desc()]), "nivel": top([Player.level.desc(), Player.exp.desc()]),
             "kages": kages, "graduacoes": grads}
@@ -1665,18 +1781,54 @@ def _n(x: int) -> str:
 
 
 def patente_info(p: Player) -> dict:
-    """O que falta para a próxima patente: exame (nível e missão) ou fama, a partir de Anbu."""
-    for seq, (nome, nivel, alvo) in sorted(EXAMES.items()):
-        if RANKS.index(p.rank) < RANKS.index(NinjaRank(alvo)):
-            return {"atual": p.rank.value, "proxima": alvo,
-                    "texto": f"{nome}: chegue ao nível {nivel} (você: {p.level}) e à missão {seq} da Jornada (você: {p.journey + 1})."}
+    """O que falta para a próxima patente: exame (nível, fama e missão da Jornada) ou, a partir de Anbu de Elite, fama e cadeira."""
+    atual = rank_titulo(p)
+    for seq, (nome, nivel, alvo, fama) in sorted(EXAMES.items()):
+        if posto(p) < PATENTES.index(alvo):
+            req = f"nível {nivel} (você: {p.level})" + (f", {_n(fama)} de fama (você: {_n(p.fama)})" if fama else "")
+            return {"atual": atual, "proxima": alvo, "texto": f"{nome}: chegue ao {req} e à missão {seq} da Jornada (você: {p.journey + 1})."}
     if p.rank == NinjaRank.ANBU:
-        return {"atual": p.rank.value, "proxima": "Sannin",
+        return {"atual": atual, "proxima": "Sannin",
                 "texto": f"Sannin: {_n(SANNIN_MIN_FAMA)} de fama e uma cadeira livre ou mais fama que o Sannin mais fraco por 7 dias (sua fama: {_n(p.fama)})."}
     if p.rank == NinjaRank.SANNIN:
-        return {"atual": p.rank.value, "proxima": "Kage",
-                "texto": f"Kage: {_n(KAGE_MIN_FAMA)} de fama e mais fama que o Kage da vila por 7 dias (sua fama: {_n(p.fama)})."}
-    return {"atual": p.rank.value, "proxima": None, "texto": "Você alcançou a mais alta patente."}
+        return {"atual": atual, "proxima": "Kage",
+                "texto": f"Kage: {_n(KAGE_MIN_FAMA)} de fama e mais fama que o Kage da vila por 7 dias (sua fama: {_n(p.fama)}). Só na sua vila de origem."}
+    return {"atual": atual, "proxima": None, "texto": "Você alcançou a mais alta patente."}
+
+
+class NacReq(BaseModel):
+    telegram_id: int = Field(gt=0)
+    village_id: int = Field(gt=0)
+
+
+@router.post("/api/nacionalidade/trocar")
+def trocar_nacionalidade(payload: NacReq, db: Session = Depends(get_db)):
+    """Troca de vila. A fama zera (ela pertence à vila), a missão atual recomeça e o clã de outra vila fica para trás.
+    Kage e Sannin não podem trocar: precisam deixar o cargo primeiro."""
+    p = get_player(db, payload.telegram_id, lock=True)
+    novo = db.get(Village, payload.village_id)
+    if p.luta:
+        raise HTTPException(409, "Termine a luta antes.")
+    if novo is None:
+        raise HTTPException(404, "Vila não encontrada.")
+    if novo.id == p.village_id:
+        raise HTTPException(400, "Você já pertence a esta vila.")
+    if p.rank in (NinjaRank.KAGE, NinjaRank.SANNIN):
+        raise HTTPException(403, "Kage e Sannin não podem trocar de vila.")
+    antiga = p.village
+    if antiga.challenger_id == p.id:
+        antiga.challenger_id = antiga.challenger_since = None
+    ids = [v.id for v in db.scalars(select(Village).order_by(Village.id))]
+    if p.clan.name != NO_CLAN_NAME and CLAN_DATA.get(p.clan.name, {}).get("vila") != ids.index(novo.id):
+        if p.clan.lider_id == p.id:
+            p.clan.lider_id = None
+        p.clan_id = db.scalar(select(Clan.id).where(Clan.name == NO_CLAN_NAME))
+        p.clan_pontos, p.caminho, p.caminho_prog, p.caminho_ok = 0, None, 0, False
+    p.prov_clan_id, p.prov_etapa, p.prov_prog = None, 0, 0
+    perdida = p.fama
+    p.village_id, p.fama, p.journey_prog, p.sannin_desde = novo.id, 0, 0, None
+    db.commit()
+    return {"mensagem": f"Você agora é de {novo.name}. Sua fama ({_n(perdida)}) foi zerada.", "fama_perdida": perdida}
 
 
 def hospital_info(p: Player) -> dict:
@@ -1737,7 +1889,7 @@ def bolsa(telegram_id: int, db: Session = Depends(get_db)):
     mis = mission_for(p.journey + 1, vi)
     quests = []
     if mis["tipo"] == "coleta" and p.level >= mis["req_nivel"]:
-        quests.append({"nome": VILAS[vi]["recursos"][mis["mapa"] - 1], "qtd": p.journey_prog, "meta": mis["qtd"],
+        quests.append({"nome": recurso_vila(vi, mis["mapa"]), "qtd": p.journey_prog, "meta": mis["qtd"],
                        "mapa": mapa_vila(mis["mapa"], vi)["nome"]})
     return {"max": BOLSA_MAX, "slots": SLOTS,
             "itens": [{"id": i.id, "nome": i.item_name, "tipo": i.item_type.value, "bonus": i.status_bonus or {},

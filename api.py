@@ -94,6 +94,11 @@ ATTRS = ("taijutsu", "ninjutsu", "genjutsu", "agilidade", "forca", "inteligencia
 RANK_BY_LEVEL = [(1, NinjaRank.ESTUDANTE), (5, NinjaRank.GENIN), (12, NinjaRank.CHUNIN),
                  (20, NinjaRank.JONIN), (30, NinjaRank.ANBU)]
 
+def rank_titulo(p) -> str:
+    """Nome da patente para exibir: Jonin e Anbu podem ser \"de Elite\"."""
+    return f"{p.rank.value} de Elite" if p.elite and p.rank in (NinjaRank.JONIN, NinjaRank.ANBU) else p.rank.value
+
+
 # Todo jogador nasce neste "clã" vazio e troca ao passar no teste de admissão
 NO_CLAN_NAME = "Sem clã"
 
@@ -254,6 +259,7 @@ class PlayerOut(BaseModel):
     username: Optional[str]
     ninja_name: str
     rank: NinjaRank
+    rank_titulo: str = ""
     level: int
     exp: int
     exp_proximo_nivel: int
@@ -503,6 +509,7 @@ def build_player_out(player: Player) -> PlayerOut:
         username=player.username,
         ninja_name=player.ninja_name,
         rank=player.rank,
+        rank_titulo=rank_titulo(player),
         level=player.level,
         exp=player.exp,
         exp_proximo_nivel=exp_for_level(player.level + 1),
