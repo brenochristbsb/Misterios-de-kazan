@@ -196,12 +196,24 @@ const ATTRS = [['taijutsu', 'Taijutsu', 'golpes físicos'], ['ninjutsu', 'Ninjut
   ['forca', 'Força', 'dano físico'], ['agilidade', 'Agilidade', 'iniciativa e esquiva'], ['inteligencia', 'Inteligência', 'controle de chakra e missões secretas'],
   ['chakra_attr', 'Chakra', 'reserva de chakra'], ['defesa', 'Defesa', 'reduz o dano'], ['vigor', 'Vigor', 'vida máxima'], ['destreza', 'Destreza', 'armas e crítico']];
 const ELEM = { fogo: ['Fogo', '🔥'], agua: ['Água', '💧'], raio: ['Raio', '⚡'], terra: ['Terra', '🪨'], vento: ['Vento', '🌪️'] };
-const REG = ATTRS.slice(3);  // os 7 atributos de combate que recebem os 5 pontos do cadastro
+// Os 5 Atributos Universais (Bloco 2): [coluna usada no treino, sigla, nome, o que faz]
+const UNIV = [['forca', 'str', 'Força', 'dano físico bruto'], ['inteligencia', 'int', 'Inteligência', 'dano espiritual e reserva de chakra'],
+  ['agilidade', 'agi', 'Agilidade', 'ordem dos turnos e esquiva'], ['destreza', 'dex', 'Destreza', 'precisão e crítico'], ['vigor', 'vig', 'Vigor', 'vida máxima e redução de dano']];
+// Pontos antigos que somam em cada universal (mesma conversão do servidor, atributos5.py)
+const POOL_UI = { str: ['taijutsu', 'forca'], int: ['ninjutsu', 'genjutsu', 'inteligencia', 'chakra_attr'], agi: ['agilidade'], dex: ['destreza'], vig: ['vigor', 'defesa'] };
+const univVal = (src, u) => POOL_UI[u].reduce((s, k) => s + (src[k] || 0), 0);
+// As 5 classes (Bloco 3). Só o que já funciona no combate é prometido aqui
+const CLS_UI = [['taijutsu', 'Taijutsu', 'Dano por Força e Agilidade. Sem bônus elemental. Portões Internos: em breve.'],
+  ['ninjutsu', 'Ninjutsu', 'Dano por Inteligência e Destreza. +50% de dano ao atingir a vantagem elemental.'],
+  ['genjutsu', 'Genjutsu', 'Dano por Inteligência e Agilidade. Golpes podem atordoar o inimigo.'],
+  ['marionetista', 'Marionetista', 'Dano por Inteligência e Destreza. Marionete que protege você: em breve.'],
+  ['ninja_medico', 'Ninja Médico', 'Dano por Inteligência e Destreza. Seus ataques ignoram o Vigor do alvo.']];
+const REG = UNIV.map(([k, , n, ds]) => [k, n, ds]);  // os 5 atributos que recebem os 5 pontos do cadastro
 const TIPOS = { Arma: 'Armas', Armadura: 'Armaduras', Pergaminho: 'Pergaminhos', Botas: 'Botas', Luvas: 'Luvas', Colar: 'Colares', Anel: 'Anéis' };
 const bonusTxt = b => Object.entries(b).filter(([k]) => k[0] !== '_').map(([k, v]) => `+${v} ${k}`).join(', ') + (b._ref ? ` (refino +${b._ref})` : '');
 const dur = s => s >= 60 ? Math.round(s / 60) + ' min' : s + ' s';
 let P, X, J, G, K, R, LU, CL, LJ, PT, BO, ljSec = 'itens', boSec = 'equipados', VILS, battle = null, reps = 1;
-let arRk = 'd', FJ, DO, MS, TR, AR, fjSec = 'refinar', doAttr = 'taijutsu', dsess = 1;
+let arRk = 'd', FJ, DO, MS, TR, AR, fjSec = 'refinar', doAttr = 'forca', dsess = 1;
 
 function toast(msg, ok = true, ms = 3000) {
   const t = $('toast');
@@ -351,7 +363,7 @@ function renderBolsa() {
     <div class="flex gap-2 flex-wrap">${chips}</div>${body}`;
 }
 function renderTreino() {
-  const rows = ATTRS.map(([k, n, ds]) => { const b = P.atributos_base[k], e = P.atributos_efetivos[k], d = e - b;
+  const rows = UNIV.map(([k, u, n, ds]) => { const b = univVal(P.atributos_base, u), e = univVal(P.atributos_efetivos, u), d = e - b;
     return `<div class="flex items-center gap-3"><div class="flex-1"><div class="flex justify-between text-sm"><span>${n} <span class="lbl ml-1">${ds}</span></span>
       <span class="font-bold">${e}${d ? `<span class="text-gold text-xs font-normal"> +${d}</span>` : ''}</span></div>
       <div class="bar mt-1.5"><i class="bg-gradient-to-r from-red-900 to-vermil" style="width:${Math.min(100, e)}%"></i></div></div>
@@ -368,7 +380,7 @@ const treinarSensei = id => act('/api/dojo/treinar', { atributo: doAttr, sensei:
 function senseiHtml() {
   if (!DO) return '';
   const m = DO.maestria.find(x => x.attr === doAttr) || { grau: 0, pontos: 0, prox: null };
-  const chips = ATTRS.map(([k, n]) => `<button class="chip ${k === doAttr ? 'on' : ''}" onclick="doAttr='${k}'; renderTreino()">${n}</button>`).join('');
+  const chips = UNIV.map(([k, , n]) => `<button class="chip ${k === doAttr ? 'on' : ''}" onclick="doAttr='${k}'; renderTreino()">${n}</button>`).join('');
   const sess = [1, 3, 5].map(n => `<button class="chip ${n === dsess ? 'on' : ''}" onclick="dsess=${n}; renderTreino()">${n} sessão${n > 1 ? 'ões' : ''}</button>`).join('');
   const lista = DO.senseis.map(s => { const pts = Math.max(s.ganho, Math.round(s.ganho * (1 + DO.bonus_grau / 100 * m.grau))), custo = s.preco * dsess;
     const off = !s.pode || P.energia < dsess || P.ryos < custo || LU;
@@ -448,11 +460,18 @@ function renderPerfil() {
     <div class="card"><h2 class="mb-3">Equipados</h2>${equipGrid(false)}
       <button class="btn btn-ghost w-full mt-3" onclick="showTab('bolsa')">🎒 Mochila <span class="${n >= max ? 'text-vermil' : 'text-gold'}">${n}/${max}</span></button></div>`;
 }
+const escolherClasse = c => act('/api/classe/escolher', { classe: c }, r => r.mensagem);
 function renderAtributos() {
-  const rows = ATTRS.map(([k, nome, ds]) => { const b = P.atributos_base[k], e = P.atributos_efetivos[k], d = e - b;
+  const rows = UNIV.map(([k, u, nome, ds]) => { const b = univVal(P.atributos_base, u), e = univVal(P.atributos_efetivos, u), d = e - b;
     return `<div><div class="flex justify-between text-sm"><span>${nome} <span class="lbl ml-1">${ds}</span></span><span class="font-bold">${e}${d ? `<span class="text-gold text-xs font-normal"> +${d}</span>` : ''}</span></div>
       <div class="bar mt-1.5"><i class="bg-gradient-to-r from-red-900 to-vermil" style="width:${Math.min(100, e)}%"></i></div></div>`; }).join('');
-  $('tab-atributos').innerHTML = `<div class="card space-y-3"><h2>Atributos</h2>${rows}<button class="btn w-full" onclick="showTab('treino')">🥋 Ir ao Dojo</button></div>`;
+  const atual = CLS_UI.find(c => c[0] === P.classe);
+  const classe = atual
+    ? `<div class="card"><h2>Classe: ${atual[1]}</h2><p class="lbl mt-1">${atual[2]}</p></div>`
+    : `<div class="card space-y-2"><h2>Escolha sua classe</h2><p class="lbl">A primeira escolha é grátis. Trocar depois custa Ouro Ninja, no Dojo.</p>
+        ${CLS_UI.map(([k, n, ds]) => `<div class="py-2 border-t border-line"><div class="flex items-center gap-2"><div class="flex-1 min-w-0"><div class="text-sm font-semibold">${n}</div><div class="text-xs text-paper/70">${ds}</div></div>
+        <button class="chip" onclick="escolherClasse('${k}')">Escolher</button></div></div>`).join('')}</div>`;
+  $('tab-atributos').innerHTML = `${classe}<div class="card space-y-3"><h2>Atributos</h2>${rows}<button class="btn w-full" onclick="showTab('treino')">🥋 Ir ao Dojo</button></div>`;
 }
 function renderStatus() {
   const pat = X.patente;
@@ -496,7 +515,7 @@ function openAvatar() {
 }
 const closeAvatar = () => $('avBox').classList.add('hidden');
 async function pickAvatar(a) { await act('/api/avatar', { avatar: a }); closeAvatar(); }
-const train = k => act('/api/train', { atributo: k, repeticoes: reps }, r => `${k} subiu para ${r.novo_valor}` + (r.niveis_ganhos ? `. Nível ${r.level}!` : ''));
+const train = k => act('/api/train', { atributo: k, repeticoes: reps }, r => `${attrNome(k)} subiu para ${r.novo_valor}` + (r.niveis_ganhos ? `. Nível ${r.level}!` : ''));
 const equip = (id, on) => act('/api/inventory/equip', { item_id: id, equipar: on });
 const activateSummon = id => act('/api/summon/activate', { summon_id: id });
 
@@ -978,12 +997,13 @@ async function loadRanking() {
 }
 
 /* ───────── Cadastro e inicialização ───────── */
-let estilo = 'taijutsu';
+let classe = 'taijutsu';
 const pts = Object.fromEntries(REG.map(([k]) => [k, 0]));
 const ptsLeft = () => 5 - Object.values(pts).reduce((x, y) => x + y, 0);
 function renderPts() {
-  $('rPts').innerHTML = `<p class="text-sm">Estilo principal (+3)</p><div class="flex gap-2">${ATTRS.slice(0, 3).map(([k, n]) =>
-    `<button class="chip ${k === estilo ? 'on' : ''}" onclick="estilo='${k}'; renderPts()">${n}</button>`).join('')}</div>
+  $('rPts').innerHTML = `<p class="text-sm">Classe</p><div class="flex gap-2 flex-wrap">${CLS_UI.map(([k, n]) =>
+    `<button class="chip ${k === classe ? 'on' : ''}" onclick="classe='${k}'; renderPts()">${n}</button>`).join('')}</div>
+    <p class="lbl">${CLS_UI.find(c => c[0] === classe)[2]}</p>
     <p class="text-sm">Distribua <b class="text-gold">${ptsLeft()}</b> pontos (todos começam em 5)</p>` + REG.map(([k, n, ds]) =>
     `<div class="flex items-center justify-between"><div><div>${n}</div><div class="lbl">${ds}</div></div><div class="flex items-center gap-3"><button class="round" aria-label="Menos ${n}" onclick="addPt('${k}', -1)">−</button>
      <b class="w-6 text-center">${5 + pts[k]}</b><button class="round" aria-label="Mais ${n}" onclick="addPt('${k}', 1)">+</button></div></div>`).join('');
@@ -1012,7 +1032,7 @@ async function register() {
   $('rInfo').textContent = '';
   try {
     await api('/api/register', { telegram_id: tgUser.id, username: tgUser.username || null, ninja_name: $('rName').value.trim(),
-      village_id: Number($('rVillage').value), estilo, ...pts, respostas: ans });
+      village_id: Number($('rVillage').value), classe, ...pts, respostas: ans });
     $('regBox').classList.add('hidden');
     await refresh();
     toast(`Bem-vindo, ${P.ninja_name}! Seu elemento: ${ELEM[P.elemento][0]}.`);

@@ -40,6 +40,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from clas_dados import CLANS
+from combate import CLASSES
 from vilas_dados import VILAS
 from jutsus_dados import ELEMENTOS, QUIZ, elemento_do_teste
 from sqlalchemy import create_engine, select
@@ -277,6 +278,7 @@ class PlayerOut(BaseModel):
     clan: ClanOut
     guild: Optional[GuildOut]
     pet_equipado: Optional[SummonOut]
+    classe: Optional[str] = None
 
 
 class SetupOptions(BaseModel):
@@ -293,20 +295,18 @@ class RegisterRequest(BaseModel):
     # Letras, números, _ e espaços (aceita acentos)
     ninja_name: str = Field(min_length=3, max_length=32, pattern=r"^[\w ]+$")
     village_id: int = Field(gt=0)
-    # Estilo principal (+3) e 5 pontos para distribuir entre os 7 atributos de combate (todos começam em 5)
-    estilo: Literal["taijutsu", "ninjutsu", "genjutsu"] = "taijutsu"
-    agilidade: int = Field(default=0, ge=0, le=5)
-    forca: int = Field(default=0, ge=0, le=5)
-    inteligencia: int = Field(default=0, ge=0, le=5)
-    chakra_attr: int = Field(default=0, ge=0, le=5)
-    defesa: int = Field(default=0, ge=0, le=5)
-    vigor: int = Field(default=0, ge=0, le=5)
-    destreza: int = Field(default=0, ge=0, le=5)
+    # Classe (uma das 5) e 5 pontos para distribuir entre os 5 Atributos Universais (todos começam em 5)
+    classe: Literal["taijutsu", "ninjutsu", "genjutsu", "marionetista", "ninja_medico"]
+    forca: int = Field(default=0, ge=0, le=5)          # STR
+    inteligencia: int = Field(default=0, ge=0, le=5)   # INT
+    agilidade: int = Field(default=0, ge=0, le=5)      # AGI
+    destreza: int = Field(default=0, ge=0, le=5)       # DEX
+    vigor: int = Field(default=0, ge=0, le=5)          # VIG
     respostas: list[int] = Field(min_length=len(QUIZ), max_length=len(QUIZ))  # teste do elemento
 
     @model_validator(mode="after")
     def check_points(self):
-        total = sum(getattr(self, k) for k in ("agilidade", "forca", "inteligencia", "chakra_attr", "defesa", "vigor", "destreza"))
+        total = sum(getattr(self, k) for k in ("forca", "inteligencia", "agilidade", "destreza", "vigor"))
         if total != 5:
             raise ValueError("Distribua exatamente 5 pontos entre os atributos.")
         if any(not 0 <= r <= 4 for r in self.respostas):
@@ -540,6 +540,7 @@ def build_player_out(player: Player) -> PlayerOut:
             else None
         ),
         pet_equipado=pet,
+        classe=player.classe,
     )
 
 
@@ -641,7 +642,7 @@ def setup_options(db: Session = Depends(get_db)):
 # 1) Cadastro ──────────────────────────────────────────────────
 @app.post("/api/register", response_model=PlayerOut, status_code=201)
 def register(payload: RegisterRequest, db: Session = Depends(get_db)):
-    """Cria o perfil: nome, vila e 5 pontos de atributo. Começa sem clã, como Estudante, nível 1, com 500 ryos."""
+    """Cria o perfil: nome, vila, classe e 5 pontos de atributo. Começa sem clã, como Estudante, nível 1, com 500 ryos."""
     if BOT_TOKEN and AUTH_ID.get() != payload.telegram_id:
         raise HTTPException(403, "Você não pode criar personagem para outro usuário.")
     if db.scalar(select(Player.id).where(Player.telegram_id == payload.telegram_id)):
@@ -661,14 +662,13 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
         ninja_name=payload.ninja_name,
         village_id=payload.village_id,
         clan_id=no_clan.id,
-        taijutsu=5 + (3 if payload.estilo == "taijutsu" else 0),
-        ninjutsu=5 + (3 if payload.estilo == "ninjutsu" else 0),
-        genjutsu=5 + (3 if payload.estilo == "genjutsu" else 0),
-        agilidade=5 + payload.agilidade, forca=5 + payload.forca, inteligencia=5 + payload.inteligencia,
-        chakra_attr=5 + payload.chakra_attr, defesa=5 + payload.defesa, vigor=5 + payload.vigor,
-        destreza=5 + payload.destreza, elemento=elemento_do_teste(payload.respostas),
+        classe=payload.classe,
+        # Só os 5 universais: as colunas antigas ficam em 0 e os pontos entram na coluna que representa cada universal
+        taijutsu=0, ninjutsu=0, genjutsu=0, chakra_attr=0, defesa=0,
+        forca=5 + payload.forca, inteligencia=5 + payload.inteligencia, agilidade=5 + payload.agilidade,
+        destreza=5 + payload.destreza, vigor=5 + payload.vigor, elemento=elemento_do_teste(payload.respostas),
         vida_max=100 + 5 * payload.vigor, vida_atual=100 + 5 * payload.vigor,
-        chakra_max=100 + 4 * payload.chakra_attr, chakra_atual=100 + 4 * payload.chakra_attr,
+        chakra_max=100 + 4 * payload.inteligencia, chakra_atual=100 + 4 * payload.inteligencia,
     ))
     try:
         db.commit()
@@ -711,7 +711,7 @@ def train(payload: TrainRequest, db: Session = Depends(get_db)):
     if attr == "vigor":  # cada ponto de vigor aumenta a vida máxima
         player.vida_max += 5 * payload.repeticoes
         player.vida_atual += 5 * payload.repeticoes
-    elif attr == "chakra_attr":  # cada ponto de chakra aumenta a reserva
+    elif attr in ("chakra_attr", "inteligencia"):  # cada ponto de chakra (ou de Inteligência) aumenta a reserva
         player.chakra_max += 4 * payload.repeticoes
         player.chakra_atual += 4 * payload.repeticoes
     levels = apply_exp(player, exp_gain)

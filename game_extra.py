@@ -1317,7 +1317,7 @@ def dar_atributo(p: Player, attr: str, n: int) -> None:
     if attr == "vigor":
         p.vida_max += 5 * n
         p.vida_atual += 5 * n
-    elif attr == "chakra_attr":
+    elif attr in ("chakra_attr", "inteligencia"):
         p.chakra_max += 4 * n
         p.chakra_atual += 4 * n
 
