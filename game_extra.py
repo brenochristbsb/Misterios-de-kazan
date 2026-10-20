@@ -213,7 +213,7 @@ def extras(telegram_id: int, db: Session = Depends(get_db)):
         "invocacoes": [{"id": ps.summon_id, "nome": ps.summon.name, "nivel": ps.level, "ativo": ps.is_active,
                         "bonus_taijutsu": ps.summon.bonus_taijutsu, "bonus_ninjutsu": ps.summon.bonus_ninjutsu}
                        for ps in p.player_summons],
-        "moral": p.moral, "status": list(p.status_fora or []), "trofeus": p.trofeus or 0, "moedas_arena": p.moedas_arena or 0,
+        "moral": p.moral, "torre_sessao": bool(p.torre_sessao), "status": list(p.status_fora or []), "trofeus": p.trofeus or 0, "moedas_arena": p.moedas_arena or 0,
         "mapas": [{"id": m["id"], "nome": m["nome"], "min_level": m["min_level"], "max_level": m["max_level"],
                    "perigo": m["perigo"], "tipo": m["tipo"], "chefe": m["chefe"],
                    "itens": [i[0] for i in m["itens"]]} for m in [mapa_vila(x["id"], vila_idx(p)) for x in MAPS]],
@@ -820,7 +820,9 @@ def rest(payload: RestReq, db: Session = Depends(get_db)):
     """Casa de chá: restaura vida e chakra por uma taxa em ryos."""
     player = get_player(db, payload.telegram_id, lock=True)
     if player.masmorra:
-        raise HTTPException(409, "Não dá para descansar durante a masmorra. Termine ou abandone-a antes.")
+        raise HTTPException(409, "Não dá para descansar durante a masmorra: use os itens da bolsa ou abandone-a.")
+    if player.torre_sessao:
+        raise HTTPException(409, "Não dá para descansar dentro da Torre: use os itens da bolsa ou saia da Torre.")
     if player.ryos < REST_COST:
         raise HTTPException(400, f"Ryos insuficientes: o descanso custa {REST_COST}.")
     player.ryos -= REST_COST
@@ -1811,7 +1813,7 @@ def pet_soltar(payload: PetReq, db: Session = Depends(get_db)):
 
 
 # ───────── Esqueleto novo: bolsa (30 itens), patente e Hospital ─────────
-BOLSA_MAX = 30  # equipamentos, materiais e itens de quest; poções empilham fora desse limite
+BOLSA_MAX = 39  # equipamentos, materiais e itens de quest; poções empilham fora desse limite
 SLOTS = ["Arma", "Armadura", "Botas", "Luvas", "Colar", "Anel", "Anel", "Pergaminho"]  # dois anéis
 MAX_EQUIP = {"Anel": 2}  # tipos que aceitam mais de um item equipado
 HOSPITAL_GRATIS_CD = 600  # segundos entre curas gratuitas
@@ -1902,7 +1904,9 @@ def hospital(payload: HospitalReq, db: Session = Depends(get_db)):
     if p.luta:
         raise HTTPException(409, "O hospital não atende no meio de uma luta.")
     if p.masmorra:
-        raise HTTPException(409, "O hospital fica fechado durante a masmorra. Termine ou abandone-a antes.")
+        raise HTTPException(409, "O hospital fica fechado durante a masmorra: use os itens da bolsa ou abandone-a.")
+    if p.torre_sessao:
+        raise HTTPException(409, "A Torre não tem hospital: use os itens da bolsa ou saia da Torre.")
     now = datetime.now(timezone.utc)
     info = hospital_info(p)
     p.status_fora = []  # o hospital cura qualquer status negativo
@@ -2410,6 +2414,7 @@ def torre_recompensa(f: int) -> dict:
 def fim_torre(db: Session, p: Player, L: dict, won: bool, res: dict) -> None:
     f = L["andar"]
     if not won:
+        p.torre_sessao = False  # cair expulsa da Torre
         res["torre"] = {"andar": f, "recorde": p.torre_andar or 0, "falhou": True, "boss": L["boss"]}
         return
     rec = torre_recompensa(f)
@@ -2441,8 +2446,18 @@ def torre_info(telegram_id: int, db: Session = Depends(get_db)):
     p = get_player(db, telegram_id)
     f = (p.torre_andar or 0) + 1
     top = db.scalars(select(Player).where(Player.torre_andar > 0).order_by(Player.torre_andar.desc(), Player.level.desc()).limit(10)).all()
-    return {"andar": f, "recorde": p.torre_andar or 0, "energia": TORRE_ENERGIA, "dif": torre_dif(f), "recompensa": torre_recompensa(f),
+    return {"sessao": bool(p.torre_sessao), "andar": f, "recorde": p.torre_andar or 0, "energia": TORRE_ENERGIA, "dif": torre_dif(f), "recompensa": torre_recompensa(f),
             "ranking": [{"nome": x.ninja_name, "avatar": x.avatar, "andar": x.torre_andar, "eu": x.id == p.id} for x in top]}
+
+
+@router.post("/api/torre/sair")
+def torre_sair(payload: RestReq, db: Session = Depends(get_db)):
+    p = get_player(db, payload.telegram_id, lock=True)
+    if p.luta:
+        raise HTTPException(409, "Termine a luta antes de sair da Torre.")
+    p.torre_sessao = False
+    db.commit()
+    return {"mensagem": "Você saiu da Torre. O hospital voltou a atender."}
 
 
 @router.post("/api/torre/lutar")
@@ -2460,6 +2475,7 @@ def torre_lutar(payload: RestReq, db: Session = Depends(get_db)):
     nome = TORRE_CHEFES[(f // 10 - 1) % len(TORRE_CHEFES)] if dif == "chefe" else f"Capitão do {f}º Andar" if dif == "mini-chefe" else f"Guardião do {f}º Andar"
     stats, hp, ck = stats_inimigo(p, nivel, dif)
     p.energia -= TORRE_ENERGIA
+    p.torre_sessao = True  # dentro da Torre não há hospital nem descanso: só itens da bolsa
     iniciar_luta(p, "torre", nome, stats, hp, ck, dif == "chefe", mapa=None, on_mission=False, elemento=random.choice(list(ELEMENTOS)),
                  dif=dif, nivel=nivel, andar=f)
     db.commit()
@@ -2470,11 +2486,8 @@ def torre_lutar(payload: RestReq, db: Session = Depends(get_db)):
 # Cada duelo custa 2 de energia e não tem fuga. Contra jogadores, os troféus seguem uma fórmula de Elo (só o desafiante muda; o
 # defensor luta com os atributos reais e não perde nada). Os Gladiadores (NPC) garantem adversário mesmo com poucos jogadores,
 # mas só dão troféus até um teto. As moedas da Arena compram itens na loja da Arena.
-ARENA_ENERGIA, ARENA_VS_DIA = 2, 3  # custo por duelo; lutas por dia contra o mesmo jogador
+ARENA_ENERGIA, ARENA_VS_DIA, ARENA_LUTAS_DIA = 2, 3, 12  # custo por duelo; lutas por dia contra o mesmo jogador; lutas por dia no total
 ARENA_LIGAS = [(0, "Bronze"), (100, "Prata"), (300, "Ouro"), (600, "Platina"), (1000, "Diamante"), (1500, "Lenda")]
-# (nome, dificuldade, troféus ao vencer, troféus ao perder, moedas ao vencer, teto de troféus em que ainda rende)
-ARENA_NPCS = [("Gladiador Aprendiz", "normal", 6, 3, 3, 300), ("Gladiador Veterano", "difícil", 12, 6, 6, 800),
-              ("Campeão da Arena", "chefe", 20, 10, 12, 1500)]
 # id: (nome, custo em moedas, limite por dia ou None, tipo, argumento, quantidade)
 ARENA_LOJA = {"energia": ("Recarga de energia", 25, 2, "energia", None, 25),
               "elixir": ("3x Elixir de Vida", 25, None, "pocao", "vida_m", 3),
@@ -2488,7 +2501,6 @@ ARENA_LOJA = {"energia": ("Recarga de energia", 25, 2, "energia", None, 25),
 class ArenaReq(BaseModel):
     telegram_id: int = Field(gt=0)
     alvo: Optional[str] = Field(default=None, min_length=3, max_length=32)  # jogador ...
-    npc: Optional[int] = Field(default=None, ge=0, le=len(ARENA_NPCS) - 1)  # ... ou gladiador (índice)
 
 
 class ArenaBuyReq(BaseModel):
@@ -2502,14 +2514,73 @@ def arena_liga(t: int) -> str:
 
 def _arena_reg(p: Player) -> dict:
     """Registro da Arena, com os contadores diários zerados quando o dia (UTC) vira."""
-    a, hoje = dict(p.arena or {}), datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    a, hoje = copy.deepcopy(p.arena or {}), datetime.now(timezone.utc).strftime("%Y-%m-%d")
     if a.get("dia") != hoje:
-        a["dia"], a["vs"], a["loja"] = hoje, {}, {}
+        a["dia"], a["vs"], a["loja"], a["n"] = hoje, {}, {}, 0
+    a.setdefault("n", 0)
     for k in ("v", "d", "seq", "melhor"):
         a.setdefault(k, 0)
     a.setdefault("vs", {})
     a.setdefault("loja", {})
     return a
+
+
+# Rankings da Arena: diário, semanal e mensal contam os troféus ganhos (líquidos) no período. A semana que passou premia o top.
+def _rk_keys() -> dict:
+    now = datetime.now(timezone.utc)
+    y, w, _ = now.isocalendar()
+    py, pw, _ = (now - timedelta(days=7)).isocalendar()
+    return {"d": now.strftime("%Y-%m-%d"), "s": f"{y}-W{w:02d}", "m": now.strftime("%Y-%m"), "sp": f"{py}-W{pw:02d}"}
+
+
+def _rk_add(a: dict, delta: int) -> None:
+    ks, rk = _rk_keys(), a.setdefault("rk", {})
+    for per in ("d", "s", "m"):
+        r = rk.get(per)
+        if r and r["k"] != ks[per]:
+            if per == "s":
+                rk["sp"] = r  # guarda a semana que acabou para o prêmio semanal
+            r = None
+        r = r or {"k": ks[per], "p": 0}
+        r["p"] += delta
+        rk[per] = r
+
+
+def _rk_pts(a: Optional[dict], per: str) -> int:
+    ks, rk = _rk_keys(), (a or {}).get("rk") or {}
+    if per == "sp":
+        for r in (rk.get("sp"), rk.get("s")):
+            if r and r["k"] == ks["sp"]:
+                return r["p"]
+        return 0
+    r = rk.get(per)
+    return r["p"] if r and r["k"] == ks[per] else 0
+
+
+def _rk_lista(rows, per: str) -> list:
+    lista = [(_rk_pts(r.arena, per), r) for r in rows]
+    return sorted([x for x in lista if x[0] > 0], key=lambda x: (-x[0], x[1].ninja_name))
+
+
+def _rk_view(lista: list, meu_id: int, n: int = 10) -> dict:
+    pos = next((i + 1 for i, (_, r) in enumerate(lista) if r.id == meu_id), None)
+    return {"top": [{"nome": r.ninja_name, "avatar": r.avatar, "nivel": r.level, "pts": pts, "eu": r.id == meu_id} for pts, r in lista[:n]],
+            "pos": pos, "pts": next((pts for pts, r in lista if r.id == meu_id), 0)}
+
+
+ARENA_SEMANAL = [(1, 300, "ovo_raro"), (2, 200, "ovo_incomum"), (3, 120, "ovo_incomum"), (10, 60, None), (10 ** 9, 15, None)]
+
+
+def _premio_semanal(pos: Optional[int]) -> Optional[dict]:
+    if pos is None:
+        return None
+    for lim, moedas, ovo in ARENA_SEMANAL:
+        if pos <= lim:
+            return {"moedas": moedas, "ovo": ovo}
+
+
+def _arena_rows(db: Session):
+    return db.execute(select(Player.id, Player.ninja_name, Player.avatar, Player.level, Player.arena)).all()
 
 
 # Temporadas: ciclos de 14 dias (a primeira começa em 19/10/2026, UTC). Na primeira visita de uma nova temporada, quem jogou na anterior
@@ -2547,14 +2618,10 @@ def arena_virar(p: Player) -> bool:
 def fim_arena(db: Session, p: Player, L: dict, won: bool, res: dict) -> None:
     arena_virar(p)  # a luta pode ter começado em outra temporada
     a, t = _arena_reg(p), p.trofeus or 0
-    npc = L.get("npc")
-    if npc is not None:
-        _, _, ganha, perde, moedas, teto = ARENA_NPCS[npc]
-        delta = (ganha if t < teto else 0) if won else -perde
-    else:  # Elo: vencer um jogador de mais troféus rende mais, perder para um de menos custa mais
-        esperado = 1 / (1 + 10 ** ((L.get("alvo_trof", 0) - t) / 200))
-        delta = max(5, round(30 * (1 - esperado))) if won else -max(3, round(20 * esperado))
-        moedas = 4 + t // 250
+    # Elo: vencer um jogador de mais troféus rende mais, perder para um de menos custa mais
+    esperado = 1 / (1 + 10 ** ((L.get("alvo_trof", 0) - t) / 200))
+    delta = max(5, round(30 * (1 - esperado))) if won else -max(3, round(20 * esperado))
+    moedas = 4 + t // 250
     novo = max(0, t + delta)
     delta = novo - t
     p.trofeus = novo
@@ -2562,15 +2629,15 @@ def fim_arena(db: Session, p: Player, L: dict, won: bool, res: dict) -> None:
         a["v"], a["seq"] = a["v"] + 1, a["seq"] + 1
         ganho = moedas + min(5, a["seq"] - 1)  # bônus de sequência: +1 por vitória seguida, até +5
         res["exp"] = 4 + p.level // 3
-        if npc is None:
-            p.fama += 3
+        p.fama += 3
     else:
         a["d"], a["seq"], ganho = a["d"] + 1, 0, 1
         res["exp"] = 1
     a["melhor"] = max(a["melhor"], novo)
+    _rk_add(a, delta)
     p.moedas_arena = (p.moedas_arena or 0) + ganho
     p.arena = a
-    res["arena"] = {"delta": delta, "trofeus": novo, "liga": arena_liga(novo), "moedas": ganho, "seq": a["seq"], "npc": npc is not None}
+    res["arena"] = {"delta": delta, "trofeus": novo, "liga": arena_liga(novo), "moedas": ganho, "seq": a["seq"], "npc": False}
 
 
 @router.get("/api/player/{telegram_id}/arena")
@@ -2582,22 +2649,30 @@ def arena_info(telegram_id: int, db: Session = Depends(get_db)):
     vs = a["vs"]
     cand = db.scalars(select(Player).where(Player.id != p.id).order_by(func.abs(Player.trofeus - t), func.abs(Player.level - p.level)).limit(5)).all()
     top = db.scalars(select(Player).where(Player.trofeus > 0, Player.arena_temp == temporada_atual()).order_by(Player.trofeus.desc(), Player.level.desc()).limit(10)).all()
+    rows = _arena_rows(db)
+    rks = {per: _rk_view(_rk_lista(rows, per), p.id) for per in ("d", "s", "m")}
+    sp = _rk_view(_rk_lista(rows, "sp"), p.id)
+    chave = _rk_keys()["sp"]
+    prem = _premio_semanal(sp["pos"])
+    semanal = {"chave": chave, "pos": sp["pos"], "pts": sp["pts"], "dias": 7 - datetime.now(timezone.utc).weekday(),
+               "premio": {"moedas": prem["moedas"], "ovo": OVOS[prem["ovo"]][0] if prem["ovo"] else None} if prem else None,
+               "pronto": bool(prem) and a.get("sem_col") != chave, "tabela": [{"ate": l if l < 10 ** 9 else None, "moedas": m, "ovo": OVOS[o][0] if o else None} for l, m, o in ARENA_SEMANAL]}
     return {"trofeus": t, "liga": arena_liga(t), "moedas": p.moedas_arena or 0, "v": a["v"], "d": a["d"], "seq": a["seq"], "melhor": a["melhor"],
             "temporada": {"n": temporada_atual() + 1, "dias": temporada_dias_restantes(), "premio": a.get("premio"), "hist": a.get("hist", []),
                           "premios": [{"liga": n, "moedas": v[0], "ovo": OVOS[v[1]][0] if v[1] else None} for n, v in ARENA_PREMIOS.items()]},
-            "energia": ARENA_ENERGIA, "vs_dia": ARENA_VS_DIA,
+            "energia": ARENA_ENERGIA, "vs_dia": ARENA_VS_DIA, "lutas_hoje": a["n"], "lutas_dia": ARENA_LUTAS_DIA,
             "oponentes": [{"nome": x.ninja_name, "avatar": x.avatar, "nivel": x.level, "rank": rank_titulo(x), "trofeus": x.trofeus or 0,
                            "liga": arena_liga(x.trofeus or 0), "hoje": vs.get(x.ninja_name, 0)} for x in cand],
-            "npcs": [{"id": i, "nome": n, "dif": d, "ganha": g, "perde": pe, "moedas": m, "teto": tt, "rende": t < tt} for i, (n, d, g, pe, m, tt) in enumerate(ARENA_NPCS)],
             "loja": [{"id": k, "nome": v[0], "custo": v[1], "restam": None if v[2] is None else max(0, v[2] - a["loja"].get(k, 0))} for k, v in ARENA_LOJA.items()],
-            "ranking": [{"nome": x.ninja_name, "avatar": x.avatar, "trofeus": x.trofeus, "liga": arena_liga(x.trofeus), "eu": x.id == p.id} for x in top]}
+            "ranking": [{"nome": x.ninja_name, "avatar": x.avatar, "trofeus": x.trofeus, "liga": arena_liga(x.trofeus), "eu": x.id == p.id} for x in top],
+            "rankings": rks, "semanal": semanal}
 
 
 @router.post("/api/arena/lutar")
 def arena_lutar(payload: ArenaReq, db: Session = Depends(get_db)):
     p = get_player(db, payload.telegram_id, lock=True)
-    if (payload.alvo is None) == (payload.npc is None):
-        raise HTTPException(400, "Escolha um jogador ou um gladiador.")
+    if payload.alvo is None:
+        raise HTTPException(400, "Escolha um jogador para duelar.")
     arena_virar(p)
     if p.luta:
         raise HTTPException(409, "Você já está em uma luta.")
@@ -2608,22 +2683,19 @@ def arena_lutar(payload: ArenaReq, db: Session = Depends(get_db)):
     if p.vida_atual < 0.3 * p.vida_max:
         raise HTTPException(400, "Vida baixa demais para a Arena (mínimo 30%). Descanse antes.")
     a = _arena_reg(p)
-    if payload.npc is not None:
-        nome, dif, *_ = ARENA_NPCS[payload.npc]
-        stats, hp, ck = stats_inimigo(p, p.level, dif)
-        extra = {"npc": payload.npc, "dif": dif, "nivel": p.level}
-        elem, boss = random.choice(list(ELEMENTOS)), dif == "chefe"
-    else:
-        t = db.scalar(select(Player).where(Player.ninja_name == payload.alvo))
-        if t is None:
-            raise HTTPException(404, "Jogador não encontrado.")
-        if t.id == p.id:
-            raise HTTPException(400, "Você não pode duelar consigo mesmo.")
-        if a["vs"].get(t.ninja_name, 0) >= ARENA_VS_DIA:
-            raise HTTPException(400, f"Você já enfrentou {t.ninja_name} {ARENA_VS_DIA} vezes hoje. Escolha outro adversário.")
-        a["vs"][t.ninja_name] = a["vs"].get(t.ninja_name, 0) + 1
-        nome, stats, hp, ck = t.ninja_name, {k: int(v) for k, v in effective_stats(t).items()}, t.vida_max, t.chakra_max
-        extra, elem, boss = {"npc": None, "alvo_trof": t.trofeus or 0, "nivel": t.level}, t.elemento, False
+    if a["n"] >= ARENA_LUTAS_DIA:
+        raise HTTPException(400, f"Você já fez as {ARENA_LUTAS_DIA} lutas da Arena de hoje. Volte amanhã (meia-noite UTC).")
+    t = db.scalar(select(Player).where(Player.ninja_name == payload.alvo))
+    if t is None:
+        raise HTTPException(404, "Jogador não encontrado.")
+    if t.id == p.id:
+        raise HTTPException(400, "Você não pode duelar consigo mesmo.")
+    if a["vs"].get(t.ninja_name, 0) >= ARENA_VS_DIA:
+        raise HTTPException(400, f"Você já enfrentou {t.ninja_name} {ARENA_VS_DIA} vezes hoje. Escolha outro adversário.")
+    a["vs"][t.ninja_name] = a["vs"].get(t.ninja_name, 0) + 1
+    a["n"] += 1
+    nome, stats, hp, ck = t.ninja_name, {k: int(v) for k, v in effective_stats(t).items()}, t.vida_max, t.chakra_max
+    extra, elem, boss = {"npc": None, "alvo_trof": t.trofeus or 0, "nivel": t.level}, t.elemento, False
     p.arena = a
     p.energia -= ARENA_ENERGIA
     iniciar_luta(p, "arena", nome, stats, hp, ck, boss, elemento=elem, mapa=None, on_mission=False, **extra)
@@ -2646,6 +2718,27 @@ def arena_premio(payload: RestReq, db: Session = Depends(get_db)):
     p.arena = a
     db.commit()
     return {"mensagem": f"Prêmio da temporada {pr['temporada']} ({pr['liga']}): {txt}."}
+
+
+@router.post("/api/arena/semanal")
+def arena_semanal(payload: RestReq, db: Session = Depends(get_db)):
+    p = get_player(db, payload.telegram_id, lock=True)
+    a, chave = _arena_reg(p), _rk_keys()["sp"]
+    if a.get("sem_col") == chave:
+        raise HTTPException(409, "Você já coletou o prêmio semanal.")
+    sp = _rk_view(_rk_lista(_arena_rows(db), "sp"), p.id)
+    prem = _premio_semanal(sp["pos"])
+    if not prem:
+        raise HTTPException(409, "Você não pontuou na semana passada.")
+    p.moedas_arena = (p.moedas_arena or 0) + prem["moedas"]
+    txt = f"{prem['moedas']} moedas da Arena"
+    if prem["ovo"]:
+        p.ovos = {**(p.ovos or {}), prem["ovo"]: (p.ovos or {}).get(prem["ovo"], 0) + 1}
+        txt += f" e {OVOS[prem['ovo']][0]}"
+    a["sem_col"] = chave
+    p.arena = a
+    db.commit()
+    return {"mensagem": f"Prêmio semanal da Arena ({sp['pos']}º lugar): {txt}."}
 
 
 @router.post("/api/arena/comprar")
@@ -2676,6 +2769,39 @@ def arena_comprar(payload: ArenaBuyReq, db: Session = Depends(get_db)):
     p.arena = a
     db.commit()
     return {"mensagem": f"Você comprou {nome}.", "moedas": p.moedas_arena}
+
+
+# ───────── Excluir conta ─────────
+class ExcluirReq(BaseModel):
+    telegram_id: int = Field(gt=0)
+    confirmar: str = Field(min_length=1, max_length=64)  # o jogador digita o nome do ninja
+
+
+@router.post("/api/conta/excluir")
+def conta_excluir(payload: ExcluirReq, db: Session = Depends(get_db)):
+    """Apaga o personagem de forma definitiva. Exige digitar o nome do ninja. Quem lidera uma guilda passa o comando adiante."""
+    from models import PlayerMission
+    p = get_player(db, payload.telegram_id, lock=True)
+    if payload.confirmar.strip() != p.ninja_name:
+        raise HTTPException(400, "Digite exatamente o nome do seu ninja para confirmar.")
+    if p.luta or p.masmorra:
+        raise HTTPException(409, "Termine a luta ou a masmorra antes de excluir a conta.")
+    pid = p.id
+    if p.guilda_id:
+        guild_leave(RestReq(telegram_id=payload.telegram_id), db)
+        p = get_player(db, payload.telegram_id, lock=True)
+    for v in db.scalars(select(Village).where((Village.leader_kage_id == pid) | (Village.challenger_id == pid))).all():
+        if v.leader_kage_id == pid:
+            v.leader_kage_id = None
+        if v.challenger_id == pid:
+            v.challenger_id, v.challenger_since = None, None
+    db.flush()
+    for modelo, col in ((Pet, Pet.player_id), (MarketListing, MarketListing.seller_id), (PlayerMission, PlayerMission.player_id)):
+        for x in db.scalars(select(modelo).where(col == pid)).all():
+            db.delete(x)
+    db.delete(p)
+    db.commit()
+    return {"mensagem": "Conta excluída."}
 
 
 # ───────── Guilda completa: cargos, mural, perk de nível e chefe cooperativo ─────────

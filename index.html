@@ -191,7 +191,7 @@ const TIPOS = { Arma: 'Armas', Armadura: 'Armaduras', Pergaminho: 'Pergaminhos',
 const bonusTxt = b => Object.entries(b).filter(([k]) => k[0] !== '_').map(([k, v]) => `+${v} ${k}`).join(', ') + (b._ref ? ` (refino +${b._ref})` : '');
 const dur = s => s >= 60 ? Math.round(s / 60) + ' min' : s + ' s';
 let P, X, J, G, K, R, LU, CL, LJ, PT, BO, ljSec = 'itens', boSec = 'equipados', VILS, battle = null, reps = 1;
-let FJ, DO, MS, TR, AR, fjSec = 'refinar', doAttr = 'taijutsu', dsess = 1;
+let arRk = 'd', FJ, DO, MS, TR, AR, fjSec = 'refinar', doAttr = 'taijutsu', dsess = 1;
 
 function toast(msg, ok = true, ms = 3000) {
   const t = $('toast');
@@ -292,6 +292,7 @@ function renderHospital() {
   const opt = (id, titulo, desc, preco, off, rot) => `<div class="card"><div class="flex justify-between items-start gap-3"><div><h2>${titulo}</h2><p class="text-sm text-paper/70 mt-1">${desc}</p></div>
     <b class="text-gold shrink-0">${preco}</b></div><button class="btn w-full mt-3" ${off ? 'disabled' : ''} onclick="act('/api/hospital', { opcao: '${id}' }, r => r.mensagem)">${rot}</button></div>`;
   $('tab-hospital').innerHTML = `<h2>Hospital da vila</h2>
+    ${X.torre_sessao || P.masmorra ? `<div class="card border-vermil"><b>Hospital fechado</b><p class="text-sm mt-1">${X.torre_sessao ? 'Dentro da Torre' : 'Durante a masmorra'} não há atendimento. Use os itens da bolsa${X.torre_sessao ? ' ou saia da Torre' : ' ou abandone a masmorra'}.</p></div>` : ''}
     ${hp.buff ? `<div class="card border-gold"><b>${esc(hp.buff.nome)}</b><p class="text-sm mt-1">+${Math.round(hp.buff.pct * 100)}% de ${esc(attrNome(hp.buff.attr))}. Restam ${dur(hp.buff.restante_s)}.</p></div>` : ''}
     ${opt('gratis', 'Atendimento gratuito', 'Recupera metade da vida que você perdeu. Disponível a cada 10 minutos.', 'grátis', !ferido || hp.gratis_restante_s > 0,
       hp.gratis_restante_s > 0 ? 'Volta em ' + dur(hp.gratis_restante_s) : ferido ? 'Atender' : 'Você não está ferido')}
@@ -445,7 +446,18 @@ function renderOpcoes() {
   const soon = t => `<button class="w-full flex justify-between items-center py-3 border-t border-line text-sm" onclick="toast('${t}: em breve.', true)"><span>${t}</span><span class="text-gold text-xs">em breve</span></button>`;
   $('tab-opcoes').innerHTML = `<div class="card"><h2 class="mb-1">Opções</h2>${['Amigos', 'Skins', 'Conquistas', 'Livro Bingo', 'Trocar nome', 'Trocar classe e sexo', 'Fórum e tutoriais'].map(soon).join('')}</div>
     <div class="card"><h2>Nacionalidade</h2><p class="lbl mt-1">Você é de ${esc(P.village.name)}. Trocar de vila zera sua fama e reinicia a missão atual. Clãs de outra vila ficam para trás. Kage e Sannin não podem trocar.</p>
-      <button class="btn btn-ghost w-full mt-3" onclick="abrirTroca()">Trocar de vila</button><div id="trocaBox"></div></div>`;
+      <button class="btn btn-ghost w-full mt-3" onclick="abrirTroca()">Trocar de vila</button><div id="trocaBox"></div></div>
+    <div class="card border-vermil"><h2>Excluir conta</h2><p class="lbl mt-1">Apaga seu ninja, itens, pets e progresso de forma definitiva. Não dá para desfazer. Se você lidera uma guilda, o comando passa para outro membro.</p>
+      <button class="btn w-full mt-3" style="background:#c8321f;color:#fff" onclick="excluirConta()">Excluir minha conta</button></div>`;
+}
+async function excluirConta() {
+  const nome = prompt(`Para excluir a conta de forma definitiva, digite o nome do seu ninja: ${P.ninja_name}`);
+  if (nome === null) return;
+  try {
+    await api('/api/conta/excluir', { telegram_id: tgUser.id, confirmar: nome });
+    toast('Conta excluída.', true, 5000);
+    P = X = null; setTimeout(() => location.reload(), 1500);
+  } catch (e) { toast(e.message, false); }
 }
 async function abrirTroca() {
   try {
@@ -657,7 +669,9 @@ function renderTorre() {
       <div class="rounded-xl border border-line p-2.5"><div class="lbl">Seu recorde</div><div class="font-bold">${TR.recorde}</div></div></div>
     <div class="flex gap-1.5 flex-wrap mt-3"><span class="${TR.dif === 'chefe' ? 'tag red' : TR.dif === 'mini-chefe' ? 'tag gold' : 'tag'}">${esc(TR.dif)}</span>${r.chefe ? '<span class="tag red">Chefe</span>' : ''}${r.equip ? '<span class="tag gold">Equipamento</span>' : ''}${r.ovo ? '<span class="tag gold">Ovo de pet</span>' : ''}</div>
     <p class="text-sm text-paper/70 mt-3">Recompensa: ${fmt(r.exp)} XP, ${fmt(r.ryos)} ryos, ${r.fama} de fama e materiais de forja.</p>
+    ${TR.sessao ? `<p class="text-sm text-vermil mt-3">Você está dentro da Torre: o Hospital e o descanso ficam fechados. Só valem os itens da bolsa (poções e pílulas). Cair na luta expulsa você da Torre.</p>` : ''}
     <button class="btn w-full mt-3" ${off ? 'disabled' : ''} onclick="torreLutar()">Subir ao andar ${TR.andar}${P.energia < TR.energia ? ' (sem energia)' : ''}</button></div>
+    ${TR.sessao && !LU ? `<button class="btn btn-ghost w-full" onclick="act('/api/torre/sair', {}, r => r.mensagem).then(loadTorre)">Sair da Torre</button>` : ''}
     <div class="card"><h2>Mais altos</h2>${rank || '<p class="lbl mt-2">Ninguém subiu ainda. Seja o primeiro.</p>'}</div>`;
 }
 /* Arena: duelos ranqueados (troféus), gladiadores NPC e loja de moedas */
@@ -670,33 +684,43 @@ async function arenaComprar(id) {
 }
 function renderArena() {
   if (!AR) return;
-  const off = LU || P.energia < AR.energia || P.vida.atual < 0.3 * P.vida.max;
+  const off = LU || P.energia < AR.energia || P.vida.atual < 0.3 * P.vida.max || AR.lutas_hoje >= AR.lutas_dia;
   const opp = AR.oponentes.map(o => `<div class="flex items-center gap-3 py-2 border-t border-line"><span class="text-xl">${esc(o.avatar)}</span>
     <div class="flex-1 min-w-0"><div class="text-sm font-semibold truncate">${esc(o.nome)}</div><div class="lbl truncate">Nv ${o.nivel}, ${esc(o.liga)}, ${fmt(o.trofeus)} 🏆</div></div>
     <button class="chip" ${off || o.hoje >= AR.vs_dia ? 'disabled' : ''} onclick="arenaLutar({ alvo: '${esc(o.nome).replace(/'/g, "\\'")}' })">${o.hoje >= AR.vs_dia ? 'Limite hoje' : 'Duelar'}</button></div>`).join('');
-  const npcs = AR.npcs.map(n => `<div class="flex items-center gap-3 py-2 border-t border-line"><span class="text-xl">🗡️</span>
-    <div class="flex-1 min-w-0"><div class="text-sm font-semibold truncate">${esc(n.nome)}</div><div class="lbl">${esc(n.dif)}: +${n.ganha} / -${n.perde} troféus, ${n.moedas} moedas${n.rende ? '' : '. Sem troféus (teto ' + fmt(n.teto) + ')'}</div></div>
-    <button class="chip" ${off ? 'disabled' : ''} onclick="arenaLutar({ npc: ${n.id} })">Lutar</button></div>`).join('');
   const loja = AR.loja.map(i => `<div class="flex items-center gap-3 py-2 border-t border-line"><div class="flex-1 min-w-0"><div class="text-sm font-semibold truncate">${esc(i.nome)}</div>
     <div class="lbl">${i.restam === null ? 'Sem limite diário' : 'Restam ' + i.restam + ' hoje'}</div></div>
     <button class="chip" ${AR.moedas < i.custo || i.restam === 0 ? 'disabled' : ''} onclick="arenaComprar('${i.id}')">${i.custo} moedas</button></div>`).join('');
   const rank = AR.ranking.map((m, i) => `<div class="flex items-center gap-3 py-2 border-t border-line"><span class="w-6 text-center font-bold ${i < 3 ? 'text-gold' : 'text-paper/50'}">${i + 1}</span><span class="text-xl">${esc(m.avatar)}</span>
     <div class="flex-1 min-w-0 text-sm font-semibold truncate">${esc(m.nome)} ${m.eu ? '<span class="tag gold">Você</span>' : ''}</div><b class="text-sm">${fmt(m.trofeus)} 🏆</b></div>`).join('');
+  const PER = [['d', 'Diário'], ['s', 'Semanal'], ['m', 'Mensal'], ['t', 'Temporada']];
+  const rkv = arRk === 't' ? null : AR.rankings[arRk];
+  const rkLinhas = arRk === 't' ? rank : (rkv.top.map((m, i) => `<div class="flex items-center gap-3 py-2 border-t border-line"><span class="w-6 text-center font-bold ${i < 3 ? 'text-gold' : 'text-paper/50'}">${i + 1}</span><span class="text-xl">${esc(m.avatar)}</span>
+    <div class="flex-1 min-w-0 text-sm font-semibold truncate">${esc(m.nome)} ${m.eu ? '<span class="tag gold">Você</span>' : ''}</div><b class="text-sm">+${fmt(m.pts)} 🏆</b></div>`).join('')
+    + (rkv.pos && rkv.pos > 10 ? `<p class="lbl mt-2">Sua posição: ${rkv.pos}º com +${fmt(rkv.pts)} troféus.</p>` : rkv.pos ? '' : '<p class="lbl mt-2">Você ainda não pontuou neste período.</p>'));
+  const rkNav = PER.map(([k, n]) => `<button class="chip ${k === arRk ? 'on' : ''}" onclick="arRk='${k}'; renderArena()">${n}</button>`).join('');
+  const sm = AR.semanal;
+  const semanal = `<div class="card"><div class="flex items-center justify-between"><h2>Bonificação semanal</h2><span class="tag">${sm.dias} dia${sm.dias === 1 ? '' : 's'}</span></div>
+    <p class="lbl mt-1">Quem pontua na semana recebe um prêmio pela posição final, para coletar na semana seguinte. Pontos são os troféus ganhos no período.</p>
+    ${sm.premio ? `<div class="mt-2 text-sm">Semana passada: ${sm.pos}º lugar com +${fmt(sm.pts)} troféus. Prêmio: ${sm.premio.moedas} moedas${sm.premio.ovo ? ' e ' + esc(sm.premio.ovo) : ''}.</div>
+    <button class="btn ${sm.pronto ? 'btn-gold' : ''} w-full mt-2" ${sm.pronto ? '' : 'disabled'} onclick="act('/api/arena/semanal', {}, r => r.mensagem).then(loadArena)">${sm.pronto ? '🎁 Coletar prêmio semanal' : '✓ coletado'}</button>` : '<p class="lbl mt-2">Você não pontuou na semana passada.</p>'}
+    <details class="mt-2"><summary class="lbl cursor-pointer">Tabela de prêmios</summary>${sm.tabela.map((x, i) => `<div class="flex justify-between text-sm py-1 border-t border-line"><span>${i < 3 ? (i + 1) + 'º lugar' : x.ate ? 'Até o ' + x.ate + 'º' : 'Demais que pontuaram'}</span><span class="text-gold">${x.moedas} moedas${x.ovo ? ' + ' + esc(x.ovo) : ''}</span></div>`).join('')}</details></div>`;
   const tp = AR.temporada, pr = tp.premio;
   const temp = `<div class="card"><div class="flex items-center justify-between"><h2>Temporada ${tp.n}</h2><span class="tag gold">${tp.dias} dia${tp.dias === 1 ? '' : 's'} restantes</span></div>
     <p class="lbl mt-1">A cada 14 dias a temporada vira: quem jogou ganha o prêmio da liga em que terminou e os troféus caem pela metade. O ranking mostra só a temporada atual.</p>
     <details class="mt-2"><summary class="lbl cursor-pointer">Prêmios por liga</summary>${tp.premios.map(x => `<div class="flex justify-between text-sm py-1 border-t border-line"><span>${esc(x.liga)}</span><span class="text-gold">${x.moedas} moedas${x.ovo ? ' e ' + esc(x.ovo) : ''}</span></div>`).join('')}</details>
     ${pr ? `<div class="mt-3 text-sm">Você terminou a temporada ${pr.temporada} na liga <b>${esc(pr.liga)}</b> com ${fmt(pr.trofeus)} troféus.</div><button class="btn btn-gold w-full mt-2" onclick="act('/api/arena/premio', {}, r => r.mensagem).then(loadArena)">🎁 Coletar prêmio (${pr.moedas} moedas${pr.ovo ? ' e um ovo' : ''})</button>` : ''}
     ${tp.hist.length ? `<p class="lbl mt-3">Anteriores: ${tp.hist.map(x => `T${x.temporada} ${esc(x.liga)} (${fmt(x.trofeus)})`).join(', ')}</p>` : ''}</div>`;
-  $('tab-arena').innerHTML = `${temp}<div class="card"><h2>Arena</h2><p class="lbl mt-1">Duelos ranqueados: ${AR.energia} de energia cada, sem fuga e com vida mínima de 30%. Contra jogadores, os troféus seguem o nível de cada um, e você duela no máximo ${AR.vs_dia} vezes por dia com o mesmo adversário. Moedas compram itens na loja.</p>
+  $('tab-arena').innerHTML = `${temp}<div class="card"><h2>Arena</h2><p class="lbl mt-1">Duelos ranqueados só entre jogadores: ${AR.energia} de energia cada, sem fuga, vida mínima de 30% e no máximo ${AR.lutas_dia} lutas por dia (você fez ${AR.lutas_hoje}). Contra jogadores, os troféus seguem o nível de cada um, e você duela no máximo ${AR.vs_dia} vezes por dia com o mesmo adversário. Moedas compram itens na loja.</p>
     <div class="grid grid-cols-3 gap-2 mt-3 text-center"><div class="rounded-xl border border-line p-2.5"><div class="lbl">Troféus</div><div class="font-bold text-gold">${fmt(AR.trofeus)}</div></div>
       <div class="rounded-xl border border-line p-2.5"><div class="lbl">Liga</div><div class="font-bold">${esc(AR.liga)}</div></div>
       <div class="rounded-xl border border-line p-2.5"><div class="lbl">Moedas</div><div class="font-bold text-gold">${fmt(AR.moedas)}</div></div></div>
     <p class="lbl mt-2">${AR.v} vitórias, ${AR.d} derrotas, sequência atual ${AR.seq}, melhor marca ${fmt(AR.melhor)} troféus.</p></div>
-    <div class="card"><h2>Adversários</h2>${opp || '<p class="lbl mt-2">Nenhum outro jogador ainda. Enfrente os gladiadores.</p>'}</div>
-    <div class="card"><h2>Gladiadores</h2>${npcs}</div>
+    <div class="card"><h2>Adversários</h2>${opp || '<p class="lbl mt-2">Nenhum outro jogador ainda. A Arena é só entre jogadores: convide amigos.</p>'}</div>
     <div class="card"><h2>Loja da Arena</h2>${loja}</div>
-    <div class="card"><h2>Maiores troféus</h2>${rank || '<p class="lbl mt-2">Ninguém pontuou ainda.</p>'}</div>`;
+    ${semanal}
+    <div class="card"><h2>Ranking da Arena</h2><div class="flex gap-1.5 flex-wrap mt-2">${rkNav}</div>${arRk === 't' ? '<p class="lbl mt-2">Maiores troféus da temporada atual.</p>' : '<p class="lbl mt-2">Troféus ganhos no período (diário, semanal e mensal viram à meia-noite UTC).</p>'}
+    ${rkLinhas || '<p class="lbl mt-2">Ninguém pontuou ainda.</p>'}</div>`;
 }
 async function dropAcao(id, tipo) {
   const d = battle.drops.find(x => x.id === id);
