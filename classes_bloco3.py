@@ -385,3 +385,39 @@ def preco_tratamento(preco: int, classe: str, passiva: Optional[str]) -> int:
     if classe == "ninja_medico" and passiva == "tratamento":
         return max(1, int(round(preco * (1 - TRATAMENTO_DESCONTO))))
     return preco
+
+
+# ═════════════════════ RESTRIÇÕES DE EQUIPAMENTO POR CLASSE ═════════════════════
+# A família do item sai do NOME (o model só tem item_name/item_type). Ordem importa: vale a primeira palavra-chave que casar.
+# Itens sem palavra-chave (anéis, colares, botas, luvas comuns, armaduras genéricas...) continuam livres para todas as classes.
+RESTRICOES_EQUIP = (
+    ("manopla", "taijutsu"), ("armadura pesada", "taijutsu"), ("couraca", "taijutsu"),
+    ("katana", "ninjutsu"), ("manto", "ninjutsu"),
+    ("leque", "genjutsu"), ("flauta", "genjutsu"), ("traje de couro", "genjutsu"),
+    ("nucleo", "marionetista"), ("madeira", "marionetista"),
+    ("bisturi", "ninja_medico"), ("tunica", "ninja_medico"),
+)
+NOME_CLASSE = {"taijutsu": "Taijutsu", "ninjutsu": "Ninjutsu", "genjutsu": "Genjutsu",
+               "marionetista": "Marionetista", "ninja_medico": "Ninja Médico"}
+
+
+def _sem_acento(s: str) -> str:
+    import unicodedata
+    return "".join(c for c in unicodedata.normalize("NFD", s.lower()) if unicodedata.category(c) != "Mn")
+
+
+def classe_do_item(nome: str) -> Optional[str]:
+    """Classe dona do item pelo nome, ou None se qualquer classe puder usar."""
+    n = _sem_acento(nome or "")
+    return next((cl for kw, cl in RESTRICOES_EQUIP if kw in n), None)
+
+
+def pode_equipar(classe: str, nome_item: str) -> bool:
+    dono = classe_do_item(nome_item)
+    return dono is None or dono == classe
+
+
+def validar_equipar(classe: str, nome_item: str) -> None:
+    dono = classe_do_item(nome_item)
+    if dono and dono != classe:
+        raise RegraErro(f"Equipamento exclusivo de {NOME_CLASSE[dono]}: sua classe ({NOME_CLASSE.get(classe, classe)}) não pode usá-lo.")

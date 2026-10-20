@@ -484,7 +484,8 @@ def evento_passivo(db: Session, p: Player, mp: dict, ev: str) -> dict:
 
 
 def item_view(it: InventoryItem, estrelas: int = 0) -> dict:
-    return {"id": it.id, "nome": it.item_name, "tipo": it.item_type.value, "bonus": it.status_bonus or {}, "valor": valor_venda(it), "estrelas": estrelas}
+    return {"id": it.id, "nome": it.item_name, "tipo": it.item_type.value, "bonus": it.status_bonus or {}, "valor": valor_venda(it), "estrelas": estrelas,
+            "exclusivo": b3.classe_do_item(it.item_name)}
 
 
 def escolher_acao(p: Player):
@@ -611,7 +612,18 @@ def _me(p: Player, L: dict) -> dict:
     return s
 
 
+def desequipar_incompativeis(p: Player) -> list:
+    """Tira os equipados que a classe atual não pode usar (ex.: depois de trocar de classe). Devolve os nomes."""
+    cl, fora = _classe(p), []
+    for it in list(getattr(p, "inventory", []) or []):
+        if it.is_equipped and not b3.pode_equipar(cl, it.item_name):
+            it.is_equipped = False
+            fora.append(it.item_name)
+    return fora
+
+
 def iniciar_luta(p: Player, tipo: str, nome: str, stats: dict, hp: int, chakra: int, boss: bool = False, **ctx) -> None:
+    desequipar_incompativeis(p)
     L = {"tipo": tipo, "nome": nome, "boss": boss, "stats": stats, "hp": hp, "hp_max": hp, "chakra": chakra,
          "turno": 0, "log": [f"{nome} aparece diante de você."], "defendendo": False, "atordoado": False,
          "me_atordoado": False, "pet": None, "pet_id": None, "meu_elem": None if _sem_elemento(p) else p.elemento,
@@ -919,11 +931,11 @@ def luta_agir(payload: AgirReq, db: Session = Depends(get_db)):
         if random.random() < 0.3 + 0.5 * me["agilidade"] / (me["agilidade"] + L["stats"]["agilidade"]):
             p.luta = None
             p.status_fora = list(L.get("st", {}))
-            if L["tipo"] == "masmorra":  # fugir no meio da masmorra encerra a corrida
+            if L["tipo"] == "masmorra":  # fugir no meio da masmorra: expulso para a Vila, fragmentos perdidos, sem nova tentativa
                 p.masmorra = None
             db.commit()
             return {"luta": None, "resultado": {"vitoria": False, "fuga": True, "chefe": L["boss"], "inimigo": L["nome"],
-                    "log": L["log"][-4:] + ["Você fugiu."], "exp": 0, "ryos": 0, "drops": [], "extras": [], "novo_pet": None,
+                    "log": L["log"][-4:] + ["Você fugiu." + (" Você foi expulso da masmorra para a Vila e os fragmentos da entrada foram perdidos." if L["tipo"] == "masmorra" else "")], "exp": 0, "ryos": 0, "drops": [], "extras": [], "novo_pet": None,
                     "niveis_ganhos": 0, "xp_reduzido": False, "missao": None, "dif": L.get("dif"), "nivel": L.get("nivel"),
                     "mapa": L.get("mapa"), "tipo": L["tipo"], "on_mission": L.get("on_mission", False), "moral": p.moral}}
         L["log"].append("Você não conseguiu fugir.")
@@ -1098,6 +1110,7 @@ def equip(payload: EquipReq, db: Session = Depends(get_db)):
     if item is None:
         raise HTTPException(404, "Item não encontrado no seu inventário.")
     if payload.equipar:
+        _regra(b3.validar_equipar, _classe(player), item.item_name)  # Bloco 3: restrição de equipamento por classe
         # Um item equipado por tipo; anéis aceitam dois (o equipado há mais tempo, de menor id, sai primeiro)
         limite = MAX_EQUIP.get(item.item_type.value, 1)
         iguais = sorted((o for o in player.inventory if o.item_type == item.item_type and o.is_equipped and o.id != item.id), key=lambda o: o.id)
@@ -2661,8 +2674,9 @@ def _novo_andar(p: Player, mid: int, andar: int) -> None:
 def fim_masmorra(db: Session, p: Player, L: dict, won: bool, res: dict) -> None:
     andar, mp = L["andar"], MAPS_BY_ID[L["mapa"]]
     if not won:
-        p.masmorra = None
-        res["masmorra"] = {"andar": andar, "total": MASM_ANDARES, "fim": True, "falhou": True}
+        p.masmorra = None  # derrota: expulso para a Vila; os 3 fragmentos da entrada já foram consumidos e não há nova tentativa nesta instância
+        res["masmorra"] = {"andar": andar, "total": MASM_ANDARES, "fim": True, "falhou": True, "expulso": True}
+        res["extras"].append("Você foi expulso da masmorra para a Vila. Os fragmentos usados na entrada foram perdidos.")
         return
     mult, over = DIFICULDADES[L["dif"]][2], p.level > mp["max_level"]
     res["exp"] = max(1, int(6 * mp["perigo"] * mult * (0.25 if over else 1)))
@@ -2749,7 +2763,7 @@ def masmorra_abandonar(payload: RestReq, db: Session = Depends(get_db)):
         raise HTTPException(409, "Você não está em uma masmorra.")
     p.masmorra = None
     db.commit()
-    return {"mensagem": "Você deixou a masmorra. Os fragmentos usados na entrada se perderam."}
+    return {"mensagem": "Você deixou a masmorra e voltou à Vila. Os fragmentos usados na entrada se perderam."}
 
 
 # ───────── Torre: andares infinitos, sem tempo ─────────
