@@ -77,8 +77,8 @@
   @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
   .tile{position:relative;overflow:hidden;border-radius:1rem;min-height:7.4rem;padding:.8rem;border:1px solid #2f282f;display:flex;flex-direction:column;justify-content:flex-end;text-align:left;background:linear-gradient(160deg,var(--a,#3a1519),var(--b,#120f13));box-shadow:0 10px 24px rgba(0,0,0,.45),inset 0 1px 0 rgba(255,255,255,.05);transition:transform .12s}
   .mini{position:relative;overflow:hidden;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.2rem;min-height:4.6rem;padding:.4rem .2rem;border-radius:.8rem;border:1px solid #2f282f;background:linear-gradient(160deg,#241a1d,#120f13);text-align:center}
-  .mini:active{transform:scale(.95)}.mini img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.55}
-  .mini>*{position:relative}.mini .ico{font-size:1.5rem;line-height:1}.mini b{font-size:.62rem;line-height:1.1;font-weight:700}
+  .mini:active{transform:scale(.95)}.mini img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:0}.mini::after{content:"";position:absolute;inset:0;z-index:0;background:linear-gradient(180deg,rgba(0,0,0,0) 30%,rgba(0,0,0,.85));pointer-events:none}
+  .mini>*{position:relative;z-index:1}.mini .ico{font-size:1.5rem;line-height:1}.mini b{font-size:.62rem;line-height:1.1;font-weight:700}
   .mini .soon{position:absolute;top:.15rem;right:.25rem;font-size:.5rem;font-style:normal;color:#d9a93f}
   .tile:active{transform:scale(.97)}
   .tile img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
@@ -291,11 +291,11 @@ const setReps = n => { reps = n; renderPerfil(); };
 /* Ícones da Aldeia e do Menu. Para usar imagens reais, coloque img/<id>.jpg no repositório: o ícone troca sozinho. */
 const PAL = [['#4a1a14', '#140e0e'], ['#14323f', '#0c1014'], ['#3d2d12', '#120f0a'], ['#1d3a26', '#0c120e'], ['#2f1d3f', '#100c14'], ['#3a1a2a', '#140c10']];
 const tile = (id, ico, nome, sub_, fn, i = 0, soon = false) => `<button class="tile" style="--a:${PAL[i % PAL.length][0]};--b:${PAL[i % PAL.length][1]}" onclick="${soon ? `toast('${nome}: em breve.', true)` : fn}">
-  <img src="img/${id}.jpg" alt="" onerror="this.remove()"><span class="ico">${ico}</span>${soon ? '<span class="tag absolute top-2 left-2 z-10">em breve</span>' : ''}
+  <img src="img/${id}.jpg" alt="" onload="this.nextElementSibling.remove()" onerror="this.remove()"><span class="ico">${ico}</span>${soon ? '<span class="tag absolute top-2 left-2 z-10">em breve</span>' : ''}
   <b class="font-jp text-base">${nome}</b><span class="text-xs text-paper/70">${sub_}</span></button>`;
 /* Menu: atalhos compactos em 4 colunas. Barra inferior: Perfil, Portão, Itens, Guilda e Menu. */
 const mini = (id, ico, nome, fn, soon = false) => `<button class="mini" onclick="${soon ? `toast('${nome}: em breve.', true)` : fn}">
-  <img src="img/${id}.jpg" alt="" onerror="this.remove()"><span class="ico">${ico}</span><b>${nome}</b>${soon ? '<i class="soon">breve</i>' : ''}</button>`;
+  <img src="img/${id}.jpg" alt="" onload="this.nextElementSibling.remove()" onerror="this.remove()"><span class="ico">${ico}</span><b>${nome}</b>${soon ? '<i class="soon">breve</i>' : ''}</button>`;
 function renderMenu() {
   const T = [['dojo', '🥋', 'Dojo', "showTab('treino')"], ['kage', '👘', 'Sala do Kage', "showTab('vila')"], ['forja', '⚒️', 'Forja', "showTab('forja')"],['arena', '⚔️', 'Arena', "showTab('arena')"],
     ['masmorras', '🕳️', 'Masmorras', "showTab('masmorras')"], ['torre', '🗼', 'Torre', "showTab('torre')"],['vila', '🏘️', 'Vila e clãs', "showTab('vila')"], ['ranking', '🏆', 'Ranking', "showTab('ranking')"],
