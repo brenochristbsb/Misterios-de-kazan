@@ -127,6 +127,7 @@
   <section id="tab-bingo" class="tab space-y-3 hidden"></section>
   <section id="tab-guilda2" class="tab space-y-3 hidden"></section>
   <section id="tab-pactos" class="tab space-y-3 hidden"></section>
+  <section id="tab-boneco" class="tab space-y-3 hidden"></section>
   <section id="tab-jutsus" class="tab space-y-3 hidden"></section>
   <section id="tab-perfil" class="tab space-y-3"></section>
   <section id="tab-jornada" class="tab space-y-3 hidden"></section>
@@ -240,7 +241,7 @@ async function act(path, body, msg) {
 /* ───────── Abas ───────── */
 const MAIN = ['menu', 'mapas', 'bolsa', 'guilda', 'perfil'];
 // Subtelas acendem o ícone da aba de onde se chega nelas
-const PAI = { atributos: 'perfil', status: 'perfil', opcoes: 'perfil', jutsus: 'perfil', amigos: 'perfil', skins: 'perfil', bingo: 'perfil', guilda2: 'guilda', pactos: 'menu' };
+const PAI = { atributos: 'perfil', status: 'perfil', opcoes: 'perfil', jutsus: 'perfil', amigos: 'perfil', skins: 'perfil', bingo: 'perfil', guilda2: 'guilda', pactos: 'menu', boneco: 'menu' };
 let cur = 'perfil', navStack = [];
 const goBack = () => showTab(navStack.pop() || 'menu', true);
 function showTab(name, back) {
@@ -262,6 +263,7 @@ function showTab(name, back) {
   if (name === 'bingo') loadBingo();
   if (name === 'guilda2') loadGuilda2();
   if (name === 'pactos') loadPactos();
+  if (name === 'boneco') renderBoneco();
   document.querySelectorAll('.tab').forEach(s => s.classList.toggle('hidden', s.id !== 'tab-' + name));
   document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.tab === (MAIN.includes(name) ? name : PAI[name] || 'menu')));
   tg?.HapticFeedback?.selectionChanged?.();
@@ -299,7 +301,7 @@ function renderMenu() {
     ['masmorras', '🕳️', 'Masmorras', "showTab('masmorras')"], ['torre', '🗼', 'Torre', "showTab('torre')"],['vila', '🏘️', 'Vila e clãs', "showTab('vila')"], ['ranking', '🏆', 'Ranking', "showTab('ranking')"],
     ['missoes', '📜', PGP ? `Missões (${PGP})` : 'Missões', "abrirProg('missoes')"], ['conq', '🏅', 'Conquistas', "abrirProg('conq')"], ['login', '📅', 'Login', "abrirProg('login')"], ['passe', '🎫', 'Passe', "abrirProg('passe')"],
     ['quests', '📖', 'Quests', "showTab('jornada')"], ['hospital', '🏥', 'Hospital', "showTab('hospital')"], ['loja', '🛒', 'Loja', "ljSec = 'itens'; showTab('loja')"],
-    ['pets', '🐾', 'Pets', "ljSec = 'pets'; showTab('loja')"], ['chat', '💬', 'Chat', "abrirChat('global')"], ['forum', '📚', 'Fórum', "showTab('forum')"], ['pactos', '🐲', 'Pactos', "showTab('pactos')"], ['boneco', '🎯', 'Boneco de treino', '', true]];
+    ['pets', '🐾', 'Pets', "ljSec = 'pets'; showTab('loja')"], ['chat', '💬', 'Chat', "abrirChat('global')"], ['forum', '📚', 'Fórum', "showTab('forum')"], ['pactos', '🐲', 'Pactos', "showTab('pactos')"], ['boneco', '🎯', 'Boneco de treino', "showTab('boneco')"]];
   $('tab-menu').innerHTML = `<h2>Menu</h2><div class="grid grid-cols-4 gap-2">${T.map(([id, ico, n, fn, soon]) => mini(id, ico, n, fn, !!soon)).join('')}</div>`;
 }
 function renderHospital() {
@@ -556,7 +558,7 @@ const FOE_EMOJI = [['salamandra', '🦎'], ['aranha', '🕷️'], ['colosso', '�
   ['pescador', '🎣'], ['mergulhador', '🤿'], ['pirata', '🏴‍☠️'], ['mineiro', '⛏️'], ['aprendiz', '🥋'], ['cacador', '🎯'], ['corredor', '🏃'], ['batedor', '🔭'], ['vigia', '👁️'], ['ninja', '🥷']];
 function foeIcon(nome, tipo, chefe, elem, cls = 'w-14 h-14 text-3xl') {
   const s = slug(nome), hit = FOE_EMOJI.find(([k]) => s.includes(k));
-  const emo = tipo === 'pvp' || tipo === 'arena' ? '⚔️' : tipo === 'clan' ? '🏯' : hit ? hit[1] : chefe ? '👹' : ELEM[elem] ? ELEM[elem][1] : '🥷';
+  const emo = tipo === 'boneco' ? '🎯' : tipo === 'pvp' || tipo === 'arena' ? '⚔️' : tipo === 'clan' ? '🏯' : hit ? hit[1] : chefe ? '👹' : ELEM[elem] ? ELEM[elem][1] : '🥷';
   return `<div class="seal foe ${cls} shrink-0 relative overflow-hidden"><span>${emo}</span><img src="img/inimigos/${s}.jpg" alt="" class="absolute inset-0 w-full h-full object-cover" onerror="this.remove()"></div>`;
 }
 const ITEM_EMO = { Arma: '⚔️', Armadura: '🥋', Botas: '👢', Luvas: '🧤', Colar: '📿', Anel: '💍', Pergaminho: '📜' };
@@ -572,7 +574,7 @@ function pos(r) {  // trata o resultado de uma luta que acabou
   if (!r.resultado) return;
   battle = r.resultado; lutaUI = { itens: false, log: false };
   tg?.HapticFeedback?.impactOccurred?.(battle.vitoria ? 'heavy' : 'light');
-  toast(battle.clan || (battle.elemento_novo ? `Você despertou o elemento ${ELEM[battle.elemento_novo][0]}!` : battle.fuga ? 'Você fugiu.' : battle.vitoria ? 'Vitória!' : 'Derrota.'), !!battle.vitoria);
+  toast(battle.tipo === 'boneco' ? 'Treino encerrado.' : battle.clan || (battle.elemento_novo ? `Você despertou o elemento ${ELEM[battle.elemento_novo][0]}!` : battle.fuga ? 'Você fugiu.' : battle.vitoria ? 'Vitória!' : 'Derrota.'), battle.tipo === 'boneco' || !!battle.vitoria);
 }
 async function agir(acao, item) {
   try { lutaUI.itens = false; pos(await api('/api/luta/agir', { telegram_id: tgUser.id, acao, item })); await refresh(); } catch (e) { toast(e.message, false); }
@@ -582,7 +584,7 @@ async function rapida() {
 }
 const lutaTgl = k => { lutaUI[k] = !lutaUI[k]; renderLutaBox(); };
 const abtn = a => {
-  const sem = P.chakra.atual + (LU.reserva || 0) < a.custo, tag = a.mod > 1 ? ' ▲' : a.mod < 1 ? ' ▼' : '';
+  const sem = LU.tipo !== 'boneco' && P.chakra.atual + (LU.reserva || 0) < a.custo, tag = a.mod > 1 ? ' ▲' : a.mod < 1 ? ' ▼' : '';
   return `<button class="btn ${a.mod > 1 ? 'btn-gold' : ''}" ${sem ? 'disabled' : ''} onclick="agir('${a.acao}'${a.item ? `, '${a.item}'` : ''})">${a.elem ? ELEM[a.elem][1] + ' ' : ''}${esc(a.nome)}${a.custo ? ` (${a.custo})` : ''}${tag}</button>`;
 };
 function lutaHtml() {
@@ -601,12 +603,13 @@ function lutaHtml() {
     ${l.escudo || l.reserva ? `<div class="text-xs text-gold mt-2">Escudo de ${l.escudo} de vida e reserva de ${l.reserva} de chakra.</div>` : ''}
     ${l.pet ? `<div class="text-xs text-gold mt-1">${esc(l.pet.nome)} ativo: +${l.pet.n} ${esc(attrNome(l.pet.attr))}.</div>` : ''}
     <div class="text-xs text-paper/70 mt-3 space-y-1 ${lutaUI.log ? 'max-h-60' : 'max-h-28'} overflow-y-auto">${linhas}</div></div>
+  ${l.tipo === 'boneco' ? placarBoneco(l) : ''}
   <div class="card"><div class="grid grid-cols-2 gap-2">${(l.acoes || []).map(a => abtn(a)).join('')}
-      ${l.tecnica ? `<button class="btn col-span-2" ${P.chakra.atual + (l.reserva || 0) < l.custo * 3 ? 'disabled' : ''} onclick="agir('secreta')">${esc(l.tecnica)} (${l.custo * 3} de chakra)</button>` : ''}
+      ${l.tecnica ? `<button class="btn col-span-2" ${l.tipo !== 'boneco' && P.chakra.atual + (l.reserva || 0) < l.custo * 3 ? 'disabled' : ''} onclick="agir('secreta')">${esc(l.tecnica)} (${l.custo * 3} de chakra)</button>` : ''}
       <button class="btn btn-ghost" onclick="agir('defender')">🛡️ Defender</button>
-      <button class="btn btn-ghost ${lutaUI.itens ? 'on' : ''}" onclick="lutaTgl('itens')">🎒 Itens${temAnt && (l.status || []).length ? ' ❗' : ''}</button>
+      ${l.tipo === 'boneco' ? '' : `<button class="btn btn-ghost ${lutaUI.itens ? 'on' : ''}" onclick="lutaTgl('itens')">🎒 Itens${temAnt && (l.status || []).length ? ' ❗' : ''}</button>`}
       <button class="btn btn-ghost" onclick="lutaTgl('log')">📜 ${lutaUI.log ? 'Menos log' : 'Ver log'}</button>
-      ${l.tipo === 'arena' || l.tipo === 'gchefe' ? '' : `<button class="btn btn-ghost" onclick="agir('fugir')">🏃 Fugir</button>`}
+      ${l.tipo === 'arena' || l.tipo === 'gchefe' ? '' : l.tipo === 'boneco' ? `<button class="btn btn-gold col-span-2" onclick="agir('fugir')">✅ Encerrar treino</button>` : `<button class="btn btn-ghost" onclick="agir('fugir')">🏃 Fugir</button>`}
       ${l.rapido ? `<button class="btn btn-gold col-span-2" onclick="rapida()">⏩ Combate rápido</button>` : ''}</div>
     ${lutaUI.itens ? `<div class="mt-3 grid grid-cols-2 gap-2">${(l.pocoes || []).map(x => `<button class="btn btn-ghost" onclick="agir('pocao', '${x.id}')">${esc(x.nome)} x${x.qtd}</button>`).join('') || '<p class="lbl col-span-2">Nenhum item de uso. Compre poções e antídotos na Loja.</p>'}</div>
       <p class="lbl mt-2">Usar um item gasta o turno. O Antídoto cura todos os status.</p>` : ''}</div>`;
@@ -614,6 +617,7 @@ function lutaHtml() {
 
 /* Fim da luta: resultado, drops (guardar, vender ou jogar fora) e o que fazer a seguir */
 function resultadoHtml() {
+  if (battle.tipo === 'boneco') return bonecoResHtml(battle);
   const r = battle, drops = (r.drops || []).filter(d => !d._feito);
   const titulo = r.fuga ? 'Você fugiu de' : r.vitoria ? 'Vitória contra' : 'Derrota contra';
   const linha = d => `<div class="py-2 border-t border-line"><div class="flex items-center gap-3">${itemIcon(d)}<div class="min-w-0 flex-1"><div class="text-sm font-semibold truncate ${d.estrelas ? 'text-gold' : ''}">${esc(d.nome)}</div>
@@ -1339,6 +1343,37 @@ function renderPactos() {
   }).join('');
   $('tab-pactos').innerHTML = `<div class="card"><h2>🐲 Pactos</h2><p class="lbl mt-1">Seres míticos que lutam ao seu lado e somam bônus aos seus atributos. Exigem a patente Jonin. Você pode firmar até ${D.max} pactos (${tenho}/${D.max}) e só um acompanha você por vez.
     Fortalecer consome ryos e <b>${esc(D.material)}</b>.</p>${D.liberado ? '' : '<p class="text-sm text-vermil mt-2">Você ainda não é Jonin: os pactos estão bloqueados.</p>'}</div>${cards}`;
+}
+
+/* ───────── Boneco de treino: só serve para testar; não dá XP, ryos, drops nem atributos ───────── */
+const BON = { nivel: 10, dif: 'normal', elemento: 'fogo' };
+function renderBoneco() {
+  const sel = (id, lista, atual) => `<select id="${id}" class="inp mt-1" onchange="BON.${id.slice(3).toLowerCase()} = ${id === 'bonNivel' ? 'Number(this.value)' : 'this.value'}">${lista.map(([v, t]) => `<option value="${v}" ${String(v) === String(atual) ? 'selected' : ''}>${t}</option>`).join('')}</select>`;
+  const niveis = [1, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100].map(n => [n, 'Nível ' + n]);
+  const difs = [['fácil', 'Fácil'], ['normal', 'Normal'], ['difícil', 'Difícil'], ['chefe', 'Chefe']];
+  const els = Object.entries(ELEM).map(([k, [n, e]]) => [k, `${e} ${n}`]);
+  $('tab-boneco').innerHTML = `<div class="card"><h2>🎯 Boneco de treino</h2>
+    <p class="text-sm text-paper/80 mt-2">Um alvo para testar seus golpes, jutsus e a vantagem dos elementos. <b class="text-gold">Treinar aqui não aumenta atributos nem status</b> e não dá XP, ryos, drops, fama, moral nem progresso de missão.</p>
+    <p class="lbl mt-2">Também não gasta energia, vida, chakra nem itens, e o boneco não ataca. Ele não esquiva, então o dano que aparece é o dano real. Para treinar de verdade e evoluir, use o Dojo.</p></div>
+    <div class="card space-y-3"><div><label class="lbl">Nível do boneco (define a defesa dele)</label>${sel('bonNivel', niveis, BON.nivel)}</div>
+      <div><label class="lbl">Dificuldade</label>${sel('bonDif', difs, BON.dif)}</div>
+      <div><label class="lbl">Elemento do boneco</label>${sel('bonElemento', els, BON.elemento)}</div>
+      <button class="btn btn-gold w-full" ${LU ? 'disabled' : ''} onclick="iniciarLuta('/api/boneco/iniciar', { nivel: BON.nivel, dif: BON.dif, elemento: BON.elemento }, 'boneco')">${LU ? 'Termine a luta atual primeiro' : 'Começar teste'}</button></div>`;
+}
+function placarBoneco(l) {
+  const t = l.treino || { golpes: 0, dano: 0, maior: 0, crits: 0, quebras: 0 }, media = t.golpes ? Math.round(t.dano / t.golpes) : 0;
+  return `<div class="card"><h2>Placar do teste</h2><p class="lbl mt-1">Só para medir: nada disto vira XP nem atributo.</p>
+    <div class="grid grid-cols-3 gap-2 mt-3 text-center">${[['Golpes', t.golpes], ['Dano médio', fmt(media)], ['Maior golpe', fmt(t.maior)], ['Dano total', fmt(t.dano)], ['Críticos', t.crits + (t.golpes ? ` (${Math.round(100 * t.crits / t.golpes)}%)` : '')], ['Boneco refeito', t.quebras]]
+      .map(([a, b]) => `<div class="rounded-xl border border-line p-2"><div class="lbl">${a}</div><div class="font-bold text-gold text-sm">${b}</div></div>`).join('')}</div></div>`;
+}
+function bonecoResHtml(r) {
+  const t = r.treino || {};
+  return `<div class="card border-gold"><div class="flex items-center gap-3">${foeIcon(r.inimigo, 'boneco', false, r.elemento)}<div class="min-w-0"><h2>Treino encerrado</h2>
+    <div class="lbl">Nível ${r.nivel}, ${esc(r.dif || '')}, elemento ${esc((ELEM[r.elemento] || [r.elemento])[0])}</div></div></div>
+    <div class="grid grid-cols-3 gap-2 mt-3 text-center">${[['Golpes', t.golpes || 0], ['Dano médio', fmt(t.media || 0)], ['Maior golpe', fmt(t.maior || 0)], ['Dano total', fmt(t.dano || 0)], ['Críticos', t.crits || 0], ['Boneco refeito', t.quebras || 0]]
+      .map(([a, b]) => `<div class="rounded-xl border border-line p-2"><div class="lbl">${a}</div><div class="font-bold text-gold text-sm">${b}</div></div>`).join('')}</div>
+    <p class="text-xs text-paper/70 mt-3">Nada foi ganho nem gasto: nenhum XP, ryo, drop, atributo, vida, chakra ou item.</p></div>
+  <div class="card"><div class="grid grid-cols-1 gap-2"><button class="btn" onclick="fecharRes('boneco')">🎯 Novo teste</button><button class="btn btn-ghost" onclick="fecharRes('menu')">Voltar ao Menu</button></div></div>`;
 }
 
 (async function init() {

@@ -918,6 +918,10 @@ app.include_router(progresso_router)
 from blocos_extra import router as blocos_router  # noqa: E402
 
 app.include_router(blocos_router)
+# Boneco de treino (só testa: não dá nada nem gasta nada)
+from boneco_extra import router as boneco_router  # noqa: E402
+
+app.include_router(boneco_router)
 # Chat (global, guilda e privado) e troca de nome
 from social_reserva import router as social_router  # noqa: E402
 

@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from clas_dados import CLANS
 from vilas_dados import VILAS
 from jutsus_dados import BASICO, ELEMENTOS, JUTSUS, MARCOS, VANTAGEM
+from vilas_mapas_extra import MAPAS_VILA_EXTRA, PRIMEIRO_MAPA_EXTRA
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, object_session
 
@@ -95,7 +96,11 @@ vila_idx = lambda p: (p.village_id - 1) % len(VILAS)  # as vilas são semeadas n
 def mapa_vila(mid: int, vi: int) -> dict:
     """Mapa do nível `mid` com nome, inimigo e chefe da vila: a dificuldade é igual, só a ambientação muda."""
     mp, lista = MAPS_BY_ID[mid], VILAS[vi]["mapas"]
-    if mid > len(lista):  # mapas da Fase 3 ainda não têm versão por vila: usam o nome genérico
+    if mid > len(lista):  # mapas 6 a 15: nomes por vila em vilas_mapas_extra.py (sem entrada, usa o nome genérico)
+        ex = MAPAS_VILA_EXTRA.get(vi, [])
+        if 0 <= mid - PRIMEIRO_MAPA_EXTRA < len(ex):
+            nome, inimigo, chefe, _ = ex[mid - PRIMEIRO_MAPA_EXTRA]
+            return {**mp, "nome": nome, "inimigo": inimigo, "chefe": chefe}
         return dict(mp)
     nome, inimigo, chefe = lista[mid - 1]
     return {**mp, "nome": nome, "inimigo": inimigo, "chefe": chefe}
@@ -103,7 +108,10 @@ def mapa_vila(mid: int, vi: int) -> dict:
 
 def recurso_vila(vi: int, mid: int) -> str:
     rec = VILAS[vi]["recursos"]
-    return rec[mid - 1] if mid <= len(rec) else MAPS_BY_ID[mid]["recurso"]
+    if mid <= len(rec):
+        return rec[mid - 1]
+    ex = MAPAS_VILA_EXTRA.get(vi, [])
+    return ex[mid - PRIMEIRO_MAPA_EXTRA][3] if 0 <= mid - PRIMEIRO_MAPA_EXTRA < len(ex) else MAPS_BY_ID[mid]["recurso"]
 
 # Requisitos de ingresso por clã (nível, rank). Clãs fora da lista usam o padrão.
 CLAN_DATA = {c[1]: {"vila": c[0], "nome": c[1], "atr": c[2], "bonus": c[3], "nivel": c[4], "rank": c[5], "historia": c[6],
@@ -500,7 +508,7 @@ def luta_view(p: Player):
             "nivel": L.get("nivel"), "dif": L.get("dif"), "mapa": L.get("mapa"), "emboscada": bool(L.get("emboscada")),
             "andar": L.get("andar"), "total": L.get("total"), "log_full": L["log"][-40:], "moral": p.moral,
             "status": list(L.get("st", {})) + (["atordoado"] if L.get("me_atordoado") else []),
-            "rapido": L["tipo"] == "pve" and (p.abates or {}).get(L["nome"], 0) >= ABATES_RAPIDO}
+            "rapido": L["tipo"] == "pve" and (p.abates or {}).get(L["nome"], 0) >= ABATES_RAPIDO, "treino": L.get("tr")}
 
 
 def fim_luta(db: Session, p: Player, L: dict, won: bool) -> dict:
@@ -654,6 +662,9 @@ def luta_agir(payload: AgirReq, db: Session = Depends(get_db)):
     p = get_player(db, payload.telegram_id, lock=True)
     if not p.luta:
         raise HTTPException(409, "Você não está em luta.")
+    if p.luta.get("tipo") == "boneco":  # treino no boneco: nada é ganho nem gasto (boneco_extra.py)
+        from boneco_extra import agir_boneco
+        return agir_boneco(db, p, payload)
     L, acao = copy.deepcopy(p.luta), payload.acao
     me = _me(p, L)
     L["turno"] += 1
