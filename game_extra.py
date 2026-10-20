@@ -148,6 +148,7 @@ def extras(telegram_id: int, db: Session = Depends(get_db)):
         "invocacoes": [{"id": ps.summon_id, "nome": ps.summon.name, "nivel": ps.level, "ativo": ps.is_active,
                         "bonus_taijutsu": ps.summon.bonus_taijutsu, "bonus_ninjutsu": ps.summon.bonus_ninjutsu}
                        for ps in p.player_summons],
+        "moral": p.moral, "status": list(p.status_fora or []),
         "mapas": [{"id": m["id"], "nome": m["nome"], "min_level": m["min_level"], "max_level": m["max_level"],
                    "perigo": m["perigo"], "tipo": m["tipo"], "chefe": m["chefe"],
                    "itens": [i[0] for i in m["itens"]]} for m in [mapa_vila(x["id"], vila_idx(p)) for x in MAPS]],
@@ -205,6 +206,95 @@ def golpe(att: dict, dfn: dict, acao: str, poder: float = 1.0, mod: float = 1.0,
     return max(1, int(dmg)), crit, acao == "genjutsu" and random.random() < 0.3
 
 
+# ───────── Fase 2: dificuldade, status, moral e estrelas ─────────
+# Ajuste de balanceamento: (fator dos atributos do inimigo, fator da vida, fator das recompensas) por dificuldade
+DIFICULDADES = {"fácil": (0.70, 0.7, 0.6), "normal": (0.95, 1.0, 1.0), "difícil": (1.15, 1.3, 1.4), "desafiante": (1.35, 1.6, 1.8),
+                "mini-chefe": (1.5, 2.0, 2.5), "chefe": (1.8, 2.8, 3.5), "impossível": (2.6, 4.5, 6.0)}
+MORAL_MAX, ABATES_RAPIDO = 25, 30
+STATUS_INFO = {"queimado": "🔥", "sangrando": "🩸", "congelado": "🧊", "paralisado": "⚡", "atordoado": "💫", "cego": "🕶️"}
+STATUS_TURNOS = {"queimado": 3, "sangrando": 3, "congelado": 1, "paralisado": 2, "cego": 3}
+ELEM_STATUS = {"fogo": "queimado", "agua": "congelado", "raio": "paralisado", "vento": "sangrando", "terra": "cego"}
+ESTRELA_BONUS = {1: 1.25, 2: 1.5, 3: 2.0}
+
+
+def sortear_inimigo(p: Player, mp: dict, chefe_forcado: bool = False):
+    """Escolhe dificuldade e nível do inimigo: variam dentro da faixa do mapa; chefes ficam no topo dela."""
+    lo, hi, r = mp["min_level"], mp["max_level"], random.random()
+    if chefe_forcado or r < 0.07:
+        return "chefe", hi + random.randint(0, 1)
+    if r < 0.075:
+        return "impossível", hi + random.randint(3, 5)
+    if r < 0.155:
+        return "mini-chefe", max(lo, hi - random.randint(0, 2))
+    nivel = random.randint(lo, hi)
+    d = nivel - p.level
+    return ("fácil" if d <= -3 else "normal" if d <= 1 else "difícil" if d <= 3 else "desafiante"), nivel
+
+
+def stats_inimigo(p: Player, nivel: int, dif: str):
+    """Atributos, vida e chakra do inimigo: metade vem do nível dele e metade dos pontos de status do jogador, vezes a dificuldade."""
+    me = effective_stats(p)
+    media = sum(me[a] for a in ATTRS) / len(ATTRS)
+    ratio, hpm, _ = DIFICULDADES[dif]
+    poder = max(3, round((0.5 * (4 + 0.55 * nivel) + 0.5 * media) * ratio))
+    return {a: poder for a in ATTRS}, int((45 + 9 * nivel) * hpm), 40 + 3 * nivel
+
+
+def aplicar_status(L: dict, nome: str) -> None:
+    if nome == "atordoado":
+        L["me_atordoado"] = True
+    else:
+        L.setdefault("st", {})[nome] = STATUS_TURNOS[nome]
+    L["log"].append(f"Você ficou {nome}! {STATUS_INFO[nome]}")
+
+
+def efeitos_turno(p: Player, L: dict) -> bool:
+    """Aplica os status no início do turno do jogador. Retorna True se ele perde o turno."""
+    st, perdeu = L.setdefault("st", {}), False
+    for nome in list(st):
+        if nome in ("queimado", "sangrando"):
+            dano = max(2, int(p.vida_max * (0.04 if nome == "queimado" else 0.03)))
+            p.vida_atual = max(0, p.vida_atual - dano)
+            L["log"].append(f"{STATUS_INFO[nome]} Você sofre {dano} de dano por estar {nome}.")
+        elif nome == "congelado":
+            perdeu = True
+            L["log"].append(f"{STATUS_INFO[nome]} Você está congelado e perde o turno.")
+        elif nome == "paralisado" and random.random() < 0.45:
+            perdeu = True
+            L["log"].append(f"{STATUS_INFO[nome]} Você está paralisado e não consegue agir.")
+        st[nome] -= 1
+        if st[nome] <= 0:
+            del st[nome]
+            L["log"].append(f"Você não está mais {nome}.")
+    return perdeu
+
+
+def sortear_estrelas(moral: int) -> int:
+    """Itens superiores (1 a 3 estrelas) são raros; a moral multiplica a chance em até 3x."""
+    r, f = random.random(), 1 + moral / (MORAL_MAX / 2)
+    return 3 if r < 0.001 * f else 2 if r < 0.005 * f else 1 if r < 0.02 * f else 0
+
+
+def item_view(it: InventoryItem, estrelas: int = 0) -> dict:
+    return {"id": it.id, "nome": it.item_name, "tipo": it.item_type.value, "bonus": it.status_bonus or {}, "valor": valor_venda(it), "estrelas": estrelas}
+
+
+def escolher_acao(p: Player):
+    """IA do combate rápido: cura com vida baixa, antídoto se houver status, senão a técnica mais forte que o chakra paga."""
+    L, pocoes = p.luta, p.pocoes or {}
+    if (L.get("st") or L.get("me_atordoado")) and pocoes.get("antidoto", 0) > 0:
+        return "pocao", "antidoto"
+    if p.vida_atual < 0.35 * p.vida_max:
+        for k in ("vida_g", "vida_m", "vida_p"):
+            if pocoes.get(k, 0) > 0:
+                return "pocao", k
+    pagas = [a for a in _acoes(p, L) if a["custo"] and p.chakra_atual + L.get("reserva", 0) >= a["custo"]]
+    if pagas:
+        a = max(pagas, key=lambda a: (a["mod"], a["custo"]))
+        return a["acao"], a.get("item")
+    return "fisico", None
+
+
 def _linha(quem: str, acao: str, dmg: int, crit: bool, nome: str = None) -> str:
     nome = nome or NOME_ACAO[acao]
     if not dmg:
@@ -233,6 +323,11 @@ def turno_inimigo(L: dict, me: dict, p: Player) -> None:
     L["log"].append(_linha(L["nome"], acao, dmg, crit, nome) + (" Você ficou atordoado!" if stun and dmg else ""))
     if stun and dmg:
         L["me_atordoado"] = True
+    if dmg:  # chance de causar um status negativo, conforme o tipo de golpe
+        ef = (ELEM_STATUS.get(L.get("elemento")) if acao == "ninjutsu" and random.random() < 0.28 else
+              "sangrando" if acao == "fisico" and random.random() < 0.10 else "cego" if acao == "genjutsu" and random.random() < 0.20 else None)
+        if ef and ef not in L.setdefault("st", {}):
+            aplicar_status(L, ef)
 
 
 def _me(p: Player, L: dict) -> dict:
@@ -247,7 +342,10 @@ def iniciar_luta(p: Player, tipo: str, nome: str, stats: dict, hp: int, chakra: 
     L = {"tipo": tipo, "nome": nome, "boss": boss, "stats": stats, "hp": hp, "hp_max": hp, "chakra": chakra,
          "turno": 0, "log": [f"{nome} aparece diante de você."], "defendendo": False, "atordoado": False,
          "me_atordoado": False, "pet": None, "pet_id": None, "meu_elem": p.elemento,
-         "elemento": random.choice(list(ELEMENTOS)), **ctx}
+         "elemento": random.choice(list(ELEMENTOS)), "st": {s: 2 for s in (p.status_fora or []) if s in STATUS_TURNOS}, **ctx}
+    if L["st"]:
+        L["log"].append("Você começa a luta " + ", ".join(L["st"]) + ".")
+    p.status_fora = []
     pet = object_session(p).scalar(select(Pet).where(Pet.player_id == p.id, Pet.ativo.is_(True)))
     if pet:  # a chance de o bônus do pet ativar cresce com a afinidade
         L["pet_id"] = pet.id
@@ -288,15 +386,25 @@ def luta_view(p: Player):
             "turno": L["turno"], "log": L["log"][-8:], "custo": custo_tecnica(_me(p, L)), "tecnica": p.tecnica, "pet": L.get("pet"),
             "escudo": L.get("escudo", 0), "reserva": L.get("reserva", 0), "elemento": L.get("elemento"), "acoes": _acoes(p, L),
             "pocoes": [{"id": k, "nome": POCOES[k][0], "qtd": q} for k, q in (p.pocoes or {}).items()
-                       if q > 0 and k in POCOES and POCOES[k][1] in ("vida", "chakra")]}
+                       if q > 0 and k in POCOES and POCOES[k][1] in ("vida", "chakra", "cura")],
+            "nivel": L.get("nivel"), "dif": L.get("dif"), "mapa": L.get("mapa"), "log_full": L["log"][-40:], "moral": p.moral,
+            "status": list(L.get("st", {})) + (["atordoado"] if L.get("me_atordoado") else []),
+            "rapido": L["tipo"] == "pve" and (p.abates or {}).get(L["nome"], 0) >= ABATES_RAPIDO}
 
 
 def fim_luta(db: Session, p: Player, L: dict, won: bool) -> dict:
     """Aplica recompensas (PvE: XP, ryos, drops, missão, fama; duelo: XP e fama) e encerra a luta."""
     p.luta = None
     p.vida_atual = max(1, p.vida_atual)
+    dif = L.get("dif") or ("chefe" if L["boss"] else "normal")
+    p.status_fora = list(L.get("st", {})) if won else []  # na derrota o hospital leva embora os status
+    if won:
+        p.moral = min(MORAL_MAX, p.moral + 1)
+    else:
+        p.moral = 0  # morrer zera a moral
     res = {"vitoria": won, "chefe": L["boss"], "inimigo": L["nome"], "log": L["log"][-8:], "exp": 5, "ryos": 0,
-           "drops": [], "novo_pet": None, "niveis_ganhos": 0, "xp_reduzido": False, "missao": None}
+           "drops": [], "extras": [], "novo_pet": None, "niveis_ganhos": 0, "xp_reduzido": False, "missao": None,
+           "dif": dif, "nivel": L.get("nivel"), "mapa": L.get("mapa"), "tipo": L["tipo"], "on_mission": L.get("on_mission", False), "moral": p.moral}
     if L["tipo"] == "pvp":
         if won:
             res["exp"] = 4
@@ -310,7 +418,7 @@ def fim_luta(db: Session, p: Player, L: dict, won: bool) -> dict:
             res["clan"] = f"Você foi aceito no {clan.name}!"
     else:
         mp = MAPS_BY_ID[L["mapa"]]
-        mult = 2 if L["boss"] else 1
+        mult = DIFICULDADES[dif][2]
         over = p.level > mp["max_level"]
         res["xp_reduzido"] = over
         if won:
@@ -320,11 +428,23 @@ def fim_luta(db: Session, p: Player, L: dict, won: bool) -> dict:
             p.fama += 5 if L["boss"] else 1
             clan_hooks(db, p, L)
             pet_afinidade(db, L)
+            ab = dict(p.abates or {})
+            ab[L["nome"]] = ab.get(L["nome"], 0) + 1
+            p.abates = ab
+            moral_antes = res["moral"] - 1
             for nome, attr in mp["itens"]:  # drops temáticos: cada mapa solta só o tipo dele
-                if random.random() < 0.25 * mult and bolsa_livre(p, len(res["drops"])):
-                    db.add(InventoryItem(player_id=p.id, item_name=nome, item_type=ItemType(mp["tipo"]),
-                                         status_bonus={attr: 2 * mp["perigo"]}))
-                    res["drops"].append(nome)
+                if random.random() < min(0.9, 0.25 * (0.5 + 0.5 * mult)) and bolsa_livre(p, len(res["drops"])):
+                    est = sortear_estrelas(moral_antes)
+                    bonus = max(1, round(2 * mp["perigo"] * ESTRELA_BONUS.get(est, 1.0)))
+                    it = InventoryItem(player_id=p.id, item_name=nome + (f" (superior {'★' * est})" if est else ""),
+                                       item_type=ItemType(mp["tipo"]), status_bonus={attr: bonus})
+                    db.add(it)
+                    db.flush()
+                    res["drops"].append(item_view(it, est))
+            for pid, chance in (("antidoto", 0.08), ("vida_p", 0.06)):  # consumíveis também caem
+                if random.random() < chance:
+                    p.pocoes = {**(p.pocoes or {}), pid: (p.pocoes or {}).get(pid, 0) + 1}
+                    res["extras"].append(POCOES[pid][0])
             if L["on_mission"]:  # coleta: 70% por vitória; caçada: 1 por vitória; procurado: só ao vencer o chefe
                 mis = mission_for(p.journey + 1, vila_idx(p))
                 gain = {"coleta": int(random.random() < 0.7), "caca": 1, "busca": int(L["boss"])}[mis["tipo"]]
@@ -360,12 +480,13 @@ def explore(payload: ExploreReq, db: Session = Depends(get_db)):
 
     mis = mission_for(player.journey + 1, vila_idx(player))
     on_mission = mis["mapa"] == mp["id"] and player.level >= mis["req_nivel"] and player.journey_prog < mis["qtd"]
-    boss = random.random() < (0.5 if on_mission and mis["tipo"] == "busca" else 0.15)
-    power = int((2 * mp["perigo"] + 3) * (1.25 if boss else 1))
+    dif, nivel = sortear_inimigo(player, mp, on_mission and mis["tipo"] == "busca" and random.random() < 0.5)
+    boss = dif in ("chefe", "impossível")
+    nome = mp["chefe"] if boss else f"{mp['inimigo']} Alfa" if dif == "mini-chefe" else mp["inimigo"]
+    stats, hp, ck = stats_inimigo(player, nivel, dif)
     player.energia -= 1
-    iniciar_luta(player, "pve", mp["chefe"] if boss else mp["inimigo"], {a: power for a in ATTRS},
-                 int((60 + 30 * mp["perigo"]) * (1.4 if boss else 1)), 60 + 20 * mp["perigo"], boss,
-                 mapa=mp["id"], on_mission=on_mission, elemento=elem_mapa(vila_idx(player)))
+    iniciar_luta(player, "pve", nome, stats, hp, ck, boss, mapa=mp["id"], on_mission=on_mission,
+                 elemento=elem_mapa(vila_idx(player)), dif=dif, nivel=nivel)
     db.commit()
     return {"luta": luta_view(player)}
 
@@ -399,21 +520,39 @@ def luta_agir(payload: AgirReq, db: Session = Depends(get_db)):
     L, acao = copy.deepcopy(p.luta), payload.acao
     me = _me(p, L)
     L["turno"] += 1
+    perdeu = efeitos_turno(p, L)
+    if p.vida_atual <= 0:  # morreu por queimadura ou sangramento
+        res = fim_luta(db, p, L, False)
+        db.commit()
+        return {"luta": None, "resultado": res}
     if L["me_atordoado"]:
         L["me_atordoado"] = False
         L["log"].append("Você está atordoado e perde o turno.")
+    elif perdeu:
+        pass  # o motivo (congelado ou paralisado) já foi ao log
     elif acao == "fugir":
         if random.random() < 0.3 + 0.5 * me["agilidade"] / (me["agilidade"] + L["stats"]["agilidade"]):
             p.luta = None
+            p.status_fora = list(L.get("st", {}))
             db.commit()
             return {"luta": None, "resultado": {"vitoria": False, "fuga": True, "chefe": L["boss"], "inimigo": L["nome"],
-                    "log": L["log"][-4:] + ["Você fugiu."], "exp": 0, "ryos": 0, "drops": [], "novo_pet": None,
-                    "niveis_ganhos": 0, "xp_reduzido": False, "missao": None}}
+                    "log": L["log"][-4:] + ["Você fugiu."], "exp": 0, "ryos": 0, "drops": [], "extras": [], "novo_pet": None,
+                    "niveis_ganhos": 0, "xp_reduzido": False, "missao": None, "dif": L.get("dif"), "nivel": L.get("nivel"),
+                    "mapa": L.get("mapa"), "tipo": L["tipo"], "on_mission": L.get("on_mission", False), "moral": p.moral}}
         L["log"].append("Você não conseguiu fugir.")
     elif acao == "pocao":  # usar poção gasta o turno
         if not payload.item:
             raise HTTPException(400, "Escolha uma poção.")
-        L["log"].append("Você usa " + usar_pocao(p, payload.item) + ".")
+        if payload.item == "antidoto":  # cura todos os status da luta
+            if not (L.get("st") or L["me_atordoado"]):
+                raise HTTPException(400, "Você não está com nenhum status negativo.")
+            if (p.pocoes or {}).get("antidoto", 0) <= 0:
+                raise HTTPException(400, "Você não tem Antídoto.")
+            p.pocoes = {**p.pocoes, "antidoto": p.pocoes["antidoto"] - 1}
+            L["st"], L["me_atordoado"] = {}, False
+            L["log"].append("Você usa Antídoto: todos os status foram curados.")
+        else:
+            L["log"].append("Você usa " + usar_pocao(p, payload.item) + ".")
     elif acao == "defender":
         L["defendendo"] = True
         p.chakra_atual = min(p.chakra_max, p.chakra_atual + 2)
@@ -444,6 +583,8 @@ def luta_agir(payload: AgirReq, db: Session = Depends(get_db)):
             p.chakra_atual -= custo - da_reserva
         mod = mod_elem(el, L.get("elemento"))
         dmg, crit, stun = golpe(me, L["stats"], base, poder, mod, crit_extra)
+        if dmg and "cego" in L.get("st", {}) and random.random() < 0.35:  # cegueira: o golpe erra o alvo
+            dmg, crit, stun = 0, False, False
         nota = " Vantagem elemental!" if dmg and mod > 1 else " O elemento do inimigo resiste." if dmg and mod < 1 else ""
         L["log"].append(_linha("Você", base, dmg, crit, nome_golpe) + nota + (" O inimigo ficou atordoado!" if stun and dmg else ""))
         L["hp"] -= dmg
@@ -458,9 +599,29 @@ def luta_agir(payload: AgirReq, db: Session = Depends(get_db)):
         res = fim_luta(db, p, L, False)
         db.commit()
         return {"luta": None, "resultado": res}
+    L["log"] = L["log"][-60:]
     p.luta = L
     db.commit()
     return {"luta": luta_view(p), "resultado": None}
+
+
+@router.post("/api/luta/rapida")
+def luta_rapida(payload: RestReq, db: Session = Depends(get_db)):
+    """Combate rápido: depois de 30 vitórias contra o mesmo inimigo, resolve a luta atual sozinho e devolve o resultado."""
+    p = get_player(db, payload.telegram_id)
+    if not p.luta:
+        raise HTTPException(409, "Você não está em luta.")
+    if p.luta["tipo"] != "pve" or (p.abates or {}).get(p.luta["nome"], 0) < ABATES_RAPIDO:
+        raise HTTPException(403, f"O combate rápido libera após {ABATES_RAPIDO} vitórias contra este inimigo.")
+    for _ in range(80):
+        p = get_player(db, payload.telegram_id)
+        if not p.luta:
+            break
+        acao, item = escolher_acao(p)
+        r = luta_agir(AgirReq(telegram_id=payload.telegram_id, acao=acao, item=item), db)
+        if r.get("resultado"):
+            return r
+    raise HTTPException(500, "A luta não terminou. Continue manualmente.")
 
 
 @router.post("/api/inventory/equip")
@@ -1105,7 +1266,7 @@ RELIQUIAS = {d["reliquia"] for d in CLAN_DATA.values()}  # únicas no mundo: só
 POCOES = {"vida_p": ("Pílula de Vida", "vida", 60, 40, 1), "vida_m": ("Elixir de Vida", "vida", 200, 150, 10),
           "vida_g": ("Néctar de Vida", "vida", 600, 500, 20), "chakra_p": ("Pílula de Chakra", "chakra", 40, 40, 1),
           "chakra_m": ("Elixir de Chakra", "chakra", 120, 150, 10), "chakra_g": ("Néctar de Chakra", "chakra", 400, 500, 20),
-          "energia": ("Pílula de Energia", "energia", 5, 300, 5)}
+          "energia": ("Pílula de Energia", "energia", 5, 300, 5), "antidoto": ("Antídoto", "cura", 0, 80, 1)}
 TAXA_MERCADO = 0.05  # taxa sobre cada venda entre jogadores (some do jogo)
 MAX_ANUNCIOS = 10
 
@@ -1148,6 +1309,12 @@ def usar_pocao(p: Player, pid: str) -> str:
     if qtd <= 0:
         raise HTTPException(400, "Você não tem essa poção.")
     nome, ef, val, _, _ = POCOES[pid]
+    if ef == "cura":  # antídoto fora de luta: limpa os status negativos que seguem com o jogador
+        if not p.status_fora:
+            raise HTTPException(400, "Você não está com nenhum status negativo.")
+        p.status_fora = []
+        p.pocoes = {**p.pocoes, pid: qtd - 1}
+        return f"{nome}: status curados"
     if ef == "vida":
         ganho, p.vida_atual = min(val, p.vida_max - p.vida_atual), min(p.vida_max, p.vida_atual + val)
     elif ef == "chakra":
@@ -1237,6 +1404,17 @@ def loja_vender(payload: ItemReq, db: Session = Depends(get_db)):
     db.delete(it)
     db.commit()
     return {"mensagem": f"Vendido por {valor} ryos."}
+
+
+@router.post("/api/item/descartar")
+def item_descartar(payload: ItemReq, db: Session = Depends(get_db)):
+    p = get_player(db, payload.telegram_id, lock=True)
+    it = _item_proprio(db, p, payload.item_id)
+    if it.item_name in RELIQUIAS:
+        raise HTTPException(403, "Relíquias de clã não podem ser jogadas fora.")
+    db.delete(it)
+    db.commit()
+    return {"mensagem": "Item jogado fora."}
 
 
 @router.post("/api/mercado/anunciar")
@@ -1525,6 +1703,7 @@ def hospital(payload: HospitalReq, db: Session = Depends(get_db)):
         raise HTTPException(409, "O hospital não atende no meio de uma luta.")
     now = datetime.now(timezone.utc)
     info = hospital_info(p)
+    p.status_fora = []  # o hospital cura qualquer status negativo
     if payload.opcao == "gratis":
         falta = p.vida_max - p.vida_atual
         if falta <= 0:

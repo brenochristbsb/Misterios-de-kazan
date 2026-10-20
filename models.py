@@ -223,6 +223,11 @@ class Player(TimestampMixin, Base):
     elemento: Mapped[str] = mapped_column(String(8), default="fogo", nullable=False)
     elementos_extra: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
     jutsus: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    # Moral (0 a 25): +1 por vitória, zera ao morrer; só aumenta a chance de drops melhores
+    moral: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # Vitórias por tipo de inimigo {nome: n} (30 liberam o combate rápido) e status negativos que seguem fora de luta
+    abates: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    status_fora: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
     # Ovos e alimentos de pet em estoque: {id: quantidade}
     ovos: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     alimentos: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)

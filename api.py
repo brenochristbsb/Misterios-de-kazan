@@ -143,6 +143,8 @@ def apply_exp(player: Player, amount: int) -> int:
             livres = [e for e in ELEMENTOS if e != player.elemento and e not in (player.elementos_extra or [])]
             if livres:
                 player.elementos_extra = [*(player.elementos_extra or []), random.choice(livres)]
+    if gained:  # subir de nível enche vida, chakra e energia
+        player.vida_atual, player.chakra_atual, player.energia = player.vida_max, player.chakra_max, 25
     return gained  # o rank sobe pelos exames da Jornada (game_extra.py)
 
 
@@ -560,10 +562,33 @@ def seed_initial_data() -> None:
 # ─────────────────────────────────────────────────────────────
 # App
 # ─────────────────────────────────────────────────────────────
+def ensure_columns() -> None:
+    """Migração leve: o create_all não altera tabelas existentes, então colunas novas do models.py são adicionadas aqui."""
+    from sqlalchemy import inspect, text
+    insp = inspect(engine)
+    for table in Base.metadata.sorted_tables:
+        if not insp.has_table(table.name):
+            continue
+        have = {c["name"] for c in insp.get_columns(table.name)}
+        for col in table.columns:
+            if col.name in have:
+                continue
+            arg = col.default.arg if col.default is not None else None
+            if callable(arg):  # o SQLAlchemy embrulha defaults como dict/list numa função que recebe o contexto
+                try:
+                    arg = arg(None)
+                except TypeError:
+                    arg = arg()
+            lit = "NULL" if arg is None else f"'{json.dumps(arg)}'" if isinstance(arg, (dict, list)) else "1" if arg is True else "0" if arg is False else f"'{arg}'" if isinstance(arg, str) else str(arg)
+            with engine.begin() as con:
+                con.execute(text(f'ALTER TABLE "{table.name}" ADD COLUMN "{col.name}" {col.type.compile(engine.dialect)} DEFAULT {lit}'))
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     # Em produção prefira migrações (Alembic) a create_all
     Base.metadata.create_all(bind=engine)
+    ensure_columns()
     seed_initial_data()
     yield
 

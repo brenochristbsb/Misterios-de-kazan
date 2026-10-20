@@ -155,6 +155,8 @@
     <div id="avGrid" class="grid grid-cols-6 gap-2 mt-3"></div></div>
 </div>
 
+<div id="lutaBox" class="hidden fixed inset-0 overflow-y-auto p-4" style="z-index:36;background:#0c0b0d;padding-top:calc(env(safe-area-inset-top,0px) + 1rem);padding-bottom:calc(env(safe-area-inset-bottom,0px) + 1rem)"></div>
+
 <div id="toast" class="hidden fixed left-4 right-4 z-50 rounded-xl px-4 py-3 text-sm font-semibold shadow-xl"></div>
 
 <script>
@@ -254,7 +256,7 @@ function renderHeader() {
 function render() {
   renderHeader();
   renderPerfil(); renderJornada(); renderMapas(); renderVila(); renderGuilda();
-  renderJutsus(); renderMenu(); renderBolsa(); renderAtributos(); renderStatus(); renderOpcoes(); renderTreino(); renderHospital();
+  renderJutsus(); renderMenu(); renderBolsa(); renderAtributos(); renderStatus(); renderOpcoes(); renderLutaBox(); renderTreino(); renderHospital();
 }
 
 /* Perfil: atributos (com treino), equipamento e invocações */
@@ -298,7 +300,7 @@ function renderBolsa() {
       <p class="lbl mt-3">Para vender ou anunciar, use a aba Mochila da Loja.</p></div>`;
   } else if (boSec === 'consumiveis') {
     const ef = { vida: 'de vida', chakra: 'de chakra', energia: 'de energia' };
-    body = `<div class="card"><h2>Consumíveis</h2>${BO.consumiveis.map(c => row(`<div class="text-sm font-semibold truncate">${esc(c.nome)} <span class="tag">x${c.qtd}</span></div>`, `+${c.valor} ${ef[c.efeito]}`,
+    body = `<div class="card"><h2>Consumíveis</h2>${BO.consumiveis.map(c => row(`<div class="text-sm font-semibold truncate">${esc(c.nome)} <span class="tag">x${c.qtd}</span></div>`, c.efeito === 'cura' ? 'cura status negativos' : `+${c.valor} ${ef[c.efeito]}`,
       `<button class="chip" ${LU ? 'disabled' : ''} onclick="act('/api/pocao/usar', { pocao: '${c.id}' }, r => r.mensagem)">Usar</button>`)).join('') || '<p class="lbl mt-2">Nenhuma poção. Compre na Loja.</p>'}
       <p class="lbl mt-3">Poções empilham e não ocupam espaço na mochila.</p></div>`;
   } else if (boSec === 'materiais') {
@@ -359,9 +361,10 @@ function renderAtributos() {
 }
 function renderStatus() {
   const pat = X.patente;
-  const rec = [['Dinheiro', fmt(P.ryos) + ' ryos'], ['Fama', fmt(P.fama)], ['Troféus', '0'], ['Moedas da Arena', '0'], ['Moedas VIP', '0']].map(([a, b]) =>
+  const rec = [['Dinheiro', fmt(P.ryos) + ' ryos'], ['Fama', fmt(P.fama)], ['Troféus', '0'], ['Moedas da Arena', '0'], ['Moedas VIP', '0'], ['Moral', `${X.moral}/25`]].map(([a, b]) =>
     `<div class="rounded-xl border border-line p-2.5"><div class="lbl">${a}</div><div class="font-bold text-gold">${b}</div></div>`).join('');
-  $('tab-status').innerHTML = `<div class="card"><h2>Recursos</h2><div class="grid grid-cols-2 gap-2 mt-3">${rec}</div><button class="chip mt-3" onclick="showTab('ranking')">Ver rankings</button></div>
+  const neg = (X.status || []).length ? `<div class="card border-vermil"><h2>Status negativos</h2><div class="flex gap-1.5 flex-wrap mt-2">${X.status.map(s => `<span class="tag red">${STATUS_EMO[s]} ${s}</span>`).join('')}</div><p class="lbl mt-2">Eles seguem para a próxima luta. Use um Antídoto na Mochila ou procure o Hospital.</p></div>` : '';
+  $('tab-status').innerHTML = `${neg}<div class="card"><h2>Recursos</h2><div class="grid grid-cols-2 gap-2 mt-3">${rec}</div><button class="chip mt-3" onclick="showTab('ranking')">Ver rankings</button></div>
     <div class="card"><h2>Patente: ${esc(pat.atual)}</h2><p class="text-sm text-paper/70 mt-2">${pat.proxima ? `Próxima: <b class="text-gold">${esc(pat.proxima)}</b>. ` : ''}${esc(pat.texto)}</p></div>`;
 }
 function renderOpcoes() {
@@ -406,13 +409,7 @@ const entregar = escolha => act('/api/jornada/entregar', { escolha }, r =>
 /* Mapas: cada um tem faixa de nível ideal e um tipo de drop */
 function renderMapas() {
   const ideal = [...X.mapas].reverse().find(m => P.level >= m.min_level && P.level <= m.max_level);
-  const bt = battle ? `<div class="card border-${battle.vitoria ? 'gold' : 'vermil'}"><div class="flex justify-between items-center">
-      <h2>${battle.fuga ? 'Você fugiu de' : battle.vitoria ? 'Vitória contra' : 'Derrota contra'} ${esc(battle.inimigo)}</h2>${battle.chefe ? '<span class="tag red">Chefe</span>' : ''}</div>
-      <div class="text-xs text-paper/70 mt-2 max-h-28 overflow-y-auto">${battle.log.map(esc).join('<br>')}</div>
-      <div class="text-sm mt-2">+${battle.exp} XP${battle.ryos ? `, +${fmt(battle.ryos)} ryos` : ''}${battle.drops.length ? `. Itens: ${battle.drops.map(esc).join(', ')}` : ''}${battle.niveis_ganhos ? '. Subiu de nível!' : ''}</div>
-      ${battle.missao ? `<div class="text-xs text-gold mt-1">Missão: ${battle.missao.progresso} de ${battle.missao.qtd}</div>` : ''}
-      ${battle.xp_reduzido ? '<p class="text-xs text-vermil mt-1">Você já passou da faixa deste mapa: o XP é reduzido.</p>' : ''}</div>` : '';
-  $('tab-mapas').innerHTML = LU ? lutaHtml() : bt + X.mapas.map(m => {
+  $('tab-mapas').innerHTML = X.mapas.map(m => {
     const locked = P.level < m.min_level, over = P.level > m.max_level;
     const state = locked ? `<span class="tag">Libera no nível ${m.min_level}</span>`
       : over ? '<span class="tag red">Acima da faixa: XP reduzido</span>' : '<span class="tag gold">Faixa ideal</span>';
@@ -424,42 +421,115 @@ function renderMapas() {
   }).join('');
 }
 async function iniciarLuta(path, body) {
-  try { battle = null; await api(path, { telegram_id: tgUser.id, ...body }); showTab('mapas'); await refresh(); } catch (e) { toast(e.message, false); }
+  try { battle = null; await api(path, { telegram_id: tgUser.id, ...body }); showTab('mapas'); await refresh(); } catch (e) { toast(e.message, false); render(); }
 }
 const explore = id => iniciarLuta('/api/maps/explore', { map_id: id });
 const duelar = nome => iniciarLuta('/api/pvp/desafiar', { alvo: nome });
-async function agir(acao, item) {
-  try {
-    const r = await api('/api/luta/agir', { telegram_id: tgUser.id, acao, item });
-    if (r.resultado) {
-      battle = r.resultado;
-      tg?.HapticFeedback?.impactOccurred?.(battle.vitoria ? 'heavy' : 'light');
-      toast(battle.clan || (battle.elemento_novo ? `Você despertou o elemento ${ELEM[battle.elemento_novo][0]}!` : battle.fuga ? 'Você fugiu.' : battle.vitoria ? 'Vitória!' : 'Derrota.'), !!battle.vitoria);
-    }
-    await refresh();
-  } catch (e) { toast(e.message, false); }
+/* ───────── Luta em tela cheia ───────── */
+let lutaUI = { itens: false, log: false };
+const STATUS_EMO = { queimado: '🔥', sangrando: '🩸', congelado: '🧊', paralisado: '⚡', atordoado: '💫', cego: '🕶️' };
+const DIF_TAG = { 'fácil': 'tag', normal: 'tag', 'difícil': 'tag gold', desafiante: 'tag gold', 'mini-chefe': 'tag red', chefe: 'tag red', 'impossível': 'tag red' };
+const slug = s => String(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+/* Imagem do inimigo: img/inimigos/<nome>.jpg; sem arquivo, usa um emoji que combina com o nome */
+const FOE_EMOJI = [['salamandra', '🦎'], ['aranha', '🕷️'], ['colosso', '🗿'], ['raposa', '🦊'], ['falcao', '🦅'], ['morcego', '🦇'], ['caranguejo', '🦀'], ['polvo', '🐙'], ['javali', '🐗'],
+  ['lobo', '🐺'], ['serpente', '🐍'], ['guardiao', '🛡️'], ['mestre', '🧙'], ['sentinela', '💂'], ['espiao', '🥷'], ['assassino', '🥷'], ['sombra', '👤'], ['monge', '🧘'], ['arqueiro', '🏹'],
+  ['pescador', '🎣'], ['mergulhador', '🤿'], ['pirata', '🏴‍☠️'], ['mineiro', '⛏️'], ['aprendiz', '🥋'], ['cacador', '🎯'], ['corredor', '🏃'], ['batedor', '🔭'], ['vigia', '👁️'], ['ninja', '🥷']];
+function foeIcon(nome, tipo, chefe, elem, cls = 'w-14 h-14 text-3xl') {
+  const s = slug(nome), hit = FOE_EMOJI.find(([k]) => s.includes(k));
+  const emo = tipo === 'pvp' ? '⚔️' : tipo === 'clan' ? '🏯' : hit ? hit[1] : chefe ? '👹' : ELEM[elem] ? ELEM[elem][1] : '🥷';
+  return `<div class="seal foe ${cls} shrink-0 relative overflow-hidden"><span>${emo}</span><img src="img/inimigos/${s}.jpg" alt="" class="absolute inset-0 w-full h-full object-cover" onerror="this.remove()"></div>`;
 }
+const ITEM_EMO = { Arma: '⚔️', Armadura: '🥋', Botas: '👢', Luvas: '🧤', Colar: '📿', Anel: '💍', Pergaminho: '📜' };
+const itemIcon = (it, cls = 'w-12 h-12 text-2xl') => `<div class="seal ${cls} shrink-0 relative overflow-hidden"><span>${ITEM_EMO[it.tipo] || '🎁'}</span><img src="img/itens/${slug(it.nome)}.jpg" alt="" class="absolute inset-0 w-full h-full object-cover" onerror="this.remove()"></div>`;
+
+function renderLutaBox() {
+  const box = $('lutaBox'), on = !!(LU || battle);
+  box.classList.toggle('hidden', !on);
+  document.body.style.overflow = on ? 'hidden' : '';
+  if (on) box.innerHTML = `<div class="max-w-md mx-auto space-y-3">${LU ? lutaHtml() : resultadoHtml()}</div>`;
+}
+function pos(r) {  // trata o resultado de uma luta que acabou
+  if (!r.resultado) return;
+  battle = r.resultado; lutaUI = { itens: false, log: false };
+  tg?.HapticFeedback?.impactOccurred?.(battle.vitoria ? 'heavy' : 'light');
+  toast(battle.clan || (battle.elemento_novo ? `Você despertou o elemento ${ELEM[battle.elemento_novo][0]}!` : battle.fuga ? 'Você fugiu.' : battle.vitoria ? 'Vitória!' : 'Derrota.'), !!battle.vitoria);
+}
+async function agir(acao, item) {
+  try { lutaUI.itens = false; pos(await api('/api/luta/agir', { telegram_id: tgUser.id, acao, item })); await refresh(); } catch (e) { toast(e.message, false); }
+}
+async function rapida() {
+  try { pos(await api('/api/luta/rapida', { telegram_id: tgUser.id })); await refresh(); } catch (e) { toast(e.message, false); }
+}
+const lutaTgl = k => { lutaUI[k] = !lutaUI[k]; renderLutaBox(); };
 const abtn = a => {
   const sem = P.chakra.atual + (LU.reserva || 0) < a.custo, tag = a.mod > 1 ? ' ▲' : a.mod < 1 ? ' ▼' : '';
   return `<button class="btn ${a.mod > 1 ? 'btn-gold' : ''}" ${sem ? 'disabled' : ''} onclick="agir('${a.acao}'${a.item ? `, '${a.item}'` : ''})">${a.elem ? ELEM[a.elem][1] + ' ' : ''}${esc(a.nome)}${a.custo ? ` (${a.custo})` : ''}${tag}</button>`;
 };
 function lutaHtml() {
-  const l = LU, pc = (a, b) => Math.max(0, Math.round(100 * a / b)) + '%', sem = P.chakra.atual + (l.reserva || 0) < l.custo;
-  return `<div class="card border-vermil"><div class="flex justify-between items-center"><div class="flex items-center gap-3 min-w-0"><div class="seal foe w-12 h-12 text-2xl shrink-0">${l.chefe ? '👹' : l.tipo === 'pvp' ? '⚔️' : l.tipo === 'clan' ? '🏯' : '🐺'}</div><h2 class="truncate">${esc(l.inimigo)}</h2></div>
-      ${l.chefe ? '<span class="tag red">Chefe</span>' : l.tipo === 'pvp' ? '<span class="tag gold">Duelo</span>' : ''}</div>
-    <div class="flex justify-between text-xs mt-3 mb-1"><span>Vida do inimigo ${ELEM[l.elemento] ? ELEM[l.elemento][1] + ' ' + ELEM[l.elemento][0] : ''}</span><span>${l.hp}/${l.hp_max}</span></div>
-    <div class="bar"><i class="bg-vermil" style="width:${pc(l.hp, l.hp_max)}"></i></div>
-    <div class="grid grid-cols-2 gap-3 mt-3 text-xs"><div><div class="flex justify-between mb-1"><span>Sua vida</span><span>${P.vida.atual}/${P.vida.max}</span></div><div class="bar"><i class="bg-gradient-to-r from-red-900 to-vermil" style="width:${pc(P.vida.atual, P.vida.max)}"></i></div></div>
+  const l = LU, pc = (a, b) => Math.max(0, Math.round(100 * a / b)) + '%';
+  const meus = (l.status || []).map(s => `<span class="tag red">${STATUS_EMO[s]} ${s}</span>`).join(' ');
+  const linhas = (lutaUI.log ? l.log_full : l.log.slice(-5)).map(x => `<div class="${/^Você/.test(x) ? 'log-me' : ''} ${/crítico/.test(x) ? 'log-crit' : ''}">${esc(x)}</div>`).join('');
+  const temAnt = (l.pocoes || []).some(x => x.id === 'antidoto');
+  return `<div class="card border-vermil"><div class="flex items-center gap-3">${foeIcon(l.inimigo, l.tipo, l.chefe, l.elemento)}
+      <div class="min-w-0"><h2 class="truncate">${esc(l.inimigo)}${l.nivel ? ` <span class="text-gold">lvl ${l.nivel}</span>` : ''}</h2>
+        <div class="flex gap-1.5 mt-1 flex-wrap">${l.dif ? `<span class="${DIF_TAG[l.dif] || 'tag'}">${l.dif}</span>` : l.tipo === 'pvp' ? '<span class="tag gold">Duelo</span>' : ''}${ELEM[l.elemento] ? `<span class="tag">${ELEM[l.elemento][1]} ${ELEM[l.elemento][0]}</span>` : ''}</div></div></div>
+    <div class="flex justify-between text-xs mt-3 mb-1"><span>Vida do inimigo</span><span>${l.hp}/${l.hp_max}</span></div>
+    <div class="bar"><i class="bg-vermil" style="width:${pc(l.hp, l.hp_max)}"></i></div></div>
+  <div class="card"><div class="grid grid-cols-2 gap-3 text-xs"><div><div class="flex justify-between mb-1"><span>Sua vida</span><span>${P.vida.atual}/${P.vida.max}</span></div><div class="bar"><i class="bg-gradient-to-r from-red-900 to-vermil" style="width:${pc(P.vida.atual, P.vida.max)}"></i></div></div>
       <div><div class="flex justify-between mb-1"><span>Chakra</span><span>${P.chakra.atual}/${P.chakra.max}</span></div><div class="bar"><i class="bg-chakra" style="width:${pc(P.chakra.atual, P.chakra.max)}"></i></div></div></div>
-    ${l.escudo || l.reserva ? `<div class="text-xs text-gold mt-2">Bônus de vigor e chakra: escudo de ${l.escudo} de vida e reserva de ${l.reserva} de chakra.</div>` : ''}
+    ${meus ? `<div class="flex gap-1.5 flex-wrap mt-2">${meus}</div>` : ''}
+    ${l.escudo || l.reserva ? `<div class="text-xs text-gold mt-2">Escudo de ${l.escudo} de vida e reserva de ${l.reserva} de chakra.</div>` : ''}
     ${l.pet ? `<div class="text-xs text-gold mt-1">${esc(l.pet.nome)} ativo: +${l.pet.n} ${esc(attrNome(l.pet.attr))}.</div>` : ''}
-    <div class="text-xs text-paper/70 mt-3 space-y-1 max-h-36 overflow-y-auto">${l.log.map(x => `<div class="${/^Você/.test(x) ? 'log-me' : ''} ${/crítico/.test(x) ? 'log-crit' : ''}">${esc(x)}</div>`).join('')}</div>
-    <div class="grid grid-cols-2 gap-2 mt-4">${(l.acoes || []).map(a => abtn(a)).join('')}
-            ${l.tecnica ? `<button class="btn col-span-2" ${P.chakra.atual + (l.reserva || 0) < l.custo * 3 ? 'disabled' : ''} onclick="agir('secreta')">${esc(l.tecnica)} (${l.custo * 3} de chakra)</button>` : ''}
-      <button class="btn btn-ghost" onclick="agir('defender')">Defender</button>
-      ${(l.pocoes || []).map(x => `<button class="btn btn-ghost" onclick="agir('pocao', '${x.id}')">${esc(x.nome)} x${x.qtd}</button>`).join('')}
-      <button class="btn btn-ghost col-span-2" onclick="agir('fugir')">Fugir</button></div></div>`;
+    <div class="text-xs text-paper/70 mt-3 space-y-1 ${lutaUI.log ? 'max-h-60' : 'max-h-28'} overflow-y-auto">${linhas}</div></div>
+  <div class="card"><div class="grid grid-cols-2 gap-2">${(l.acoes || []).map(a => abtn(a)).join('')}
+      ${l.tecnica ? `<button class="btn col-span-2" ${P.chakra.atual + (l.reserva || 0) < l.custo * 3 ? 'disabled' : ''} onclick="agir('secreta')">${esc(l.tecnica)} (${l.custo * 3} de chakra)</button>` : ''}
+      <button class="btn btn-ghost" onclick="agir('defender')">🛡️ Defender</button>
+      <button class="btn btn-ghost ${lutaUI.itens ? 'on' : ''}" onclick="lutaTgl('itens')">🎒 Itens${temAnt && (l.status || []).length ? ' ❗' : ''}</button>
+      <button class="btn btn-ghost" onclick="lutaTgl('log')">📜 ${lutaUI.log ? 'Menos log' : 'Ver log'}</button>
+      <button class="btn btn-ghost" onclick="agir('fugir')">🏃 Fugir</button>
+      ${l.rapido ? `<button class="btn btn-gold col-span-2" onclick="rapida()">⏩ Combate rápido</button>` : ''}</div>
+    ${lutaUI.itens ? `<div class="mt-3 grid grid-cols-2 gap-2">${(l.pocoes || []).map(x => `<button class="btn btn-ghost" onclick="agir('pocao', '${x.id}')">${esc(x.nome)} x${x.qtd}</button>`).join('') || '<p class="lbl col-span-2">Nenhum item de uso. Compre poções e antídotos na Loja.</p>'}</div>
+      <p class="lbl mt-2">Usar um item gasta o turno. O Antídoto cura todos os status.</p>` : ''}</div>`;
 }
+
+/* Fim da luta: resultado, drops (guardar, vender ou jogar fora) e o que fazer a seguir */
+function resultadoHtml() {
+  const r = battle, drops = (r.drops || []).filter(d => !d._feito);
+  const titulo = r.fuga ? 'Você fugiu de' : r.vitoria ? 'Vitória contra' : 'Derrota contra';
+  const linha = d => `<div class="py-2 border-t border-line"><div class="flex items-center gap-3">${itemIcon(d)}<div class="min-w-0 flex-1"><div class="text-sm font-semibold truncate ${d.estrelas ? 'text-gold' : ''}">${esc(d.nome)}</div>
+      <div class="text-xs text-gold truncate">${esc(bonusTxt(d.bonus))}</div></div></div>
+    <div class="grid grid-cols-3 gap-2 mt-2"><button class="chip" onclick="dropAcao(${d.id}, 'guardar')">Guardar</button><button class="chip" onclick="dropAcao(${d.id}, 'vender')">Vender ${fmt(d.valor)}</button><button class="chip" onclick="dropAcao(${d.id}, 'jogar')">Jogar fora</button></div></div>`;
+  const podeCont = r.tipo === 'pve' && r.mapa, semEn = P.energia < 1 || P.vida.atual < 10;
+  const feridoDemais = P.vida.atual < 0.4 * P.vida.max;
+  return `<div class="card border-${r.vitoria ? 'gold' : 'vermil'}"><div class="flex items-center gap-3">${foeIcon(r.inimigo, r.tipo, r.chefe, null)}
+      <div class="min-w-0"><h2>${titulo} ${esc(r.inimigo)}${r.nivel ? ` <span class="text-gold">lvl ${r.nivel}</span>` : ''}</h2>
+      <div class="flex gap-1.5 mt-1">${r.dif ? `<span class="${DIF_TAG[r.dif] || 'tag'}">${r.dif}</span>` : ''}${r.chefe ? '<span class="tag red">Chefe</span>' : ''}</div></div></div>
+    <div class="text-xs text-paper/70 mt-3 max-h-24 overflow-y-auto">${(r.log || []).map(esc).join('<br>')}</div>
+    <div class="text-sm mt-3">+${fmt(r.exp)} XP${r.ryos ? `, +${fmt(r.ryos)} ryos` : ''}</div>
+    ${r.niveis_ganhos ? '<div class="text-sm text-gold mt-1">Subiu de nível! Vida, chakra e energia restaurados.</div>' : ''}
+    ${(r.extras || []).length ? `<div class="text-sm mt-1">Você também encontrou: ${r.extras.map(esc).join(', ')}.</div>` : ''}
+    ${r.missao ? `<div class="text-xs text-gold mt-1">Missão: ${r.missao.progresso} de ${r.missao.qtd}</div>` : ''}
+    ${r.xp_reduzido ? '<p class="text-xs text-vermil mt-1">Você já passou da faixa deste mapa: o XP é reduzido.</p>' : ''}
+    <div class="flex justify-between lbl mt-3"><span>Moral</span><span>${r.moral}/25</span></div><div class="bar mt-1"><i class="bg-gold" style="width:${pct(r.moral, 25)}"></i></div>
+    ${r.vitoria === false && !r.fuga ? '<p class="text-xs text-vermil mt-2">Você caiu em combate: a moral voltou a zero.</p>' : ''}</div>
+  ${drops.length ? `<div class="card"><h2>Drops</h2><p class="lbl mt-1">Os itens já estão na sua mochila. Escolha o que fazer com cada um.</p>${drops.map(linha).join('')}</div>` : ''}
+  <div class="card"><h2>O que fazer agora?</h2><div class="grid grid-cols-1 gap-2 mt-3">
+    ${podeCont ? `<button class="btn ${feridoDemais ? 'btn-ghost' : ''}" ${semEn ? 'disabled' : ''} onclick="continuar(${r.mapa})">${r.on_mission ? '⚔️ Continuar missão' : '⚔️ Continuar caçada'}${semEn ? ' (sem energia ou vida)' : ''}</button>` : ''}
+    <button class="btn ${feridoDemais ? '' : 'btn-ghost'}" onclick="fecharRes('hospital')">🏥 Ir ao Hospital${feridoDemais ? ' (vida baixa)' : ''}</button>
+    <button class="btn btn-ghost" onclick="fecharRes('mapas')">Voltar ao Portão</button></div></div>`;
+}
+async function dropAcao(id, tipo) {
+  const d = battle.drops.find(x => x.id === id);
+  if (!d) return;
+  try {
+    if (tipo === 'vender') toast((await api('/api/loja/vender', { telegram_id: tgUser.id, item_id: id })).mensagem, true);
+    else if (tipo === 'jogar') toast((await api('/api/item/descartar', { telegram_id: tgUser.id, item_id: id })).mensagem, true);
+    else toast('Guardado na mochila.', true);
+    d._feito = true; await refresh();
+  } catch (e) { toast(e.message, false); }
+}
+function fecharRes(tab) { battle = null; showTab(tab); render(); }
+function continuar(mapa) { battle = null; explore(mapa); }
 
 /* Vila: reputação, clã e descanso */
 function renderVila() {
@@ -493,7 +563,7 @@ function renderLoja() {
   } else if (ljSec === 'pocoes') {
     const ef = { vida: 'de vida', chakra: 'de chakra', energia: 'de energia' };
     body = `<div class="card"><h2>Poções</h2><p class="lbl mt-1">Em luta, usar uma poção gasta o turno. A Pílula de Energia só serve fora de luta.</p>
-      ${LJ.pocoes.map(p => row(`<div class="text-sm font-semibold truncate">${esc(p.nome)} <span class="tag">x${p.qtd}</span></div>`, `+${p.valor} ${ef[p.efeito]}. Nível ${p.nivel}`,
+      ${LJ.pocoes.map(p => row(`<div class="text-sm font-semibold truncate">${esc(p.nome)} <span class="tag">x${p.qtd}</span></div>`, (p.efeito === 'cura' ? 'Cura status negativos' : `+${p.valor} ${ef[p.efeito]}`) + `. Nível ${p.nivel}`,
         `<div class="flex gap-1.5"><button class="chip" ${p.qtd && !LU ? '' : 'disabled'} onclick="lj('/api/pocao/usar', { pocao: '${p.id}' }, r => r.mensagem)">Usar</button>
          <button class="chip" ${p.pode && P.ryos >= p.preco ? '' : 'disabled'} onclick="lj('/api/loja/comprar', { produto: '${p.id}' }, r => r.mensagem)">${fmt(p.preco)}</button></div>`)).join('')}</div>`;
   } else if (ljSec === 'vender') {
