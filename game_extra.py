@@ -465,15 +465,17 @@ def luta_agir(payload: AgirReq, db: Session = Depends(get_db)):
 
 @router.post("/api/inventory/equip")
 def equip(payload: EquipReq, db: Session = Depends(get_db)):
-    """Equipa/desequipa um item. Apenas um item equipado por tipo (arma, armadura, pergaminho)."""
+    """Equipa/desequipa um item. Um item equipado por tipo; anéis aceitam dois."""
     player = get_player(db, payload.telegram_id, lock=True)
     item = next((i for i in player.inventory if i.id == payload.item_id), None)
     if item is None:
         raise HTTPException(404, "Item não encontrado no seu inventário.")
     if payload.equipar:
-        for other in player.inventory:
-            if other.item_type == item.item_type:
-                other.is_equipped = False
+        # Um item equipado por tipo; anéis aceitam dois (o equipado há mais tempo, de menor id, sai primeiro)
+        limite = MAX_EQUIP.get(item.item_type.value, 1)
+        iguais = sorted((o for o in player.inventory if o.item_type == item.item_type and o.is_equipped and o.id != item.id), key=lambda o: o.id)
+        for other in iguais[:max(0, len(iguais) - (limite - 1))]:
+            other.is_equipped = False
     item.is_equipped = payload.equipar
     db.commit()
     return {"ok": True}
@@ -1466,9 +1468,10 @@ def pet_soltar(payload: PetReq, db: Session = Depends(get_db)):
     return {"mensagem": f"{nome} voltou à natureza."}
 
 
-# ───────── Esqueleto novo: bolsa (39 itens), patente e Hospital ─────────
-BOLSA_MAX = 39  # equipamentos, materiais e itens de quest; poções empilham fora desse limite
-SLOTS = ["Arma", "Armadura", "Botas", "Luvas", "Colar", "Anel", "Pergaminho"]
+# ───────── Esqueleto novo: bolsa (30 itens), patente e Hospital ─────────
+BOLSA_MAX = 30  # equipamentos, materiais e itens de quest; poções empilham fora desse limite
+SLOTS = ["Arma", "Armadura", "Botas", "Luvas", "Colar", "Anel", "Anel", "Pergaminho"]  # dois anéis
+MAX_EQUIP = {"Anel": 2}  # tipos que aceitam mais de um item equipado
 HOSPITAL_GRATIS_CD = 600  # segundos entre curas gratuitas
 BUFFS_HOSPITAL = [("Bênção do Tigre", "forca"), ("Bênção do Falcão", "agilidade"), ("Bênção da Tartaruga", "defesa"),
                   ("Bênção da Serpente", "genjutsu"), ("Bênção da Fênix", "ninjutsu"), ("Bênção do Urso", "taijutsu"),
