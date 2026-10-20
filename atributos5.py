@@ -44,6 +44,10 @@ POOL = {
 
 ESCALA_DANO = 0.68
 
+# Bloco 3: dano verdadeiro é só do Bisturi de Chakra (golpe com dano_verdadeiro=True).
+# True devolve o comportamento antigo (todo ataque do Ninja Médico ignorando o Vigor).
+MEDICO_BASICO_VERDADEIRO = False
+
 MULT_CLASSE = {
     "taijutsu": 1.0,
     "ninjutsu": 1.0,
@@ -112,6 +116,7 @@ def golpe_estado(
     crit_extra: float = 0.0,
     rng: Optional[random.Random] = None,
     estado_luta: Optional[EstadoLuta] = None,
+    dano_verdadeiro: Optional[bool] = None,
 ):
     """
     Executa um golpe e retorna (dano, crítico, atordoa, estado_luta).
@@ -156,14 +161,16 @@ def golpe_estado(
 
     # 2. Mitigação.
     regra = CLASSES.get(classe, {})
-    vig = 0 if regra.get("dano_verdadeiro") else d["vig"]
+    if dano_verdadeiro is None:  # sem pedido explícito: regra da classe (Ninja Médico só se MEDICO_BASICO_VERDADEIRO)
+        dano_verdadeiro = bool(regra.get("dano_verdadeiro")) and MEDICO_BASICO_VERDADEIRO
+    vig = 0 if dano_verdadeiro else d["vig"]  # dano verdadeiro: o Vigor não entra, nem reduz uma segunda vez
     mitig = 100 / (100 + vig) if vig > -100 else 1.0
 
     # 3. Modificador elemental.
     if regra.get("ignora_elemento"):
         elem = 1.0
     elif mod > 1:
-        elem = regra.get("bonus_elemental", 1.25)
+        elem = 1.25 if classe == "marionetista" else regra.get("bonus_elemental", 1.25)  # bônus exclusivo é do Ninjutsu
     elif mod < 1:
         elem = 0.75
     else:
@@ -199,9 +206,9 @@ def golpe_estado(
     return dano_final, crit, atordoa, estado_luta
 
 
-def golpe(att, dfn, acao, poder=1.0, mod=1.0, crit_extra=0.0, rng=None):
+def golpe(att, dfn, acao, poder=1.0, mod=1.0, crit_extra=0.0, rng=None, dano_verdadeiro=None):
     """Interface usada por game_extra.golpe: devolve (dano, crítico, atordoa)."""
-    dano, crit, atordoa, _ = golpe_estado(att, dfn, acao, poder, mod, crit_extra, rng)
+    dano, crit, atordoa, _ = golpe_estado(att, dfn, acao, poder, mod, crit_extra, rng, dano_verdadeiro=dano_verdadeiro)
     return dano, crit, atordoa
 
 

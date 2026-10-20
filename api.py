@@ -937,6 +937,10 @@ app.include_router(boneco_router)
 from classes_extra import router as classes_router  # noqa: E402
 
 app.include_router(classes_router)
+# Bloco 3: marionete (módulos/especialização) e passiva médica
+from bloco3_extra import router as bloco3_router  # noqa: E402
+
+app.include_router(bloco3_router)
 # VIP Shinobi/Shogun (compra com Ouro Ninja)
 from vip_passe import router as vip_router  # noqa: E402
 

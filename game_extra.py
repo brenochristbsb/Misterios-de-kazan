@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session, object_session
 from api import ATTRS, NO_CLAN_NAME, active_summon_link, apply_exp, as_utc, effective_stats, get_db, get_player, rank_titulo
 import atributos5
 import bloco4
+import classes_bloco3 as b3  # Bloco 3: Marionetista e Ninja Médico (regras puras)
 from vip_passe import multiplicador_ryos, multiplicador_xp  # bônus do VIP (Shinobi/Shogun)
 from models import BossThreat, Clan, Guild, InventoryItem, ItemType, MarketListing, NinjaRank, Pet, Player, PlayerSummon, QuestInventory, Summon, Village
 
@@ -280,7 +281,8 @@ NOME_ACAO = {"fisico": "um golpe físico", "ninjutsu": "um ninjutsu", "genjutsu"
 
 class AgirReq(BaseModel):
     telegram_id: int = Field(gt=0)
-    acao: Literal["fisico", "ninjutsu", "genjutsu", "jutsu", "secreta", "pocao", "defender", "fugir"]
+    acao: Literal["fisico", "ninjutsu", "genjutsu", "jutsu", "secreta", "pocao", "defender", "fugir",
+                  "invocar", "agulhas", "veneno", "modulo", "cortar_linhas", "curar", "bisturi"]
     item: Optional[str] = None  # id da poção, quando acao = "pocao"
 
 
@@ -306,11 +308,11 @@ def mod_elem(atq, defe) -> float:
 USAR_BLOCO7 = True  # False volta à fórmula antiga de dano (golpe_legado)
 
 
-def golpe(att: dict, dfn: dict, acao: str, poder: float = 1.0, mod: float = 1.0, crit_extra: float = 0.0):
+def golpe(att: dict, dfn: dict, acao: str, poder: float = 1.0, mod: float = 1.0, crit_extra: float = 0.0, **kw):
     """Retorna (dano, crítico, atordoa). Dano 0 = esquivou. `poder` é o multiplicador do jutsu e `mod` o elemental.
     Usa a fórmula do Bloco 7 (atributos5.golpe), com os 10 atributos antigos convertidos nos 5 universais."""
     if USAR_BLOCO7:
-        return atributos5.golpe(att, dfn, acao, poder, mod, crit_extra)
+        return atributos5.golpe(att, dfn, acao, poder, mod, crit_extra, **kw)
     return golpe_legado(att, dfn, acao, poder, mod, crit_extra)
 
 
@@ -494,7 +496,7 @@ def escolher_acao(p: Player):
         for k in ("vida_g", "vida_m", "vida_p"):
             if pocoes.get(k, 0) > 0:
                 return "pocao", k
-    pagas = [a for a in _acoes(p, L) if a["custo"] and p.chakra_atual + L.get("reserva", 0) >= a["custo"]]
+    pagas = [a for a in _acoes(p, L) if a["acao"] in ("ninjutsu", "genjutsu", "jutsu") and a["custo"] and p.chakra_atual + L.get("reserva", 0) >= a["custo"]]
     if pagas:
         a = max(pagas, key=lambda a: (a["mod"], a["custo"]))
         return a["acao"], a.get("item")
@@ -508,6 +510,48 @@ def _linha(quem: str, acao: str, dmg: int, crit: bool, nome: str = None) -> str:
     return f"{quem} usou {nome}: {dmg} de dano" + (" (crítico!)" if crit else "") + "."
 
 
+# ───────── Bloco 3: Marionetista e Ninja Médico ─────────
+def _classe(p: Player) -> str:
+    return atributos5.classe_efetiva(p)
+
+
+def _mar(p: Player, me: dict) -> dict:
+    """Marionete persistida do jogador (coluna Player.marionete), normalizada e com o teto de HP atual."""
+    return b3.normalizar(getattr(p, "marionete", None), atributos5.universais(me))
+
+
+def _regra(fn, *a, **k):
+    """Converte RegraErro (validação no servidor) em HTTP 400."""
+    try:
+        return fn(*a, **k)
+    except b3.RegraErro as e:
+        raise HTTPException(400, str(e))
+
+
+def _status_inimigo_inicio(L: dict) -> None:
+    """Início do turno do jogador: veneno e sangramento causam dano ao inimigo; chefes às vezes se tratam."""
+    total = 0
+    if L.get("veneno"):
+        if L["boss"] and random.random() < 0.2:
+            L["veneno"] = None
+            L["log"].append(f"{L['nome']} se trata e expulsa o veneno.")
+        else:
+            L["veneno"], d = b3.tick_veneno(L["veneno"], L["hp_max"])
+            if d:
+                total += d
+                L["log"].append(f"☠️ O veneno causa {d} de dano em {L['nome']}.")
+    ist = L.setdefault("inim_st", {})
+    if "sangrando" in ist:
+        d = max(2, int(L["hp_max"] * 0.03))
+        total += d
+        L["log"].append(f"🩸 {L['nome']} sangra: {d} de dano.")
+    for k in list(ist):
+        ist[k] -= 1
+        if ist[k] <= 0:
+            del ist[k]
+    L["hp"] -= total
+
+
 def turno_inimigo(L: dict, me: dict, p: Player) -> None:
     if L["atordoado"]:
         L["atordoado"] = False
@@ -519,14 +563,31 @@ def turno_inimigo(L: dict, me: dict, p: Player) -> None:
         L["chakra"] -= custo_tecnica(f)
     mod = mod_elem(L.get("elemento"), L.get("meu_elem")) if acao == "ninjutsu" else 1.0
     dmg, crit, stun = golpe(f, me, acao, mod=mod)
+    if dmg and "cego" in L.get("inim_st", {}) and random.random() < 0.35:  # fumaça/agulhas: o inimigo erra o alvo
+        dmg, crit, stun = 0, False, False
     nome = BASICO["ninjutsu"][L["elemento"]] if acao == "ninjutsu" and L.get("elemento") in ELEMENTOS else None
     if dmg and L["defendendo"]:
         dmg = max(1, dmg // 2)
     L["defendendo"] = False
+    dmg_total, extra_log = dmg, []
+    if dmg and _classe(p) == "marionetista":  # a marionete ativa absorve o ataque comum; perfuração/corte de linhas contornam
+        mar = _mar(p, me)
+        if mar["ativa"]:
+            prop = b3.propriedade_ataque_inimigo(L["tipo"], bool(L["boss"]), random)
+            u = atributos5.universais(me)
+            mar, dmg, na_mar, ev = b3.absorver(mar, dmg, b3.defesa_marionete(u, mar["espec"]), [prop] if prop else [])
+            p.marionete = mar
+            extra_log = {"protegido": [f"🪆 Sua marionete absorveu {na_mar} de dano."],
+                         "quebrou": [f"🪆 Sua marionete absorveu {na_mar} de dano e foi destruída!"],
+                         "linhas_cortadas": [f"✂️ {L['nome']} cortou as linhas de chakra da marionete!"],
+                         "contornou": ["🪆 O golpe contornou a proteção da marionete."]}.get(ev, [])
+            if prop == "perfura" and ev == "contornou":
+                extra_log = ["🗡️ O golpe perfurante atravessou a marionete!"]
     absorvido = min(L.get("escudo", 0), dmg)  # o escudo de vigor absorve o dano primeiro
     L["escudo"] = L.get("escudo", 0) - absorvido
     p.vida_atual = max(0, p.vida_atual - (dmg - absorvido))
-    L["log"].append(_linha(L["nome"], acao, dmg, crit, nome) + (" Você ficou atordoado!" if stun and dmg else ""))
+    L["log"].append(_linha(L["nome"], acao, dmg_total, crit, nome) + (" Você ficou atordoado!" if stun and dmg else ""))
+    L["log"].extend(extra_log)
     if stun and dmg:
         L["me_atordoado"] = True
     if dmg:  # chance de causar um status negativo, conforme o tipo de golpe
@@ -557,6 +618,11 @@ def iniciar_luta(p: Player, tipo: str, nome: str, stats: dict, hp: int, chakra: 
          "elemento": random.choice(list(ELEMENTOS)), "st": {s: 2 for s in (p.status_fora or []) if s in STATUS_TURNOS}, **ctx}
     if L["st"]:
         L["log"].append("Você começa a luta " + ", ".join(L["st"]) + ".")
+    if tipo == "pvp" and stats.get("_classe") == "marionetista":  # rival Marionetista: a marionete dele protege (e tem contrajogada)
+        mar_f = b3.normalizar({}, atributos5.universais(stats))
+        mar_f["ativa"] = True
+        L["mar_foe"] = mar_f
+        L["log"].append(f"{nome} invoca uma marionete de combate.")
     p.status_fora = []
     pet = object_session(p).scalar(select(Pet).where(Pet.player_id == p.id, Pet.ativo.is_(True)))
     if pet:  # a chance de o bônus do pet ativar cresce com a afinidade
@@ -593,7 +659,33 @@ def _acoes(p: Player, L: dict) -> list:
         elif j:
             acoes.append({"acao": "jutsu", "item": j["id"], "nome": j["nome"], "custo": max(1, round(c * j["custo"])),
                           "mod": mod_elem(j["elem"], foe), "elem": j["elem"], "cat": j["cat"]})
+    if L.get("tipo") != "boneco":  # o boneco de treino (boneco_extra.py) só conhece as ações clássicas
+        acoes += _acoes_bloco3(p, L)
     return acoes
+
+
+def _acoes_bloco3(p: Player, L: dict) -> list:
+    cl, me, out = _classe(p), _me(p, L), []
+    base = lambda a, nome, custo, **k: {"acao": a, "nome": nome, "custo": custo, "mod": 1.0, "elem": k.pop("elem", None), **k}
+    if cl == "marionetista":
+        mar = _mar(p, me)
+        if not mar["ativa"] and mar["hp"] > 0:
+            out.append(base("invocar", "🪆 Invocar marionete", b3.MAR_INVOCAR_CUSTO))
+        elif mar["ativa"]:
+            out.append(base("agulhas", "Disparo de Agulhas", b3.AGULHA_CUSTO))
+            out.append(base("veneno", "Veneno", b3.VENENO_CUSTO))
+            for mid in mar["modulos"]:
+                m = b3.MODULOS[mid]
+                out.append(base("modulo", m["nome"] + (f" ({mar['cd'][mid]}t)" if mar["cd"].get(mid) else ""), b3.custo_modulo(mid, mar["espec"]), item=mid, elem=m["elem"]))
+    if cl == "ninja_medico":
+        ec = L.get("cura") or b3.estado_cura_padrao()
+        for tid, t in b3.CURAS.items():
+            out.append(base("curar", f"💚 {t['nome']} (livre)", b3.custo_cura(tid, ec), item=tid, livre=True))
+        out.append(base("bisturi", "🔪 Bisturi de Chakra", b3.custo_bisturi(custo_tecnica(me))))
+    mf = L.get("mar_foe")
+    if mf and b3.protegendo(mf):
+        out.append(base("cortar_linhas", "✂️ Cortar linhas da marionete", custo_tecnica(me) * 2))
+    return out
 
 
 def luta_view(p: Player):
@@ -608,7 +700,10 @@ def luta_view(p: Player):
             "nivel": L.get("nivel"), "dif": L.get("dif"), "mapa": L.get("mapa"), "emboscada": bool(L.get("emboscada")),
             "andar": L.get("andar"), "total": L.get("total"), "log_full": L["log"][-40:], "moral": p.moral,
             "status": list(L.get("st", {})) + (["atordoado"] if L.get("me_atordoado") else []),
-            "rapido": L["tipo"] == "pve" and (p.abates or {}).get(L["nome"], 0) >= ABATES_RAPIDO, "treino": L.get("tr")}
+            "rapido": L["tipo"] == "pve" and (p.abates or {}).get(L["nome"], 0) >= ABATES_RAPIDO, "treino": L.get("tr"),
+            "marionete": (lambda m: {"hp": m["hp"], "hp_max": m["hp_max"], "ativa": m["ativa"], "suspensa": m["suspensa"]})(_mar(p, _me(p, L))) if _classe(p) == "marionetista" else None,
+            "marionete_inimiga": (lambda m: {"hp": m["hp"], "hp_max": m["hp_max"], "ativa": m["ativa"], "suspensa": m["suspensa"]})(L["mar_foe"]) if L.get("mar_foe") else None,
+            "veneno": L.get("veneno"), "status_inimigo": list(L.get("inim_st", {})), "curas_usadas": (L.get("cura") or {}).get("total", 0)}
 
 
 def fim_luta(db: Session, p: Player, L: dict, won: bool) -> dict:
@@ -783,12 +878,36 @@ def luta_agir(payload: AgirReq, db: Session = Depends(get_db)):
     tai = me.get("_classe") == "taijutsu"
     if tai and acao in ("ninjutsu", "genjutsu", "secreta"):
         raise HTTPException(400, "Taijutsu só usa golpes físicos: sem ninjutsu, genjutsu ou elementos.")
+    if acao == "curar":  # Ninja Médico: ação livre. Não gasta o turno, não faz o inimigo agir e é limitada por turno/luta
+        if _classe(p) != "ninja_medico":
+            raise HTTPException(400, "Só o Ninja Médico usa técnicas de cura em combate.")
+        ec, cura, custo = _regra(b3.curar, L.get("cura") or b3.estado_cura_padrao(), payload.item or "", L["turno"],
+                                 p.chakra_atual, p.vida_atual, p.vida_max, atributos5.universais(me)["int"])
+        p.chakra_atual -= custo
+        p.vida_atual = min(p.vida_max, p.vida_atual + cura)
+        L["cura"] = ec
+        L["log"].append(f"💚 Você usa {b3.CURAS[payload.item]['nome']}: +{cura} de vida (−{custo} de chakra).")
+        p.luta = L
+        db.commit()
+        return {"luta": luta_view(p), "resultado": None}
     L["turno"] += 1
     perdeu = efeitos_turno(p, L)
     if p.vida_atual <= 0:  # morreu por queimadura ou sangramento
         res = fim_luta(db, p, L, False)
         db.commit()
         return {"luta": None, "resultado": res}
+    _status_inimigo_inicio(L)  # veneno/sangramento no inimigo
+    if L["hp"] <= 0:
+        res = fim_luta(db, p, L, True)
+        db.commit()
+        return {"luta": None, "resultado": res}
+    if _classe(p) == "marionetista":  # manutenção da marionete a cada turno
+        mar = _mar(p, me)
+        mar, pago, caiu = b3.manutencao(mar, p.chakra_atual)
+        p.chakra_atual -= pago
+        p.marionete = mar
+        if caiu:
+            L["log"].append("🪆 Sem chakra para manter as linhas, sua marionete se desativou.")
     if L["me_atordoado"]:
         L["me_atordoado"] = False
         L["log"].append("Você está atordoado e perde o turno.")
@@ -845,6 +964,38 @@ def luta_agir(payload: AgirReq, db: Session = Depends(get_db)):
             if not p.tecnica:
                 raise HTTPException(400, "Você ainda não domina uma técnica secreta.")
             custo, nome_golpe = custo_tecnica(me) * 3, p.tecnica
+        elif acao in ("invocar", "agulhas", "veneno", "modulo"):
+            if _classe(p) != "marionetista":
+                raise HTTPException(400, "Só o Marionetista usa a marionete.")
+            mar = _mar(p, me)
+            if acao == "invocar":
+                mar, custo = _regra(b3.invocar, mar, p.chakra_atual)
+                p.chakra_atual -= custo
+                p.marionete = mar
+                L["log"].append("🪆 Você invoca sua marionete de combate.")
+                custo = 0
+            elif not mar["ativa"]:
+                raise HTTPException(400, "Invoque a marionete antes.")
+            elif acao == "agulhas":
+                custo, poder, crit_extra, nome_golpe, base = b3.AGULHA_CUSTO, b3.AGULHA_PODER, b3.AGULHA_CRIT_EXTRA, "Disparo de Agulhas", "fisico"
+            elif acao == "veneno":
+                custo, nome_golpe = b3.VENENO_CUSTO, "Veneno"
+            else:  # módulo
+                mid = payload.item or ""
+                mar, custo = _regra(b3.usar_modulo, mar, mid, p.chakra_atual + L.get("reserva", 0))
+                m = b3.MODULOS[mid]
+                poder, el, nome_golpe = b3.poder_modulo(mid, mar["espec"]), m["elem"], m["nome"]
+                base = "ninjutsu" if el else "fisico"
+                p.marionete = mar
+        elif acao == "cortar_linhas":
+            mf = L.get("mar_foe")
+            if not mf or not b3.protegendo(mf):
+                raise HTTPException(400, "Não há marionete protegendo o alvo.")
+            custo, nome_golpe = custo_tecnica(me) * 2, "Cortar linhas"
+        elif acao == "bisturi":
+            if _classe(p) != "ninja_medico":
+                raise HTTPException(400, "Só o Ninja Médico usa o Bisturi de Chakra.")
+            custo, poder, nome_golpe, base = b3.custo_bisturi(custo_tecnica(me)), b3.BISTURI_PODER, "Bisturi de Chakra", "fisico"
         if custo:
             if p.chakra_atual + L.get("reserva", 0) < custo:
                 raise HTTPException(400, f"Chakra insuficiente: {nome_golpe} custa {custo}.")
@@ -852,11 +1003,52 @@ def luta_agir(payload: AgirReq, db: Session = Depends(get_db)):
             L["reserva"] = L.get("reserva", 0) - da_reserva
             p.chakra_atual -= custo - da_reserva
         mod = mod_elem(el, L.get("elemento"))
-        dmg, crit, stun = golpe(me, L["stats"], base, poder, mod, crit_extra)
+        efeito_mod = b3.MODULOS[payload.item]["efeito"] if acao == "modulo" else None
+        if acao in ("invocar", "veneno", "cortar_linhas") or (acao == "modulo" and poder == 0):
+            dmg, crit, stun = 0, False, False  # ações sem golpe direto
+        else:
+            kw = {"dano_verdadeiro": True} if acao == "bisturi" else {}
+            dmg, crit, stun = golpe(me, L["stats"], base, poder, mod, crit_extra, **kw)
+            if acao == "bisturi":  # teto do dano verdadeiro: sem aplicar o Vigor outra vez
+                dmg = b3.limitar_verdadeiro(dmg, L["hp_max"])
         if dmg and "cego" in L.get("st", {}) and random.random() < 0.35:  # cegueira: o golpe erra o alvo
             dmg, crit, stun = 0, False, False
+        dmg_bruto, linhas_extra = dmg, []
+        mf = L.get("mar_foe")
+        if mf and dmg:  # a marionete do rival absorve; a técnica secreta perfura
+            ev_mf = b3.absorver(mf, dmg, b3.defesa_marionete(atributos5.universais(L["stats"]), mf["espec"]), ["perfura"] if acao == "secreta" else [])
+            L["mar_foe"], dmg, na_mar, ev = ev_mf
+            linhas_extra.append({"protegido": f"🪆 A marionete de {L['nome']} absorveu {na_mar} de dano.",
+                                 "quebrou": f"🪆 A marionete de {L['nome']} foi destruída!", "contornou": "🗡️ O golpe contornou a marionete."}.get(ev, ""))
+        if acao == "cortar_linhas":
+            ok = random.random() < min(0.9, 0.55 + atributos5.universais(me)["dex"] / (atributos5.universais(me)["dex"] + 100))
+            if ok:
+                L["mar_foe"] = b3.cortar_linhas(L["mar_foe"])
+                linhas_extra.append(f"✂️ Você cortou as linhas de chakra da marionete de {L['nome']}!")
+            else:
+                linhas_extra.append("Você errou o corte das linhas.")
+        elif acao == "veneno":
+            foe_vig = atributos5.universais(L["stats"])["vig"]
+            res = b3.resistencia_veneno(foe_vig) + (0.15 if L["boss"] else 0.0)
+            L["veneno"], ok = b3.aplicar_veneno(L.get("veneno"), b3.dano_veneno_base(atributos5.universais(me)), res)
+            linhas_extra.append(f"☠️ {L['nome']} foi envenenado ({L['veneno']['stacks']} acúmulo(s))." if ok else f"{L['nome']} resistiu ao veneno.")
+        elif acao == "agulhas" and dmg:
+            ef = b3.efeito_agulha(_mar(p, me)["espec"]["combate"])
+            if ef:
+                L.setdefault("inim_st", {})[ef] = 3
+                linhas_extra.append(f"{STATUS_INFO[ef]} As agulhas deixam {L['nome']} {ef}.")
+        elif acao == "modulo":
+            if efeito_mod == "cego":
+                L.setdefault("inim_st", {})["cego"] = 3
+                linhas_extra.append(f"🕶️ A fumaça cega {L['nome']} por 3 turnos.")
+            elif efeito_mod == "atordoa" and dmg and random.random() < 0.4:
+                stun = True
         nota = " Vantagem elemental!" if dmg and mod > 1 else " O elemento do inimigo resiste." if dmg and mod < 1 else ""
-        L["log"].append(_linha("Você", base, dmg, crit, nome_golpe) + nota + (" O inimigo ficou atordoado!" if stun and dmg else ""))
+        if acao in ("veneno", "cortar_linhas") or (acao == "modulo" and poder == 0):
+            L["log"].append(f"Você usa {nome_golpe}.")
+        elif acao != "invocar":
+            L["log"].append(_linha("Você", base, dmg_bruto, crit, nome_golpe) + nota + (" O inimigo ficou atordoado!" if stun and dmg else ""))
+        L["log"].extend(x for x in linhas_extra if x)
         L["hp"] -= dmg
         if stun and dmg:
             L["atordoado"] = True
@@ -869,6 +1061,10 @@ def luta_agir(payload: AgirReq, db: Session = Depends(get_db)):
         res = fim_luta(db, p, L, False)
         db.commit()
         return {"luta": None, "resultado": res}
+    if _classe(p) == "marionetista":
+        p.marionete = b3.passar_turno(_mar(p, me))
+    if L.get("mar_foe"):
+        L["mar_foe"] = b3.passar_turno(L["mar_foe"])
     L["log"] = L["log"][-60:]
     p.luta = L
     db.commit()
@@ -956,6 +1152,8 @@ def rest(payload: RestReq, db: Session = Depends(get_db)):
         raise HTTPException(400, f"Ryos insuficientes: o descanso custa {REST_COST}.")
     player.ryos -= REST_COST
     player.vida_atual, player.chakra_atual = player.vida_max, player.chakra_max
+    if _classe(player) == "marionetista":  # a marionete é consertada por completo
+        player.marionete = b3.recuperar(_mar(player, effective_stats(player)), 1.0)
     db.commit()
     return {"ok": True}
 
@@ -1373,7 +1571,7 @@ def clan_tick(db: Session, clan: Clan) -> None:
 
 def dar_atributo(p: Player, attr: str, n: int) -> None:
     setattr(p, attr, getattr(p, attr) + n)
-    if attr == "vigor":
+    if attr in ("forca", "taijutsu"):  # Bloco 2: a vida máxima escala com a Força (STR)
         p.vida_max += 5 * n
         p.vida_atual += 5 * n
     elif attr in ("chakra_attr", "inteligencia"):
@@ -2031,13 +2229,15 @@ def trocar_nacionalidade(payload: NacReq, db: Session = Depends(get_db)):
 
 def hospital_info(p: Player) -> dict:
     now = datetime.now(timezone.utc)
-    cd = max(0, HOSPITAL_GRATIS_CD - int((now - as_utc(p.hospital_gratis_at)).total_seconds())) if p.hospital_gratis_at else 0
+    cd_base = b3.cd_hospital(_classe(p), getattr(p, "passiva_medica", ""), HOSPITAL_GRATIS_CD)  # Ninja Médico (Hospital): 10 min -> 5 min
+    cd = max(0, cd_base - int((now - as_utc(p.hospital_gratis_at)).total_seconds())) if p.hospital_gratis_at else 0
     buff = None
     if p.buff:
         resto = int((datetime.fromisoformat(p.buff["ate"]) - now).total_seconds())
         if resto > 0:
             buff = {"nome": p.buff["nome"], "attr": p.buff["attr"], "pct": p.buff["pct"], "restante_s": resto}
-    return {"gratis_restante_s": cd, "preco_total": 40 + 12 * p.level, "preco_sannin": 150 + 40 * p.level, "buff": buff}
+    pt = lambda v: b3.preco_tratamento(v, _classe(p), getattr(p, "passiva_medica", ""))  # Ninja Médico (Tratamento): -30%
+    return {"gratis_restante_s": cd, "preco_total": pt(40 + 12 * p.level), "preco_sannin": pt(150 + 40 * p.level), "buff": buff}
 
 
 class HospitalReq(BaseModel):
@@ -2070,12 +2270,16 @@ def hospital(payload: HospitalReq, db: Session = Depends(get_db)):
         p.vida_atual += cura
         p.hospital_gratis_at = now
         msg = f"Você recuperou {cura} de vida."
+        if _classe(p) == "marionetista":
+            p.marionete = b3.recuperar(_mar(p, effective_stats(p)), 0.5)
     else:
         preco = info["preco_total" if payload.opcao == "total" else "preco_sannin"]
         if p.ryos < preco:
             raise HTTPException(400, f"Ryos insuficientes: custa {preco}.")
         p.ryos -= preco
         p.vida_atual, p.chakra_atual = p.vida_max, p.chakra_max
+        if _classe(p) == "marionetista":
+            p.marionete = b3.recuperar(_mar(p, effective_stats(p)), 1.0)
         msg = "Vida e chakra totalmente recuperados."
         if payload.opcao == "sannin":
             nome, attr = random.choice(BUFFS_HOSPITAL)

@@ -206,8 +206,8 @@ const univVal = (src, u) => POOL_UI[u].reduce((s, k) => s + (src[k] || 0), 0);
 const CLS_UI = [['taijutsu', 'Taijutsu', 'Só golpes físicos: sem elemento, sem ninjutsu e sem genjutsu. Dano por Força e Agilidade. Portões Internos: em breve.'],
   ['ninjutsu', 'Ninjutsu', 'Dano por Inteligência e Destreza. +50% de dano ao atingir a vantagem elemental.'],
   ['genjutsu', 'Genjutsu', 'Dano por Inteligência e Agilidade. Golpes podem atordoar o inimigo.'],
-  ['marionetista', 'Marionetista', 'Dano por Inteligência e Destreza. Marionete que protege você: em breve.'],
-  ['ninja_medico', 'Ninja Médico', 'Dano por Inteligência e Destreza. Seus ataques ignoram o Vigor do alvo.']];
+  ['marionetista', 'Marionetista', 'Dano por Inteligência e Destreza. Sua marionete tem vida própria e absorve os ataques comuns; veneno, agulhas e módulos elementais.'],
+  ['ninja_medico', 'Ninja Médico', 'Dano por Inteligência e Destreza. Cura em combate como ação livre e Bisturi de Chakra, que causa dano verdadeiro (ignora o Vigor).']];
 const REG = UNIV.map(([k, , n, ds]) => [k, n, ds]);  // os 5 atributos que recebem os 5 pontos do cadastro
 const TIPOS = { Arma: 'Armas', Armadura: 'Armaduras', Pergaminho: 'Pergaminhos', Botas: 'Botas', Luvas: 'Luvas', Colar: 'Colares', Anel: 'Anéis' };
 const bonusTxt = b => { const u = {};  // bônus de item sempre em atributos universais (itens antigos somam por universal)
@@ -667,6 +667,9 @@ function lutaHtml() {
   <div class="card"><div class="grid grid-cols-2 gap-3 text-xs"><div><div class="flex justify-between mb-1"><span>Sua vida</span><span>${P.vida.atual}/${P.vida.max}</span></div><div class="bar"><i class="bg-gradient-to-r from-red-900 to-vermil" style="width:${pc(P.vida.atual, P.vida.max)}"></i></div></div>
       <div><div class="flex justify-between mb-1"><span>Chakra</span><span>${P.chakra.atual}/${P.chakra.max}</span></div><div class="bar"><i class="bg-chakra" style="width:${pc(P.chakra.atual, P.chakra.max)}"></i></div></div></div>
     ${meus ? `<div class="flex gap-1.5 flex-wrap mt-2">${meus}</div>` : ''}
+    ${l.marionete && l.marionete.hp_max ? `<div class="text-xs mt-2"><div class="flex justify-between mb-1"><span>🪆 Marionete${l.marionete.ativa ? '' : ' (inativa)'}${l.marionete.suspensa ? ' ✂️ linhas cortadas' : ''}</span><span>${l.marionete.hp}/${l.marionete.hp_max}</span></div><div class="bar"><i class="bg-chakra" style="width:${pc(l.marionete.hp, l.marionete.hp_max)}"></i></div></div>` : ''}
+    ${l.marionete_inimiga ? `<div class="text-xs mt-2 text-gold">🪆 Marionete do rival: ${l.marionete_inimiga.hp}/${l.marionete_inimiga.hp_max}${l.marionete_inimiga.suspensa ? ' (linhas cortadas)' : ''}</div>` : ''}
+    ${l.veneno ? `<div class="text-xs mt-1 text-gold">☠️ Veneno ×${l.veneno.stacks} (${l.veneno.turnos} turnos)</div>` : ''}
     ${l.escudo || l.reserva ? `<div class="text-xs text-gold mt-2">Escudo de ${l.escudo} de vida e reserva de ${l.reserva} de chakra.</div>` : ''}
     ${l.pet ? `<div class="text-xs text-gold mt-1">${esc(l.pet.nome)} ativo: +${l.pet.n} ${esc(attrNome(l.pet.attr))}.</div>` : ''}
     <div class="text-xs text-paper/70 mt-3 space-y-1 ${lutaUI.log ? 'max-h-60' : 'max-h-28'} overflow-y-auto">${linhas}</div></div>

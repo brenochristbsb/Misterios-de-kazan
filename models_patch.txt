@@ -1,0 +1,11 @@
+Adicione ao model Player (models.py), imitando o estilo da coluna JSON "luta" que já existe:
+
+  # estilo declarativo 2.0
+  marionete: Mapped[dict] = mapped_column(JSON, default=dict)
+  passiva_medica: Mapped[str] = mapped_column(String(16), default="")
+
+  # estilo Column clássico
+  marionete = Column(JSON, default=dict)
+  passiva_medica = Column(String(16), default="")
+
+O ensure_columns() do api.py cria as colunas no próximo start (default dict vira '{}').
