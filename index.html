@@ -125,6 +125,8 @@
   <section id="tab-amigos" class="tab space-y-3 hidden"></section>
   <section id="tab-skins" class="tab space-y-3 hidden"></section>
   <section id="tab-bingo" class="tab space-y-3 hidden"></section>
+  <section id="tab-guilda2" class="tab space-y-3 hidden"></section>
+  <section id="tab-pactos" class="tab space-y-3 hidden"></section>
   <section id="tab-jutsus" class="tab space-y-3 hidden"></section>
   <section id="tab-perfil" class="tab space-y-3"></section>
   <section id="tab-jornada" class="tab space-y-3 hidden"></section>
@@ -238,7 +240,7 @@ async function act(path, body, msg) {
 /* ───────── Abas ───────── */
 const MAIN = ['menu', 'mapas', 'bolsa', 'guilda', 'perfil'];
 // Subtelas acendem o ícone da aba de onde se chega nelas
-const PAI = { atributos: 'perfil', status: 'perfil', opcoes: 'perfil', jutsus: 'perfil', amigos: 'perfil', skins: 'perfil', bingo: 'perfil' };
+const PAI = { atributos: 'perfil', status: 'perfil', opcoes: 'perfil', jutsus: 'perfil', amigos: 'perfil', skins: 'perfil', bingo: 'perfil', guilda2: 'guilda', pactos: 'menu' };
 let cur = 'perfil', navStack = [];
 const goBack = () => showTab(navStack.pop() || 'menu', true);
 function showTab(name, back) {
@@ -258,6 +260,8 @@ function showTab(name, back) {
   if (name === 'amigos') loadAmigos();
   if (name === 'skins') loadSkins();
   if (name === 'bingo') loadBingo();
+  if (name === 'guilda2') loadGuilda2();
+  if (name === 'pactos') loadPactos();
   document.querySelectorAll('.tab').forEach(s => s.classList.toggle('hidden', s.id !== 'tab-' + name));
   document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.tab === (MAIN.includes(name) ? name : PAI[name] || 'menu')));
   tg?.HapticFeedback?.selectionChanged?.();
@@ -295,7 +299,7 @@ function renderMenu() {
     ['masmorras', '🕳️', 'Masmorras', "showTab('masmorras')"], ['torre', '🗼', 'Torre', "showTab('torre')"],['vila', '🏘️', 'Vila e clãs', "showTab('vila')"], ['ranking', '🏆', 'Ranking', "showTab('ranking')"],
     ['missoes', '📜', PGP ? `Missões (${PGP})` : 'Missões', "abrirProg('missoes')"], ['conq', '🏅', 'Conquistas', "abrirProg('conq')"], ['login', '📅', 'Login', "abrirProg('login')"], ['passe', '🎫', 'Passe', "abrirProg('passe')"],
     ['quests', '📖', 'Quests', "showTab('jornada')"], ['hospital', '🏥', 'Hospital', "showTab('hospital')"], ['loja', '🛒', 'Loja', "ljSec = 'itens'; showTab('loja')"],
-    ['pets', '🐾', 'Pets', "ljSec = 'pets'; showTab('loja')"], ['chat', '💬', 'Chat', "abrirChat('global')"], ['forum', '📚', 'Fórum', "showTab('forum')"], ['boneco', '🎯', 'Boneco de treino', '', true]];
+    ['pets', '🐾', 'Pets', "ljSec = 'pets'; showTab('loja')"], ['chat', '💬', 'Chat', "abrirChat('global')"], ['forum', '📚', 'Fórum', "showTab('forum')"], ['pactos', '🐲', 'Pactos', "showTab('pactos')"], ['boneco', '🎯', 'Boneco de treino', '', true]];
   $('tab-menu').innerHTML = `<h2>Menu</h2><div class="grid grid-cols-4 gap-2">${T.map(([id, ico, n, fn, soon]) => mini(id, ico, n, fn, !!soon)).join('')}</div>`;
 }
 function renderHospital() {
@@ -897,10 +901,11 @@ function renderGuilda() {
   const g = G.minha;
   const list = G.guildas.map(o => `<div class="flex items-center gap-2 py-2 border-t border-line"><div class="flex-1 min-w-0">
       <div class="text-sm font-semibold truncate">${esc(o.nome)}</div><div class="lbl">Nível ${o.nivel}, ${o.membros} membros, ${o.vitorias} vitórias</div></div>
-      ${g ? '' : `<button class="chip" onclick="act('/api/guild/join', { guild_id: ${o.id} })">Entrar</button>`}</div>`).join('');
+      ${g ? '' : `<button class="chip" onclick="entrarGuilda(${o.id})">Entrar</button>`}</div>`).join('');
   if (!g) {
     $('tab-guilda').innerHTML = `<div class="card space-y-3"><h2>Fundar uma guilda</h2><p class="lbl">Custa 1.000 ryos. Você será o líder.</p>
       <input id="gName" class="inp" maxlength="32" placeholder="Nome da guilda"><button class="btn w-full" onclick="criarGuilda()">Fundar guilda</button></div>
+      <button class="btn btn-ghost w-full" onclick="showTab('guilda2')">🏆 Ranking de guerra</button>
       <div class="card"><h2>Guildas existentes</h2>${list || '<p class="lbl mt-2">Ainda não há guildas. Funde a primeira.</p>'}</div>`;
     return;
   }
@@ -930,6 +935,7 @@ function renderGuilda() {
       <div class="flex justify-between text-xs mt-4"><span>Cofre</span><span>${fmt(g.doado)} de ${fmt(g.proximo_nivel)} para o nível ${g.nivel + 1}</span></div><div class="bar mt-1.5"><i class="bg-gold" style="width:${cofre}"></i></div>
       <div class="flex gap-2 mt-3">${[100, 500, 1000].map(v => `<button class="chip" onclick="doar(${v})">${fmt(v)}</button>`).join('')}
         <input id="gDoar" type="number" min="10" inputmode="numeric" class="inp !py-1 !px-2 text-sm min-w-0" placeholder="Outro valor"><button class="chip" onclick="doar(Number($('gDoar').value))">Doar</button></div></div>
+    <button class="btn btn-gold w-full" onclick="showTab('guilda2')">📋 Missões, tesouraria e baú</button>
     ${mural}${chefeCard}
     <div class="card"><h2>Guerra</h2>${G.guildas.length ? `<p class="lbl mt-1">Atacar custa 20 de chakra. A vitória rende ryos, XP e uma vitória para a guilda.</p>
       <select id="gAlvo" class="inp mt-3">${G.guildas.map(o => `<option value="${o.id}">${esc(o.nome)} (nível ${o.nivel}, ${o.membros} membros)</option>`).join('')}</select>
@@ -1234,6 +1240,106 @@ function renderBingo() {
     <div class="card"><h2>📕 Livro Bingo</h2><p class="lbl mt-1">Os 30 Nukenin mais procurados. Vença um em duelo para tomar fama, ryos e itens dele.</p>${bingo || '<p class="lbl mt-2">Ninguém foi procurado ainda.</p>'}</div>`;
 }
 function fundarOrg() { const n = $('orgNome').value.trim(); if (n) actB('/api/org/fundar', { nome: n }, loadBingo); }
+
+/* ───────── Guilda completa (missões, tesouraria, baú, candidaturas, escudo, ranking) ───────── */
+let GX, PCT;
+const mkAct = loader => async (path, body, msg) => {
+  try { const r = await api(path, { telegram_id: tgUser.id, ...body }); toast(msg ? msg(r) : (r.mensagem || 'Feito.'), true); await refresh(); await loader(); }
+  catch (e) { toast(e.message, false); }
+};
+const actG = (p, b, m) => mkAct(loadGuilda2)(p, b, m);
+const actP = (p, b, m) => mkAct(loadPactos)(p, b, m);
+async function entrarGuilda(id) {
+  try { await api('/api/guild/join', { telegram_id: tgUser.id, guild_id: id }); toast('Você entrou na guilda.', true); await refresh(); }
+  catch (e) {
+    if (!/candidatura/i.test(e.message)) return toast(e.message, false);
+    try { toast((await api('/api/gx/candidatar', { telegram_id: tgUser.id, guild_id: id })).mensagem, true); } catch (e2) { toast(e2.message, false); }
+  }
+}
+async function loadGuilda2() {
+  if (!GX) $('tab-guilda2').innerHTML = '<p class="lbl">Carregando…</p>';
+  try { GX = await api(`/api/player/${tgUser.id}/guilda2`); renderGuilda2(); }
+  catch (e) { $('tab-guilda2').innerHTML = `<div class="card border-vermil"><p class="text-sm">${esc(e.message)}</p></div>`; }
+}
+const escudoImg = (src, t = 'w-10 h-10') => src && /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(src)
+  ? `<img src="${src}" alt="" class="${t} rounded-lg object-cover shrink-0">` : `<span class="${t} grid place-items-center text-xl shrink-0">🛡️</span>`;
+const quando = iso => new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+function renderGuilda2() {
+  const g = GX.guilda;
+  const rank = GX.ranking.map(r => `<div class="flex items-center gap-3 py-2 border-t border-line"><span class="lbl w-5">${r.pos}</span>${escudoImg(r.escudo, 'w-9 h-9')}
+    <div class="min-w-0 flex-1"><div class="font-semibold truncate">${esc(r.nome)}${g && r.id === g.id ? ' <span class="tag gold">sua</span>' : ''}</div><div class="lbl">nível ${r.nivel} · ${r.membros} membros</div></div>
+    <div class="text-right"><div class="text-gold font-bold text-sm">${r.vitorias}</div><div class="lbl">vitórias</div></div></div>`).join('');
+  const cardRank = `<div class="card"><h2>🏆 Ranking de guerra</h2><p class="lbl mt-1">As 10 melhores guildas por vitórias, nível e doações.</p>${rank || '<p class="lbl mt-2">Ainda não há guildas.</p>'}</div>`;
+  if (!g) { $('tab-guilda2').innerHTML = `<div class="card"><p class="text-sm">Entre em uma guilda (ou envie uma candidatura) na aba Guilda para liberar missões, tesouraria e baú.</p>
+    <button class="btn w-full mt-3" onclick="showTab('guilda')">🛡️ Ir para Guilda</button></div>${cardRank}`; return; }
+  const vice = g.cargo !== 'membro', lider = g.cargo === 'lider', pr = g.premio;
+  const mis = g.missoes.map(m => `<div class="py-2.5 border-t border-line"><div class="flex justify-between gap-2 text-sm"><span>${esc(m.texto)}</span><span class="lbl shrink-0">${m.prog}/${m.qtd}</span></div>
+    <div class="bar mt-1.5"><i class="${m.pronta ? 'bg-gold' : 'bg-vermil'}" style="width:${pct(m.prog, m.qtd)}"></i></div>
+    <button class="chip mt-2 ${m.pronta && !m.coletada ? 'on' : ''}" ${m.pronta && !m.coletada ? '' : 'disabled'} onclick="actG('/api/gx/missao/coletar', { id: '${m.id}' })">${m.coletada ? 'coletada' : m.pronta ? 'coletar recompensa' : 'em andamento'}</button></div>`).join('');
+  const ativos = Object.fromEntries(g.buffs.map(b => [b.id, b.ate]));
+  const buffs = Object.entries(GX.buffs_catalogo).map(([id, b]) => `<div class="py-2.5 border-t border-line text-sm"><div class="flex justify-between gap-2"><b>${esc(b.nome)}</b><span class="text-gold">${fmt(b.custo)} ryos</span></div>
+    <div class="lbl">+${b.pct}% de XP e ryos nas caçadas de todos por ${b.horas}h${ativos[id] ? ` · <span class="text-gold">ativo até ${quando(ativos[id])}</span>` : ''}</div>
+    ${vice ? `<button class="chip mt-2" ${g.cofre < b.custo ? 'disabled' : ''} onclick="actG('/api/gx/buff/comprar', { buff: '${id}' })">${ativos[id] ? 'prolongar' : 'comprar'}</button>` : ''}</div>`).join('');
+  const cand = vice && g.candidaturas.length ? `<div class="card"><h2>Candidaturas</h2>${g.candidaturas.map(c => `<div class="flex items-center gap-2 py-2 border-t border-line"><div class="flex-1 min-w-0 text-sm"><b>${esc(c.nome)}</b> <span class="lbl">nível ${c.nivel}</span></div>
+    <button class="chip on" onclick="actG('/api/gx/candidatura', { pid: ${c.pid}, aceitar: true })">aceitar</button><button class="chip" onclick="actG('/api/gx/candidatura', { pid: ${c.pid}, aceitar: false })">recusar</button></div>`).join('')}</div>` : '';
+  const bau = g.bau.map(i => `<div class="flex items-center gap-2 py-2 border-t border-line text-sm"><div class="flex-1 min-w-0"><div class="font-semibold truncate">${esc(i.nome)}</div><div class="lbl">${esc(bonusTxt(i.bonus)) || 'sem bônus'}</div></div>
+    <button class="chip" ${g.retirou_hoje ? 'disabled' : ''} onclick="actG('/api/gx/bau/pegar', { idx: ${i.i} })">pegar</button></div>`).join('');
+  const doaveis = (BO ? BO.itens : []).filter(i => !i.equipado);
+  const doar = `<div class="flex gap-2 mt-3"><select id="bauItem" class="inp flex-1 min-w-0">${doaveis.map(i => `<option value="${i.id}">${esc(i.nome)}</option>`).join('') || '<option value="">Sem itens livres</option>'}</select>
+    <button class="chip" onclick="const v = Number($('bauItem').value); v ? actG('/api/gx/bau/doar', { item_id: v }) : toast('Escolha um item.', false)">doar</button></div>`;
+  const canal = g.canal && g.canal.startsWith('https://t.me/') ? `<button class="chip mt-2" onclick="tg?.openTelegramLink ? tg.openTelegramLink('${esc(g.canal)}') : window.open('${esc(g.canal)}', '_blank')">💬 Abrir canal da guilda</button>` : '';
+  const cfg = lider ? `<div class="card"><h2>Configurações (líder)</h2>
+    <label class="lbl block mt-2">Como entram novos membros</label><select id="gxModo" class="inp mt-1"><option value="aberta" ${g.modo === 'aberta' ? 'selected' : ''}>Aberta: qualquer um entra</option><option value="candidatura" ${g.modo === 'candidatura' ? 'selected' : ''}>Por candidatura: vice ou líder aprova</option></select>
+    <label class="lbl block mt-3">Canal ou grupo do Telegram (opcional)</label><input id="gxCanal" class="inp mt-1" maxlength="80" placeholder="https://t.me/..." value="${esc(g.canal)}">
+    <button class="btn btn-gold w-full mt-3" onclick="actG('/api/gx/config', { modo: $('gxModo').value, canal: $('gxCanal').value.trim() })">Salvar</button>
+    <label class="lbl block mt-4">Escudo da guilda (imagem, é reduzida automaticamente)</label><input id="gxEscudo" type="file" accept="image/png,image/jpeg,image/webp" class="inp mt-1 text-sm">
+    <button class="btn btn-ghost w-full mt-2" onclick="enviarEscudo()">Enviar escudo</button></div>` : '';
+  $('tab-guilda2').innerHTML = `<div class="card flex items-center gap-3">${escudoImg(g.escudo, 'w-14 h-14')}<div class="min-w-0"><h2 class="truncate">${esc(g.nome)}</h2>
+    <div class="lbl">${g.membros}/${g.limite} membros · ${g.modo === 'candidatura' ? 'entrada por candidatura' : 'entrada aberta'}</div>${canal}</div></div>
+    <div class="card"><h2>Missões do dia</h2><p class="lbl mt-1">O progresso é de todos os membros juntos. Cada um coleta a sua: +${pr.ryos} ryos, +${pr.exp} XP, +${pr.arena} moedas da Arena e +${pr.passe} de passe. Cada coleta ainda põe ${fmt(g.cofre_por_coleta)} ryos no cofre.</p>${mis}</div>
+    <div class="card"><div class="flex justify-between items-center"><h2>Tesouraria</h2><span class="text-gold font-bold">${fmt(g.cofre)} ryos</span></div>
+      <p class="lbl mt-1">O cofre cresce com doações e missões. ${vice ? 'Você pode comprar bênçãos para a guilda.' : 'Só líder e vices compram bênçãos.'}</p>${buffs}</div>
+    ${cand}
+    <div class="card"><h2>Baú da guilda <span class="lbl">${g.bau.length}/${g.bau_max}</span></h2><p class="lbl mt-1">Cada membro pode pegar 1 item por dia${g.retirou_hoje ? ' (você já pegou hoje)' : ''}. Itens equipados e relíquias de clã não podem ser doados.</p>${bau}${doar}</div>
+    ${cfg}${cardRank}`;
+}
+async function enviarEscudo() {
+  const file = $('gxEscudo').files[0]; if (!file) return toast('Escolha uma imagem.', false);
+  try {
+    const bmp = await createImageBitmap(file), cv = document.createElement('canvas');
+    let lado = 160, url = '';
+    for (const q of [0.85, 0.7, 0.5, 0.3]) {
+      cv.width = cv.height = lado; const c = cv.getContext('2d'), m = Math.min(bmp.width, bmp.height);
+      c.clearRect(0, 0, lado, lado); c.drawImage(bmp, (bmp.width - m) / 2, (bmp.height - m) / 2, m, m, 0, 0, lado, lado);
+      url = cv.toDataURL('image/webp', q);
+      if (!url.startsWith('data:image/webp')) url = cv.toDataURL('image/jpeg', q);
+      if (url.length * 0.75 < 55000) break; lado = Math.round(lado * 0.8);
+    }
+    if (url.length * 0.75 >= 60000) return toast('Imagem complexa demais. Tente outra.', false);
+    await actG('/api/gx/escudo', { imagem: url });
+  } catch (e) { toast(e.message || 'Não foi possível ler a imagem.', false); }
+}
+
+/* ───────── Pactos com seres míticos ───────── */
+async function loadPactos() {
+  $('tab-pactos').innerHTML = '<p class="lbl">Carregando…</p>';
+  try { PCT = await api(`/api/player/${tgUser.id}/pactos`); renderPactos(); }
+  catch (e) { $('tab-pactos').innerHTML = `<div class="card border-vermil"><p class="text-sm">${esc(e.message)}</p></div>`; }
+}
+function renderPactos() {
+  const D = PCT, tenho = D.pactos.filter(x => x.tenho).length;
+  const cards = D.pactos.map(x => {
+    const mat = (BO && BO.materiais || []).find(m => m.nome === D.material);
+    let acao;
+    if (!x.tenho) acao = `<button class="btn btn-gold w-full mt-3" ${!D.liberado || tenho >= D.max || P.ryos < x.preco ? 'disabled' : ''} onclick="askOk('Firmar pacto com ${esc(x.nome)} por ${fmt(x.preco)} ryos?', () => actP('/api/pacto/firmar', { pacto: '${x.id}' }))">Firmar pacto · ${fmt(x.preco)} ryos</button>`;
+    else acao = `<div class="flex gap-2 mt-3">${x.ativo ? '<span class="tag gold">acompanha você</span>' : `<button class="chip on" onclick="actP('/api/summon/activate', { summon_id: ${x.summon_id} }, () => '${esc(x.nome)} agora acompanha você.')">ativar</button>`}
+      ${x.custo_up ? `<button class="chip" onclick="askOk('Fortalecer ${esc(x.nome)} para o nível ${x.nivel + 1}? Custa ${fmt(x.custo_up.ryos)} ryos e ${x.custo_up.mat}x ${esc(D.material)}.', () => actP('/api/pacto/fortalecer', { pacto: '${x.id}' }))">fortalecer (${fmt(x.custo_up.ryos)} + ${x.custo_up.mat}x mat.)</button>` : '<span class="tag">nível máximo</span>'}</div>`;
+    return `<div class="card ${x.ativo ? 'border-gold' : ''}"><div class="flex justify-between items-start gap-2"><h2>${esc(x.nome)}</h2>${x.tenho ? `<span class="tag gold">nível ${x.nivel}/${D.max_nivel}</span>` : ''}</div>
+      <p class="lbl mt-1">Base: +${x.taijutsu} taijutsu, +${x.ninjutsu} ninjutsu. O bônus cresce 20% a cada nível.</p>${acao}</div>`;
+  }).join('');
+  $('tab-pactos').innerHTML = `<div class="card"><h2>🐲 Pactos</h2><p class="lbl mt-1">Seres míticos que lutam ao seu lado e somam bônus aos seus atributos. Exigem a patente Jonin. Você pode firmar até ${D.max} pactos (${tenho}/${D.max}) e só um acompanha você por vez.
+    Fortalecer consome ryos e <b>${esc(D.material)}</b>.</p>${D.liberado ? '' : '<p class="text-sm text-vermil mt-2">Você ainda não é Jonin: os pactos estão bloqueados.</p>'}</div>${cards}`;
+}
 
 (async function init() {
   showTab('perfil');
