@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session, object_session
 from api import ATTRS, NO_CLAN_NAME, active_summon_link, apply_exp, as_utc, effective_stats, get_db, get_player, rank_titulo
 import atributos5
 import bloco4
+from vip_passe import multiplicador_ryos, multiplicador_xp  # bônus do VIP (Shinobi/Shogun)
 from models import BossThreat, Clan, Guild, InventoryItem, ItemType, MarketListing, NinjaRank, Pet, Player, PlayerSummon, Summon, Village
 
 router = APIRouter()
@@ -603,6 +604,10 @@ def fim_luta(db: Session, p: Player, L: dict, won: bool) -> dict:
             if bg:
                 res["exp"], res["ryos"] = int(res["exp"] * (1 + bg / 100)), int(res["ryos"] * (1 + bg / 100))
                 res["extras"].append(f"bônus da guilda +{bg}%")
+            mr, mx = multiplicador_ryos(p), multiplicador_xp(p)  # bônus do VIP
+            if mr > 1 or mx > 1:
+                res["exp"], res["ryos"] = int(res["exp"] * mx), int(res["ryos"] * mr)
+                res["extras"].append(f"bônus VIP: ryos +{round((mr - 1) * 100)}%" + (f", XP +{round((mx - 1) * 100)}%" if mx > 1 else ""))
             p.ryos += res["ryos"]
             p.fama += 5 if L["boss"] else 1
             clan_hooks(db, p, L)
@@ -2391,6 +2396,8 @@ def fim_masmorra(db: Session, p: Player, L: dict, won: bool, res: dict) -> None:
     mult, over = DIFICULDADES[L["dif"]][2], p.level > mp["max_level"]
     res["exp"] = max(1, int(6 * mp["perigo"] * mult * (0.25 if over else 1)))
     res["ryos"] = int(8 * mp["perigo"] * mult)
+    mr, mx = multiplicador_ryos(p), multiplicador_xp(p)  # bônus do VIP
+    res["exp"], res["ryos"] = int(res["exp"] * mx), int(res["ryos"] * mr)
     p.ryos += res["ryos"]
     p.fama += 2
     pet_afinidade(db, L)

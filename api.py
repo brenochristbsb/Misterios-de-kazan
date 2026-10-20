@@ -926,6 +926,10 @@ app.include_router(boneco_router)
 from classes_extra import router as classes_router  # noqa: E402
 
 app.include_router(classes_router)
+# VIP Shinobi/Shogun (compra com Ouro Ninja)
+from vip_passe import router as vip_router  # noqa: E402
+
+app.include_router(vip_router)
 # Chat (global, guilda e privado) e troca de nome
 from social_reserva import router as social_router  # noqa: E402
 

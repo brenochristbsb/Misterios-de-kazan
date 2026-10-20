@@ -258,6 +258,9 @@ class Player(TimestampMixin, Base):
     ouro_ninja: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
     # Slots de pet liberados: 2 iniciais, +1 por 100 Ouro Ninja, máximo 20 (limite validado no código)
     pet_slots: Mapped[int] = mapped_column(Integer, default=2, nullable=False)
+    # VIP (Shinobi/Shogun): plano atual e quando expira (vip_passe.py)
+    vip_plano: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    vip_expira_em: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     # 5 atributos universais (Bloco 2). Só preenchidos quando os pontos antigos forem convertidos.
     atr_str: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
     atr_int: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
