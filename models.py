@@ -236,6 +236,9 @@ class Player(TimestampMixin, Base):
     # Forja: materiais em estoque {id: quantidade} (não ocupam a mochila). Dojo: pontos de maestria por atributo {atributo: pontos}
     materiais: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     maestria: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    # Masmorra em andamento {mapa, andar} (None fora de uma) e maior andar já vencido na Torre
+    masmorra: Mapped[Optional[dict]] = mapped_column(JSON)
+    torre_andar: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     # Chaves estrangeiras
     village_id: Mapped[int] = mapped_column(

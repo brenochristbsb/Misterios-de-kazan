@@ -488,7 +488,8 @@ def luta_view(p: Player):
             "escudo": L.get("escudo", 0), "reserva": L.get("reserva", 0), "elemento": L.get("elemento"), "acoes": _acoes(p, L),
             "pocoes": [{"id": k, "nome": POCOES[k][0], "qtd": q} for k, q in (p.pocoes or {}).items()
                        if q > 0 and k in POCOES and POCOES[k][1] in ("vida", "chakra", "cura")],
-            "nivel": L.get("nivel"), "dif": L.get("dif"), "mapa": L.get("mapa"), "emboscada": bool(L.get("emboscada")), "log_full": L["log"][-40:], "moral": p.moral,
+            "nivel": L.get("nivel"), "dif": L.get("dif"), "mapa": L.get("mapa"), "emboscada": bool(L.get("emboscada")),
+            "andar": L.get("andar"), "total": L.get("total"), "log_full": L["log"][-40:], "moral": p.moral,
             "status": list(L.get("st", {})) + (["atordoado"] if L.get("me_atordoado") else []),
             "rapido": L["tipo"] == "pve" and (p.abates or {}).get(L["nome"], 0) >= ABATES_RAPIDO}
 
@@ -517,6 +518,10 @@ def fim_luta(db: Session, p: Player, L: dict, won: bool) -> dict:
             p.fama += 10
             p.clan_id, p.prov_clan_id, p.prov_etapa, p.prov_prog, p.clan_pontos = clan.id, None, 0, 0, 0
             res["clan"] = f"Você foi aceito no {clan.name}!"
+    elif L["tipo"] == "masmorra":  # andar de uma masmorra: o resto da corrida segue em p.masmorra
+        fim_masmorra(db, p, L, won, res)
+    elif L["tipo"] == "torre":  # andar da Torre: a primeira vitória em cada andar rende a recompensa
+        fim_torre(db, p, L, won, res)
     else:
         mp = MAPS_BY_ID[L["mapa"]]
         mult = DIFICULDADES[dif][2] * (1.3 if L.get("emboscada") else 1)
@@ -543,6 +548,7 @@ def fim_luta(db: Session, p: Player, L: dict, won: bool) -> dict:
                     p.pocoes = {**(p.pocoes or {}), pid: (p.pocoes or {}).get(pid, 0) + 1}
                     res["extras"].append(POCOES[pid][0])
             res["extras"] += dropar_materiais(p, mp, L["boss"], mult)  # materiais de forja: o tier acompanha o perigo do mapa
+            res["extras"] += dropar_fragmento(p, L)  # chefes podem soltar fragmentos da chave da masmorra do mapa
             if L["on_mission"]:  # coleta: 70% por vitória; caçada: 1 por vitória; procurado: só ao vencer o chefe
                 mis = mission_for(p.journey + 1, vila_idx(p))
                 gain = {"coleta": int(random.random() < 0.7), "caca": 1, "busca": int(L["boss"])}[mis["tipo"]]
@@ -643,6 +649,8 @@ def luta_agir(payload: AgirReq, db: Session = Depends(get_db)):
         if random.random() < 0.3 + 0.5 * me["agilidade"] / (me["agilidade"] + L["stats"]["agilidade"]):
             p.luta = None
             p.status_fora = list(L.get("st", {}))
+            if L["tipo"] == "masmorra":  # fugir no meio da masmorra encerra a corrida
+                p.masmorra = None
             db.commit()
             return {"luta": None, "resultado": {"vitoria": False, "fuga": True, "chefe": L["boss"], "inimigo": L["nome"],
                     "log": L["log"][-4:] + ["Você fugiu."], "exp": 0, "ryos": 0, "drops": [], "extras": [], "novo_pet": None,
@@ -787,6 +795,8 @@ def join_clan(payload: ClanReq, db: Session = Depends(get_db)):
 def rest(payload: RestReq, db: Session = Depends(get_db)):
     """Casa de chá: restaura vida e chakra por uma taxa em ryos."""
     player = get_player(db, payload.telegram_id, lock=True)
+    if player.masmorra:
+        raise HTTPException(409, "Não dá para descansar durante a masmorra. Termine ou abandone-a antes.")
     if player.ryos < REST_COST:
         raise HTTPException(400, f"Ryos insuficientes: o descanso custa {REST_COST}.")
     player.ryos -= REST_COST
@@ -1855,6 +1865,8 @@ def hospital(payload: HospitalReq, db: Session = Depends(get_db)):
     p = get_player(db, payload.telegram_id, lock=True)
     if p.luta:
         raise HTTPException(409, "O hospital não atende no meio de uma luta.")
+    if p.masmorra:
+        raise HTTPException(409, "O hospital fica fechado durante a masmorra. Termine ou abandone-a antes.")
     now = datetime.now(timezone.utc)
     info = hospital_info(p)
     p.status_fora = []  # o hospital cura qualquer status negativo
@@ -1898,8 +1910,7 @@ def bolsa(telegram_id: int, db: Session = Depends(get_db)):
                        "equipado": i.is_equipped} for i in p.inventory],
             "consumiveis": [{"id": k, "nome": POCOES[k][0], "efeito": POCOES[k][1], "valor": POCOES[k][2], "qtd": q}
                             for k, q in (p.pocoes or {}).items() if q > 0 and k in POCOES],
-            "materiais": [{"id": k, "nome": MAT_NOME[k], "tier": int(k[-1]), "qtd": q}
-                          for k, q in sorted((p.materiais or {}).items()) if q > 0 and k in MAT_NOME],
+            "materiais": materiais_view(p, vi),
             "quests": quests}
 
 
@@ -2199,3 +2210,218 @@ def dojo_treinar(payload: DojoReq, db: Session = Depends(get_db)):
     if niveis:
         msg += " Você subiu de nível!"
     return {"mensagem": msg, "ganho": ganho, "grau": grau, "niveis_ganhos": niveis}
+
+
+# ───────── Masmorras: 5 andares seguidos, entrada por fragmentos de chave ─────────
+# Chefes de mapa soltam fragmentos da chave daquele mapa (60%). Com 3 deles e 5 de energia, o jogador entra na masmorra do mapa:
+# 5 andares em sequência (o 5º é o chefe), sem cura automática entre eles. Fugir ou cair encerra a corrida e perde o progresso.
+# Cada andar rende XP e ryos como uma luta do mapa; o baú final dá materiais, um equipamento com chance maior de ★ e fama.
+MASM_ANDARES, MASM_FRAGS, MASM_ENERGIA, FRAG_CHANCE = 5, 3, 5, 0.6
+MASM_DIF = ["normal", "normal", "difícil", "mini-chefe", "chefe"]
+
+
+def frag_nome(mid: int, vi: int) -> str:
+    return f"Fragmento de Chave: {mapa_vila(mid, vi)['nome']}"
+
+
+def dropar_fragmento(p: Player, L: dict) -> list:
+    if not L["boss"] or random.random() >= FRAG_CHANCE:
+        return []
+    k = f"frag_{L['mapa']}"
+    p.materiais = {**(p.materiais or {}), k: (p.materiais or {}).get(k, 0) + 1}
+    return [frag_nome(L["mapa"], vila_idx(p))]
+
+
+def materiais_view(p: Player, vi: int) -> list:
+    """Materiais de forja e fragmentos de chave em estoque, para a aba Materiais da mochila."""
+    out = []
+    for k, q in sorted((p.materiais or {}).items()):
+        if q <= 0:
+            continue
+        if k in MAT_NOME:
+            out.append({"id": k, "nome": MAT_NOME[k], "tier": int(k[-1]), "qtd": q})
+        elif k.startswith("frag_") and int(k[5:]) in MAPS_BY_ID:
+            out.append({"id": k, "nome": frag_nome(int(k[5:]), vi), "tier": None, "qtd": q})
+    return out
+
+
+def _novo_andar(p: Player, mid: int, andar: int) -> None:
+    """Abre a luta do andar `andar` da masmorra do mapa `mid`."""
+    vi, base = vila_idx(p), MAPS_BY_ID[mid]
+    mp, dif = mapa_vila(mid, vi), MASM_DIF[andar - 1]
+    lo, hi = base["min_level"], base["max_level"]
+    nivel = hi + random.randint(0, 1) if dif == "chefe" else lo + (hi - lo) * andar // MASM_ANDARES
+    comum = random.choice([mp["inimigo"]] * 2 + mp.get("extras", []))
+    nome = mp["chefe"] if dif == "chefe" else f"{comum} Alfa" if dif == "mini-chefe" else comum
+    stats, hp, ck = stats_inimigo(p, nivel, dif)
+    iniciar_luta(p, "masmorra", nome, stats, hp, ck, dif == "chefe", mapa=mid, on_mission=False, elemento=elem_mapa(vi),
+                 dif=dif, nivel=nivel, andar=andar, total=MASM_ANDARES)
+
+
+def fim_masmorra(db: Session, p: Player, L: dict, won: bool, res: dict) -> None:
+    andar, mp = L["andar"], MAPS_BY_ID[L["mapa"]]
+    if not won:
+        p.masmorra = None
+        res["masmorra"] = {"andar": andar, "total": MASM_ANDARES, "fim": True, "falhou": True}
+        return
+    mult, over = DIFICULDADES[L["dif"]][2], p.level > mp["max_level"]
+    res["exp"] = max(1, int(6 * mp["perigo"] * mult * (0.25 if over else 1)))
+    res["ryos"] = int(8 * mp["perigo"] * mult)
+    p.ryos += res["ryos"]
+    p.fama += 2
+    pet_afinidade(db, L)
+    fim = andar >= MASM_ANDARES
+    if fim:
+        qtd, mid = random.randint(6, 10), mat_do_mapa(mp["perigo"])
+        p.materiais = {**(p.materiais or {}), mid: (p.materiais or {}).get(mid, 0) + qtd}
+        res["extras"].append(f"{qtd}x {MAT_NOME[mid]}")
+        if bolsa_livre(p, len(res["drops"])):
+            nome, attr, *t = random.choice(mp["itens"])
+            res["drops"].append(criar_item(db, p, mp, nome, attr, t[0] if t else mp["tipo"], sortear_estrelas(min(MORAL_MAX, p.moral + 12))))
+        else:
+            res["extras"].append("o baú tinha um equipamento, mas a mochila estava cheia")
+        p.fama += 20
+        p.masmorra = None
+    else:
+        p.masmorra = {"mapa": L["mapa"], "andar": andar}  # andares já vencidos
+    res["masmorra"] = {"andar": andar, "total": MASM_ANDARES, "fim": fim, "falhou": False}
+
+
+@router.get("/api/player/{telegram_id}/masmorras")
+def masmorras_info(telegram_id: int, db: Session = Depends(get_db)):
+    p = get_player(db, telegram_id)
+    vi, m = vila_idx(p), p.masmorra
+    return {"andares": MASM_ANDARES, "frags": MASM_FRAGS, "energia": MASM_ENERGIA,
+            "ativa": {"mapa": m["mapa"], "nome": mapa_vila(m["mapa"], vi)["nome"], "feitos": m["andar"]} if m else None,
+            "mapas": [{"id": x["id"], "nome": mapa_vila(x["id"], vi)["nome"], "min_level": x["min_level"], "max_level": x["max_level"],
+                       "qtd": (p.materiais or {}).get(f"frag_{x['id']}", 0), "pode_nivel": p.level >= x["min_level"]} for x in MAPS]}
+
+
+@router.post("/api/masmorra/entrar")
+def masmorra_entrar(payload: ExploreReq, db: Session = Depends(get_db)):
+    p = get_player(db, payload.telegram_id, lock=True)
+    if p.luta:
+        raise HTTPException(409, "Você já está em uma luta.")
+    if p.masmorra:
+        raise HTTPException(409, "Você já está em uma masmorra. Continue ou abandone-a.")
+    if payload.map_id not in MAPS_BY_ID:
+        raise HTTPException(404, "Mapa não encontrado.")
+    mp = MAPS_BY_ID[payload.map_id]
+    if p.level < mp["min_level"]:
+        raise HTTPException(403, f"Masmorra bloqueada: exige nível {mp['min_level']}.")
+    k = f"frag_{payload.map_id}"
+    if (p.materiais or {}).get(k, 0) < MASM_FRAGS:
+        raise HTTPException(400, f"Faltam fragmentos: precisa de {MASM_FRAGS} ({(p.materiais or {}).get(k, 0)}). Eles caem de chefes deste mapa.")
+    if p.energia < MASM_ENERGIA:
+        raise HTTPException(400, f"Energia insuficiente: a entrada custa {MASM_ENERGIA}.")
+    if p.vida_atual < 0.5 * p.vida_max:
+        raise HTTPException(400, "Vida abaixo da metade. Recupere-se antes de entrar: não há cura entre os andares.")
+    p.materiais = {**p.materiais, k: p.materiais[k] - MASM_FRAGS}
+    p.energia -= MASM_ENERGIA
+    p.masmorra = {"mapa": payload.map_id, "andar": 0}
+    _novo_andar(p, payload.map_id, 1)
+    db.commit()
+    return {"luta": luta_view(p)}
+
+
+@router.post("/api/masmorra/avancar")
+def masmorra_avancar(payload: RestReq, db: Session = Depends(get_db)):
+    p = get_player(db, payload.telegram_id, lock=True)
+    if p.luta:
+        raise HTTPException(409, "Você já está em uma luta.")
+    if not p.masmorra:
+        raise HTTPException(409, "Você não está em uma masmorra.")
+    if p.vida_atual < 10:
+        raise HTTPException(400, "Vida baixa demais para o próximo andar. Use uma poção ou abandone a masmorra.")
+    _novo_andar(p, p.masmorra["mapa"], p.masmorra["andar"] + 1)
+    db.commit()
+    return {"luta": luta_view(p)}
+
+
+@router.post("/api/masmorra/abandonar")
+def masmorra_abandonar(payload: RestReq, db: Session = Depends(get_db)):
+    p = get_player(db, payload.telegram_id, lock=True)
+    if p.luta:
+        raise HTTPException(409, "Termine a luta antes.")
+    if not p.masmorra:
+        raise HTTPException(409, "Você não está em uma masmorra.")
+    p.masmorra = None
+    db.commit()
+    return {"mensagem": "Você deixou a masmorra. Os fragmentos usados na entrada se perderam."}
+
+
+# ───────── Torre: andares infinitos, sem tempo ─────────
+# Cada tentativa gasta 2 de energia e luta contra o próximo andar. Perder não tira nada. Vencer sobe o recorde e rende a recompensa:
+# XP, ryos e fama em todo andar; materiais; equipamento a cada 5 andares; chefe e ovo de pet a cada 10.
+TORRE_ENERGIA = 2
+TORRE_CHEFES = ["Sentinela da Torre", "Carrasco de Ferro", "Dama das Cem Lâminas", "Monge do Vazio", "Imperador de Cinzas",
+                "Guardião Celeste", "Arauto do Trovão Negro", "Rei Sem Nome", "Serpente das Eras", "O Último Guardião"]
+
+
+def torre_dif(f: int) -> str:
+    return "chefe" if f % 10 == 0 else "mini-chefe" if f % 5 == 0 else "difícil" if f % 3 == 0 else "normal"
+
+
+def torre_recompensa(f: int) -> dict:
+    """O que o andar `f` dá na primeira vitória (ryos e XP crescem com o quadrado do andar)."""
+    return {"exp": 20 * f + 2 * f * f, "ryos": 30 * f + 3 * f * f, "fama": 20 if f % 10 == 0 else 3 if f % 5 == 0 else 1,
+            "equip": f % 5 == 0, "ovo": f % 10 == 0, "chefe": f % 10 == 0}
+
+
+def fim_torre(db: Session, p: Player, L: dict, won: bool, res: dict) -> None:
+    f = L["andar"]
+    if not won:
+        res["torre"] = {"andar": f, "recorde": p.torre_andar or 0, "falhou": True, "boss": L["boss"]}
+        return
+    rec = torre_recompensa(f)
+    p.torre_andar = max(p.torre_andar or 0, f)
+    res["exp"], res["ryos"] = rec["exp"], rec["ryos"]
+    p.ryos += rec["ryos"]
+    p.fama += rec["fama"]
+    pet_afinidade(db, L)
+    mid = f"mat_{min(5, f // 20 + 1)}"
+    qtd = random.randint(3, 5) if rec["chefe"] else random.randint(1, 2)
+    p.materiais = {**(p.materiais or {}), mid: (p.materiais or {}).get(mid, 0) + qtd}
+    res["extras"].append(f"{qtd}x {MAT_NOME[mid]}")
+    if rec["ovo"]:
+        oid = list(OVOS)[0 if f < 30 else 1 if f < 60 else 2 if f < 90 else 3]
+        p.ovos = {**(p.ovos or {}), oid: (p.ovos or {}).get(oid, 0) + 1}
+        res["extras"].append(OVOS[oid][0])
+    if rec["equip"]:
+        if bolsa_livre(p, len(res["drops"])):
+            mp = MAPS_BY_ID[min(15, 1 + f // 7)]
+            nome, attr, *t = random.choice(mp["itens"])
+            res["drops"].append(criar_item(db, p, mp, nome, attr, t[0] if t else mp["tipo"], sortear_estrelas(min(MORAL_MAX, p.moral + 8 + f // 10))))
+        else:
+            res["extras"].append("um equipamento, mas a mochila estava cheia")
+    res["torre"] = {"andar": f, "recorde": p.torre_andar, "falhou": False, "boss": rec["chefe"]}
+
+
+@router.get("/api/player/{telegram_id}/torre")
+def torre_info(telegram_id: int, db: Session = Depends(get_db)):
+    p = get_player(db, telegram_id)
+    f = (p.torre_andar or 0) + 1
+    top = db.scalars(select(Player).where(Player.torre_andar > 0).order_by(Player.torre_andar.desc(), Player.level.desc()).limit(10)).all()
+    return {"andar": f, "recorde": p.torre_andar or 0, "energia": TORRE_ENERGIA, "dif": torre_dif(f), "recompensa": torre_recompensa(f),
+            "ranking": [{"nome": x.ninja_name, "avatar": x.avatar, "andar": x.torre_andar, "eu": x.id == p.id} for x in top]}
+
+
+@router.post("/api/torre/lutar")
+def torre_lutar(payload: RestReq, db: Session = Depends(get_db)):
+    p = get_player(db, payload.telegram_id, lock=True)
+    if p.luta:
+        raise HTTPException(409, "Você já está em uma luta.")
+    if p.energia < TORRE_ENERGIA:
+        raise HTTPException(400, f"Energia insuficiente: cada tentativa custa {TORRE_ENERGIA}.")
+    if p.vida_atual < 10:
+        raise HTTPException(400, "Vida baixa demais. Descanse antes de subir.")
+    f = (p.torre_andar or 0) + 1
+    dif = torre_dif(f)
+    nivel = 3 + f + (2 if dif == "chefe" else 0)
+    nome = TORRE_CHEFES[(f // 10 - 1) % len(TORRE_CHEFES)] if dif == "chefe" else f"Capitão do {f}º Andar" if dif == "mini-chefe" else f"Guardião do {f}º Andar"
+    stats, hp, ck = stats_inimigo(p, nivel, dif)
+    p.energia -= TORRE_ENERGIA
+    iniciar_luta(p, "torre", nome, stats, hp, ck, dif == "chefe", mapa=None, on_mission=False, elemento=random.choice(list(ELEMENTOS)),
+                 dif=dif, nivel=nivel, andar=f)
+    db.commit()
+    return {"luta": luta_view(p)}

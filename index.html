@@ -116,6 +116,8 @@
   <section id="tab-treino" class="tab space-y-3 hidden"></section>
   <section id="tab-hospital" class="tab space-y-3 hidden"></section>
   <section id="tab-forja" class="tab space-y-3 hidden"></section>
+  <section id="tab-masmorras" class="tab space-y-3 hidden"></section>
+  <section id="tab-torre" class="tab space-y-3 hidden"></section>
   <section id="tab-jutsus" class="tab space-y-3 hidden"></section>
   <section id="tab-perfil" class="tab space-y-3"></section>
   <section id="tab-jornada" class="tab space-y-3 hidden"></section>
@@ -187,7 +189,7 @@ const TIPOS = { Arma: 'Armas', Armadura: 'Armaduras', Pergaminho: 'Pergaminhos',
 const bonusTxt = b => Object.entries(b).filter(([k]) => k[0] !== '_').map(([k, v]) => `+${v} ${k}`).join(', ') + (b._ref ? ` (refino +${b._ref})` : '');
 const dur = s => s >= 60 ? Math.round(s / 60) + ' min' : s + ' s';
 let P, X, J, G, K, R, LU, CL, LJ, PT, BO, ljSec = 'itens', boSec = 'equipados', VILS, battle = null, reps = 1;
-let FJ, DO, fjSec = 'refinar', doAttr = 'taijutsu', dsess = 1;
+let FJ, DO, MS, TR, fjSec = 'refinar', doAttr = 'taijutsu', dsess = 1;
 
 function toast(msg, ok = true, ms = 3000) {
   const t = $('toast');
@@ -241,6 +243,8 @@ function showTab(name, back) {
   if (name === 'loja') loadLoja();
   if (name === 'forja') loadForja();
   if (name === 'treino') loadDojo();
+  if (name === 'masmorras') loadMasm();
+  if (name === 'torre') loadTorre();
   document.querySelectorAll('.tab').forEach(s => s.classList.toggle('hidden', s.id !== 'tab-' + name));
   document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.tab === (MAIN.includes(name) ? name : PAI[name] || 'menu')));
   tg?.HapticFeedback?.selectionChanged?.();
@@ -260,7 +264,7 @@ function renderHeader() {
 function render() {
   renderHeader();
   renderPerfil(); renderJornada(); renderMapas(); renderVila(); renderGuilda();
-  renderJutsus(); renderMenu(); renderBolsa(); renderAtributos(); renderStatus(); renderOpcoes(); renderLutaBox(); renderTreino(); renderHospital(); renderForja();
+  renderJutsus(); renderMenu(); renderBolsa(); renderAtributos(); renderStatus(); renderOpcoes(); renderLutaBox(); renderTreino(); renderHospital(); renderForja(); renderMasm(); renderTorre();
 }
 
 /* Perfil: atributos (com treino), equipamento e invocações */
@@ -275,7 +279,7 @@ const mini = (id, ico, nome, fn, soon = false) => `<button class="mini" onclick=
   <img src="img/${id}.jpg" alt="" onerror="this.remove()"><span class="ico">${ico}</span><b>${nome}</b>${soon ? '<i class="soon">breve</i>' : ''}</button>`;
 function renderMenu() {
   const T = [['dojo', '🥋', 'Dojo', "showTab('treino')"], ['kage', '👘', 'Sala do Kage', "showTab('vila')"], ['forja', '⚒️', 'Forja', "showTab('forja')"],['arena', '⚔️', 'Arena', '', 1],
-    ['masmorras', '🕳️', 'Masmorras', '', 1], ['torre', '🗼', 'Torre', '', 1], ['vila', '🏘️', 'Vila e clãs', "showTab('vila')"], ['ranking', '🏆', 'Ranking', "showTab('ranking')"]];
+    ['masmorras', '🕳️', 'Masmorras', "showTab('masmorras')"], ['torre', '🗼', 'Torre', "showTab('torre')"],['vila', '🏘️', 'Vila e clãs', "showTab('vila')"], ['ranking', '🏆', 'Ranking', "showTab('ranking')"]];
   $('tab-menu').innerHTML = `<h2>Menu</h2><div class="grid grid-cols-4 gap-2">${T.map(([id, ico, n, fn, soon]) => mini(id, ico, n, fn, !!soon)).join('')}</div>`;
 }
 function renderHospital() {
@@ -308,7 +312,7 @@ function renderBolsa() {
       `<button class="chip" ${LU ? 'disabled' : ''} onclick="act('/api/pocao/usar', { pocao: '${c.id}' }, r => r.mensagem)">Usar</button>`)).join('') || '<p class="lbl mt-2">Nenhuma poção. Compre na Loja.</p>'}
       <p class="lbl mt-3">Poções empilham e não ocupam espaço na mochila.</p></div>`;
   } else if (boSec === 'materiais') {
-    body = `<div class="card"><h2>Materiais</h2>${BO.materiais.map(m => row(`<div class="text-sm font-semibold">${esc(m.nome)} <span class="tag">x${m.qtd}</span></div>`, `Tier ${m.tier}`, '')).join('')
+    body = `<div class="card"><h2>Materiais</h2>${BO.materiais.map(m => row(`<div class="text-sm font-semibold">${esc(m.nome)} <span class="tag">x${m.qtd}</span></div>`, m.tier ? `Tier ${m.tier}` : 'Chave de masmorra', '')).join('')
       || '<p class="lbl mt-2">Nenhum material ainda. Eles caem de vitórias nos mapas, e os chefes sempre dão.</p>'}
       <p class="lbl mt-3">Materiais empilham e não ocupam espaço na mochila. Use-os na Forja, pelo Menu.</p>
       <button class="btn btn-ghost w-full mt-3" onclick="showTab('forja')">⚒️ Ir à Forja</button></div>`;
@@ -496,11 +500,11 @@ function renderMapas() {
       <button class="btn w-full mt-3" ${locked || P.energia < 1 ? 'disabled' : ''} onclick="explore(${m.id})">Explorar (1 de energia)</button></div>`;
   }).join('');
 }
-async function iniciarLuta(path, body) {
+async function iniciarLuta(path, body, tab = 'mapas') {
   try {
     battle = null;
     const r = await api(path, { telegram_id: tgUser.id, ...body });
-    showTab('mapas'); await refresh();
+    showTab(tab); await refresh();
     if (r.evento) toast(`${r.evento.emoji} ${r.evento.titulo}: ${r.evento.texto}`, r.evento.tipo !== 'emboscada', 6000);
   } catch (e) { toast(e.message, false); render(); }
 }
@@ -553,7 +557,7 @@ function lutaHtml() {
   const temAnt = (l.pocoes || []).some(x => x.id === 'antidoto');
   return `<div class="card border-vermil"><div class="flex items-center gap-3">${foeIcon(l.inimigo, l.tipo, l.chefe, l.elemento)}
       <div class="min-w-0"><h2 class="truncate">${esc(l.inimigo)}${l.nivel ? ` <span class="text-gold">lvl ${l.nivel}</span>` : ''}</h2>
-        <div class="flex gap-1.5 mt-1 flex-wrap">${l.emboscada ? '<span class="tag red">⚠️ Emboscada</span>' : ''}${l.dif ? `<span class="${DIF_TAG[l.dif] || 'tag'}">${l.dif}</span>` : l.tipo === 'pvp' ? '<span class="tag gold">Duelo</span>' : ''}${ELEM[l.elemento] ? `<span class="tag">${ELEM[l.elemento][1]} ${ELEM[l.elemento][0]}</span>` : ''}</div></div></div>
+        <div class="flex gap-1.5 mt-1 flex-wrap">${l.emboscada ? '<span class="tag red">⚠️ Emboscada</span>' : ''}${l.andar ? `<span class="tag gold">${l.tipo === 'torre' ? 'Torre' : 'Masmorra'}: andar ${l.andar}${l.total ? ' de ' + l.total : ''}</span>` : ''}${l.dif ? `<span class="${DIF_TAG[l.dif] || 'tag'}">${l.dif}</span>` : l.tipo === 'pvp' ? '<span class="tag gold">Duelo</span>' : ''}${ELEM[l.elemento] ? `<span class="tag">${ELEM[l.elemento][1]} ${ELEM[l.elemento][0]}</span>` : ''}</div></div></div>
     <div class="flex justify-between text-xs mt-3 mb-1"><span>Vida do inimigo</span><span>${l.hp}/${l.hp_max}</span></div>
     <div class="bar"><i class="bg-vermil" style="width:${pc(l.hp, l.hp_max)}"></i></div></div>
   <div class="card"><div class="grid grid-cols-2 gap-3 text-xs"><div><div class="flex justify-between mb-1"><span>Sua vida</span><span>${P.vida.atual}/${P.vida.max}</span></div><div class="bar"><i class="bg-gradient-to-r from-red-900 to-vermil" style="width:${pc(P.vida.atual, P.vida.max)}"></i></div></div>
@@ -582,6 +586,8 @@ function resultadoHtml() {
     <div class="grid grid-cols-3 gap-2 mt-2"><button class="chip" onclick="dropAcao(${d.id}, 'guardar')">Guardar</button><button class="chip" onclick="dropAcao(${d.id}, 'vender')">Vender ${fmt(d.valor)}</button><button class="chip" onclick="dropAcao(${d.id}, 'jogar')">Jogar fora</button></div></div>`;
   const podeCont = r.tipo === 'pve' && r.mapa, semEn = P.energia < 1 || P.vida.atual < 10;
   const feridoDemais = P.vida.atual < 0.4 * P.vida.max;
+  const mm = r.masmorra, tt = r.torre, emMasm = r.tipo === 'masmorra', emTorre = r.tipo === 'torre';
+  const proxMasm = emMasm && r.vitoria && mm && !mm.fim, proxTorre = emTorre && r.vitoria && tt;
   return `<div class="card border-${r.vitoria ? 'gold' : 'vermil'}"><div class="flex items-center gap-3">${foeIcon(r.inimigo, r.tipo, r.chefe, null)}
       <div class="min-w-0"><h2>${titulo} ${esc(r.inimigo)}${r.nivel ? ` <span class="text-gold">lvl ${r.nivel}</span>` : ''}</h2>
       <div class="flex gap-1.5 mt-1">${r.dif ? `<span class="${DIF_TAG[r.dif] || 'tag'}">${r.dif}</span>` : ''}${r.chefe ? '<span class="tag red">Chefe</span>' : ''}</div></div></div>
@@ -590,14 +596,60 @@ function resultadoHtml() {
     ${r.niveis_ganhos ? '<div class="text-sm text-gold mt-1">Subiu de nível! Vida, chakra e energia restaurados.</div>' : ''}
     ${(r.extras || []).length ? `<div class="text-sm mt-1">Você também encontrou: ${r.extras.map(esc).join(', ')}.</div>` : ''}
     ${r.missao ? `<div class="text-xs text-gold mt-1">Missão: ${r.missao.progresso} de ${r.missao.qtd}</div>` : ''}
+    ${mm ? `<div class="text-sm text-gold mt-2">${mm.falhou ? `A masmorra terminou no andar ${mm.andar}.` : mm.fim ? 'Masmorra concluída! O baú final foi aberto.' : `Masmorra: andar ${mm.andar} de ${mm.total} vencido.`}</div>` : ''}
+    ${tt ? `<div class="text-sm text-gold mt-2">${tt.falhou ? `O andar ${tt.andar} resistiu. Seu recorde segue em ${tt.recorde}.` : `Andar ${tt.andar} da Torre vencido${tt.boss ? ' (chefe)' : ''}. Recorde: ${tt.recorde}.`}</div>` : ''}
     ${r.xp_reduzido ? '<p class="text-xs text-vermil mt-1">Você já passou da faixa deste mapa: o XP é reduzido.</p>' : ''}
     <div class="flex justify-between lbl mt-3"><span>Moral</span><span>${r.moral}/25</span></div><div class="bar mt-1"><i class="bg-gold" style="width:${pct(r.moral, 25)}"></i></div>
     ${r.vitoria === false && !r.fuga ? '<p class="text-xs text-vermil mt-2">Você caiu em combate: a moral voltou a zero.</p>' : ''}</div>
   ${drops.length ? `<div class="card"><h2>Drops</h2><p class="lbl mt-1">Os itens já estão na sua mochila. Escolha o que fazer com cada um.</p>${drops.map(linha).join('')}</div>` : ''}
   <div class="card"><h2>O que fazer agora?</h2><div class="grid grid-cols-1 gap-2 mt-3">
+    ${proxMasm ? `<button class="btn" ${P.vida.atual < 10 ? 'disabled' : ''} onclick="masmAvancar()">🕳️ Próximo andar (${mm.andar + 1} de ${mm.total})</button>` : ''}
+    ${proxTorre ? `<button class="btn" ${P.energia < 2 || P.vida.atual < 10 ? 'disabled' : ''} onclick="torreLutar()">🗼 Subir ao andar ${tt.andar + 1}${P.energia < 2 ? ' (sem energia)' : ''}</button>` : ''}
+    ${emTorre && !proxTorre ? `<button class="btn" ${P.energia < 2 || P.vida.atual < 10 ? 'disabled' : ''} onclick="torreLutar()">🗼 Tentar o andar ${tt ? tt.andar : ''} de novo</button>` : ''}
     ${podeCont ? `<button class="btn ${feridoDemais ? 'btn-ghost' : ''}" ${semEn ? 'disabled' : ''} onclick="continuar(${r.mapa})">${r.on_mission ? '⚔️ Continuar missão' : '⚔️ Continuar caçada'}${semEn ? ' (sem energia ou vida)' : ''}</button>` : ''}
     <button class="btn ${feridoDemais ? '' : 'btn-ghost'}" onclick="fecharRes('hospital')">🏥 Ir ao Hospital${feridoDemais ? ' (vida baixa)' : ''}</button>
-    <button class="btn btn-ghost" onclick="fecharRes('mapas')">Voltar ao Portão</button></div></div>`;
+    <button class="btn btn-ghost" onclick="fecharRes('${emMasm ? 'masmorras' : emTorre ? 'torre' : 'mapas'}')">${emMasm ? 'Voltar às Masmorras' : emTorre ? 'Voltar à Torre' : 'Voltar ao Portão'}</button></div></div>`;
+}
+
+/* Masmorras: 5 andares seguidos, entrada por fragmentos de chave que caem de chefes */
+async function loadMasm() {
+  try { MS = await api(`/api/player/${tgUser.id}/masmorras`); renderMasm(); } catch (e) { toast(e.message, false); }
+}
+const masmEntrar = id => iniciarLuta('/api/masmorra/entrar', { map_id: id }, 'masmorras');
+const masmAvancar = () => iniciarLuta('/api/masmorra/avancar', {}, 'masmorras');
+function renderMasm() {
+  if (!MS) return;
+  const a = MS.ativa;
+  const ativa = a ? `<div class="card border-gold"><h2>Masmorra em andamento</h2><p class="text-sm mt-1">${esc(a.nome)}: ${a.feitos} de ${MS.andares} andares vencidos.</p>
+    <p class="lbl mt-1">O Hospital e o descanso ficam fechados até você terminar ou abandonar. Só poções ajudam entre os andares. Fugir ou cair em combate encerra a masmorra e perde o progresso.</p>
+    <div class="grid grid-cols-2 gap-2 mt-3"><button class="btn" ${LU || P.vida.atual < 10 ? 'disabled' : ''} onclick="masmAvancar()">Continuar (andar ${a.feitos + 1})</button>
+      <button class="btn btn-ghost" ${LU ? 'disabled' : ''} onclick="askOk('Abandonar a masmorra? Os fragmentos da entrada se perdem.', () => act('/api/masmorra/abandonar', {}, r => r.mensagem).then(loadMasm))">Abandonar</button></div></div>` : '';
+  const lista = MS.mapas.map(m => {
+    const off = !!a || LU || !m.pode_nivel || m.qtd < MS.frags || P.energia < MS.energia || P.vida.atual < 0.5 * P.vida.max;
+    return `<div class="card ${m.pode_nivel ? '' : 'opacity-60'}"><div class="flex items-start justify-between gap-2"><div><h2>${esc(m.nome)}</h2>
+      <div class="lbl mt-0.5">Níveis ${m.min_level} a ${m.max_level}${m.pode_nivel ? '' : `. Libera no nível ${m.min_level}`}</div></div><span class="tag ${m.qtd >= MS.frags ? 'gold' : ''}">Fragmentos ${m.qtd}/${MS.frags}</span></div>
+      <button class="btn w-full mt-3" ${off ? 'disabled' : ''} onclick="masmEntrar(${m.id})">Entrar (${MS.energia} de energia e ${MS.frags} fragmentos)</button></div>`; }).join('');
+  $('tab-masmorras').innerHTML = `<div class="card"><h2>Masmorras</h2><p class="lbl mt-1">Chefes dos mapas soltam fragmentos de chave (60% de chance). Com ${MS.frags} fragmentos de um mapa, você entra na masmorra dele:
+    ${MS.andares} andares em sequência, o último com o chefe. Cada andar rende XP e ryos; o baú final dá materiais de forja, um equipamento com chance maior de ★ e fama. Entrar exige a vida acima da metade, e o Hospital fica fechado enquanto a masmorra durar.</p></div>${ativa}${lista}`;
+}
+
+/* Torre: andares infinitos; a primeira vitória em cada andar rende a recompensa */
+async function loadTorre() {
+  try { TR = await api(`/api/player/${tgUser.id}/torre`); renderTorre(); } catch (e) { toast(e.message, false); }
+}
+const torreLutar = () => iniciarLuta('/api/torre/lutar', {}, 'torre');
+function renderTorre() {
+  if (!TR) return;
+  const r = TR.recompensa, off = LU || P.energia < TR.energia || P.vida.atual < 10;
+  const rank = TR.ranking.map((m, i) => `<div class="flex items-center gap-3 py-2 border-t border-line"><span class="w-6 text-center font-bold ${i < 3 ? 'text-gold' : 'text-paper/50'}">${i + 1}</span><span class="text-xl">${esc(m.avatar)}</span>
+    <div class="flex-1 min-w-0 text-sm font-semibold truncate">${esc(m.nome)} ${m.eu ? '<span class="tag gold">Você</span>' : ''}</div><b class="text-sm">Andar ${m.andar}</b></div>`).join('');
+  $('tab-torre').innerHTML = `<div class="card"><h2>Torre</h2><p class="lbl mt-1">Andares sem fim. Cada tentativa custa ${TR.energia} de energia; perder não tira nada. A recompensa vem na primeira vitória em cada andar.</p>
+    <div class="grid grid-cols-2 gap-2 mt-3 text-center"><div class="rounded-xl border border-line p-2.5"><div class="lbl">Próximo andar</div><div class="font-bold text-gold text-lg">${TR.andar}</div></div>
+      <div class="rounded-xl border border-line p-2.5"><div class="lbl">Seu recorde</div><div class="font-bold">${TR.recorde}</div></div></div>
+    <div class="flex gap-1.5 flex-wrap mt-3"><span class="${TR.dif === 'chefe' ? 'tag red' : TR.dif === 'mini-chefe' ? 'tag gold' : 'tag'}">${esc(TR.dif)}</span>${r.chefe ? '<span class="tag red">Chefe</span>' : ''}${r.equip ? '<span class="tag gold">Equipamento</span>' : ''}${r.ovo ? '<span class="tag gold">Ovo de pet</span>' : ''}</div>
+    <p class="text-sm text-paper/70 mt-3">Recompensa: ${fmt(r.exp)} XP, ${fmt(r.ryos)} ryos, ${r.fama} de fama e materiais de forja.</p>
+    <button class="btn w-full mt-3" ${off ? 'disabled' : ''} onclick="torreLutar()">Subir ao andar ${TR.andar}${P.energia < TR.energia ? ' (sem energia)' : ''}</button></div>
+    <div class="card"><h2>Mais altos</h2>${rank || '<p class="lbl mt-2">Ninguém subiu ainda. Seja o primeiro.</p>'}</div>`;
 }
 async function dropAcao(id, tipo) {
   const d = battle.drops.find(x => x.id === id);
