@@ -139,11 +139,11 @@
 </main>
 
 <nav class="fixed bottom-0 inset-x-0 z-30 grid grid-cols-5 bg-sumi/95 backdrop-blur border-t border-line" style="padding-bottom:env(safe-area-inset-bottom,0px)">
-  <button data-tab="menu"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg> Menu</button>
+  <button data-tab="perfil"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg> Perfil</button>
   <button data-tab="mapas"><svg viewBox="0 0 24 24"><path d="M3 6h18M5 9.5h14M7 6v14M17 6v14M4 4c4 1 12 1 16 0"/></svg> Portão</button>
   <button data-tab="bolsa"><svg viewBox="0 0 24 24"><path d="M5 8h14l-1 12H6z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/></svg> Itens</button>
   <button data-tab="guilda"><svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 5-3.5 8-7 10-3.5-2-7-5-7-10V6z"/></svg> Guilda</button>
-  <button data-tab="perfil"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg> Perfil</button>
+  <button data-tab="menu"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg> Menu</button>
 </nav>
 
 <div id="regBox" class="hidden fixed inset-0 z-40 bg-sumi overflow-y-auto p-5">
@@ -239,7 +239,7 @@ async function act(path, body, msg) {
 }
 
 /* ───────── Abas ───────── */
-const MAIN = ['menu', 'mapas', 'bolsa', 'guilda', 'perfil'];
+const MAIN = ['perfil', 'mapas', 'bolsa', 'guilda', 'menu'];
 // Subtelas acendem o ícone da aba de onde se chega nelas
 const PAI = { atributos: 'perfil', status: 'perfil', opcoes: 'perfil', jutsus: 'perfil', amigos: 'perfil', skins: 'perfil', bingo: 'perfil', guilda2: 'guilda', pactos: 'menu', boneco: 'menu' };
 let cur = 'perfil', navStack = [];
@@ -293,7 +293,7 @@ const PAL = [['#4a1a14', '#140e0e'], ['#14323f', '#0c1014'], ['#3d2d12', '#120f0
 const tile = (id, ico, nome, sub_, fn, i = 0, soon = false) => `<button class="tile" style="--a:${PAL[i % PAL.length][0]};--b:${PAL[i % PAL.length][1]}" onclick="${soon ? `toast('${nome}: em breve.', true)` : fn}">
   <img src="img/${id}.jpg" alt="" onerror="this.remove()"><span class="ico">${ico}</span>${soon ? '<span class="tag absolute top-2 left-2 z-10">em breve</span>' : ''}
   <b class="font-jp text-base">${nome}</b><span class="text-xs text-paper/70">${sub_}</span></button>`;
-/* Menu: atalhos compactos em 4 colunas. Barra inferior: Menu, Portão, Itens, Guilda e Perfil. */
+/* Menu: atalhos compactos em 4 colunas. Barra inferior: Perfil, Portão, Itens, Guilda e Menu. */
 const mini = (id, ico, nome, fn, soon = false) => `<button class="mini" onclick="${soon ? `toast('${nome}: em breve.', true)` : fn}">
   <img src="img/${id}.jpg" alt="" onerror="this.remove()"><span class="ico">${ico}</span><b>${nome}</b>${soon ? '<i class="soon">breve</i>' : ''}</button>`;
 function renderMenu() {

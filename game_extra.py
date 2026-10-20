@@ -1833,7 +1833,7 @@ def pet_soltar(payload: PetReq, db: Session = Depends(get_db)):
 
 
 # ───────── Esqueleto novo: bolsa (30 itens), patente e Hospital ─────────
-BOLSA_MAX = 39  # equipamentos, materiais e itens de quest; poções empilham fora desse limite
+BOLSA_MAX = 30  # equipamentos, materiais e itens de quest; poções empilham fora desse limite
 SLOTS = ["Arma", "Armadura", "Botas", "Luvas", "Colar", "Anel", "Anel", "Pergaminho"]  # dois anéis
 MAX_EQUIP = {"Anel": 2}  # tipos que aceitam mais de um item equipado
 HOSPITAL_GRATIS_CD = 600  # segundos entre curas gratuitas
