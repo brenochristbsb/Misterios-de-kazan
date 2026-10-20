@@ -122,6 +122,9 @@
   <section id="tab-prog" class="tab space-y-3 hidden"></section>
   <section id="tab-chat" class="tab space-y-3 hidden"></section>
   <section id="tab-forum" class="tab space-y-3 hidden"></section>
+  <section id="tab-amigos" class="tab space-y-3 hidden"></section>
+  <section id="tab-skins" class="tab space-y-3 hidden"></section>
+  <section id="tab-bingo" class="tab space-y-3 hidden"></section>
   <section id="tab-jutsus" class="tab space-y-3 hidden"></section>
   <section id="tab-perfil" class="tab space-y-3"></section>
   <section id="tab-jornada" class="tab space-y-3 hidden"></section>
@@ -235,7 +238,7 @@ async function act(path, body, msg) {
 /* ───────── Abas ───────── */
 const MAIN = ['menu', 'mapas', 'bolsa', 'guilda', 'perfil'];
 // Subtelas acendem o ícone da aba de onde se chega nelas
-const PAI = { atributos: 'perfil', status: 'perfil', opcoes: 'perfil', jutsus: 'perfil' };
+const PAI = { atributos: 'perfil', status: 'perfil', opcoes: 'perfil', jutsus: 'perfil', amigos: 'perfil', skins: 'perfil', bingo: 'perfil' };
 let cur = 'perfil', navStack = [];
 const goBack = () => showTab(navStack.pop() || 'menu', true);
 function showTab(name, back) {
@@ -252,6 +255,9 @@ function showTab(name, back) {
   if (name === 'prog') loadProg();
   if (name === 'chat') loadChat();
   if (name === 'forum') renderForum();
+  if (name === 'amigos') loadAmigos();
+  if (name === 'skins') loadSkins();
+  if (name === 'bingo') loadBingo();
   document.querySelectorAll('.tab').forEach(s => s.classList.toggle('hidden', s.id !== 'tab-' + name));
   document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.tab === (MAIN.includes(name) ? name : PAI[name] || 'menu')));
   tg?.HapticFeedback?.selectionChanged?.();
@@ -450,7 +456,7 @@ function renderStatus() {
 function renderOpcoes() {
   const lk = (t, fn) => `<button class="w-full flex justify-between items-center py-3 border-t border-line text-sm" onclick="${fn}"><span>${t}</span><span class="text-gold text-xs">abrir</span></button>`;
   const soon = t => `<button class="w-full flex justify-between items-center py-3 border-t border-line text-sm" onclick="toast('${t}: em breve.', true)"><span>${t}</span><span class="text-gold text-xs">em breve</span></button>`;
-  $('tab-opcoes').innerHTML = `<div class="card"><h2 class="mb-1">Opções</h2>${['Amigos', 'Skins'].map(soon).join('')}${lk('Conquistas', "abrirProg('conq')")}${soon('Livro Bingo')}${soon('Trocar classe e sexo')}${lk('Fórum e tutoriais', "showTab('forum')")}</div>
+  $('tab-opcoes').innerHTML = `<div class="card"><h2 class="mb-1">Opções</h2>${lk('Amigos', "showTab('amigos')")}${lk('Skins', "showTab('skins')")}${lk('Conquistas', "abrirProg('conq')")}${lk('Livro Bingo e Nukenin', "showTab('bingo')")}${lk('Trocar de sexo', "showTab('skins')")}${lk('Fórum e tutoriais', "showTab('forum')")}</div>
     <div class="card"><h2>Trocar nome</h2><p class="lbl mt-1">Custa 2.000 ryos. Use letras, números e espaços (3 a 32 caracteres).</p>
       <div class="flex gap-2 mt-3"><input id="novoNome" class="inp flex-1" maxlength="32" placeholder="${esc(P.ninja_name)}"><button class="btn btn-gold" onclick="trocarNome()">Trocar</button></div></div>
     <div class="card"><h2>Nacionalidade</h2><p class="lbl mt-1">Você é de ${esc(P.village.name)}. Trocar de vila zera sua fama e reinicia a missão atual. Clãs de outra vila ficam para trás. Kage e Sannin não podem trocar.</p>
@@ -1143,6 +1149,91 @@ async function trocarNome() {
   const v = $('novoNome').value.trim(); if (!v) return;
   try { toast((await api('/api/conta/nome', { telegram_id: tgUser.id, novo_nome: v })).mensagem, true); await refresh(); } catch (e) { toast(e.message, false); }
 }
+
+/* ───────── Perfil social: amigos, skins, sexo ───────── */
+let SO, NKI;
+async function loadSocial() { SO = await api(`/api/player/${tgUser.id}/social2`); }
+async function actB(path, body, after) {
+  try { const r = await api(path, { telegram_id: tgUser.id, ...body }); toast(r.mensagem || 'Feito.', true); await after(); await refresh(); } catch (e) { toast(e.message, false); }
+}
+async function loadAmigos() {
+  $('tab-amigos').innerHTML = '<p class="lbl">Carregando…</p>';
+  try { await loadSocial(); renderAmigos(); } catch (e) { $('tab-amigos').innerHTML = `<div class="card border-vermil"><p class="text-sm">${esc(e.message)}</p></div>`; }
+}
+function renderAmigos() {
+  const am = SO.amigos.map(a => `<div class="flex items-center gap-3 py-2 border-t border-line"><span class="text-2xl">${esc(a.skin || a.avatar)}</span>
+    <div class="min-w-0 flex-1"><div class="font-semibold truncate">${esc(a.nome)}</div><div class="lbl">nível ${a.nivel}</div></div>
+    <button class="chip" onclick="chCanal='dm';chCom='${esc(a.nome).replace(/'/g, '')}';showTab('chat')">💬</button>
+    <button class="chip" onclick="remAmigo('${esc(a.nome).replace(/'/g, '')}')">remover</button></div>`).join('');
+  const pd = SO.pedidos.map(a => `<div class="flex items-center gap-3 py-2 border-t border-line"><span class="text-2xl">${esc(a.skin || a.avatar)}</span>
+    <div class="min-w-0 flex-1"><div class="font-semibold truncate">${esc(a.nome)}</div><div class="lbl">nível ${a.nivel}</div></div>
+    <button class="chip on" onclick="respAmigo('${esc(a.nome).replace(/'/g, '')}', true)">aceitar</button>
+    <button class="chip" onclick="respAmigo('${esc(a.nome).replace(/'/g, '')}', false)">recusar</button></div>`).join('');
+  $('tab-amigos').innerHTML = `<div class="card"><h2>Adicionar amigo</h2><p class="lbl mt-1">Digite o nome exato do ninja. Limite de ${SO.max} amigos.</p>
+    <div class="flex gap-2 mt-3"><input id="amigoNome" class="inp flex-1" maxlength="32" placeholder="Nome do ninja"><button class="btn btn-gold" onclick="pedirAmigo()">Enviar</button></div></div>
+    ${pd ? `<div class="card"><h2>Pedidos recebidos</h2>${pd}</div>` : ''}
+    <div class="card"><h2>Amigos <span class="lbl">${SO.amigos.length}/${SO.max}</span></h2>${am || '<p class="lbl mt-2">Você ainda não tem amigos. Envie um pedido acima.</p>'}</div>`;
+}
+const pedirAmigo = () => { const n = $('amigoNome').value.trim(); if (n) actB('/api/amigos/pedir', { nome: n }, loadAmigos); };
+const respAmigo = (nome, aceitar) => actB('/api/amigos/responder', { nome, aceitar }, loadAmigos);
+const remAmigo = nome => confirm(`Remover ${nome} dos amigos?`) && actB('/api/amigos/remover', { nome }, loadAmigos);
+
+async function loadSkins() {
+  $('tab-skins').innerHTML = '<p class="lbl">Carregando…</p>';
+  try { await loadSocial(); renderSkins(); } catch (e) { $('tab-skins').innerHTML = `<div class="card border-vermil"><p class="text-sm">${esc(e.message)}</p></div>`; }
+}
+function renderSkins() {
+  const preco = k => [k.ryos ? fmt(k.ryos) + ' ryos' : '', k.arena ? fmt(k.arena) + ' moedas da Arena' : ''].filter(Boolean).join(' + ') || 'grátis';
+  const cards = SO.skins.map(k => `<div class="rounded-xl border ${SO.skin === k.id ? 'border-gold' : 'border-line'} p-3 text-center">
+    <div class="text-4xl">${k.emoji}</div><div class="font-semibold mt-1">${esc(k.nome)}</div><div class="lbl mb-2">${k.tenho ? 'sua' : preco(k)}</div>
+    ${SO.skin === k.id ? '<span class="tag gold">equipada</span>' : k.tenho ? `<button class="chip" onclick="skinAcao('${k.id}','equipar')">equipar</button>` : `<button class="chip on" onclick="skinAcao('${k.id}','comprar')">comprar</button>`}</div>`).join('');
+  const sx = SO.sexo, custo = sx ? `${fmt(SO.sexo_custo)} ryos` : 'grátis na primeira vez';
+  $('tab-skins').innerHTML = `<div class="card"><h2>Skins</h2><p class="lbl mt-1">A skin aparece para seus amigos e nos rankings. Seus recursos: ${fmt(P.ryos)} ryos e ${fmt(X.moedas_arena || 0)} moedas da Arena.</p>
+    <div class="grid grid-cols-2 gap-2 mt-3">${cards}</div></div>
+    <div class="card"><h2>Sexo do personagem</h2><p class="lbl mt-1">Atual: <b class="text-gold">${sx === 'M' ? 'Masculino' : sx === 'F' ? 'Feminino' : 'não definido'}</b>. Trocar custa ${custo}.</p>
+    <div class="grid grid-cols-2 gap-2 mt-3"><button class="btn ${sx === 'M' ? 'btn-gold' : 'btn-ghost'}" onclick="trocarSexo('M')">♂ Masculino</button><button class="btn ${sx === 'F' ? 'btn-gold' : 'btn-ghost'}" onclick="trocarSexo('F')">♀ Feminino</button></div></div>`;
+}
+const skinAcao = (skin, acao) => actB('/api/skin', { skin, acao }, loadSkins);
+const trocarSexo = sexo => actB('/api/perfil/sexo', { sexo }, loadSkins);
+
+/* ───────── Livro Bingo, Nukenin e organizações ───────── */
+async function loadBingo() {
+  $('tab-bingo').innerHTML = '<p class="lbl">Carregando…</p>';
+  try { NKI = await api(`/api/player/${tgUser.id}/nukenin`); renderBingo(); } catch (e) { $('tab-bingo').innerHTML = `<div class="card border-vermil"><p class="text-sm">${esc(e.message)}</p></div>`; }
+}
+function renderBingo() {
+  const N = NKI, m = N.marcos;
+  const prox = N.proximo ? `Próximo rank: <b class="text-gold">${N.proximo[1]}</b> com ${fmt(N.proximo[0])} de fama.` : 'Você está no topo dos Nukenin.';
+  const estado = N.ativo ? `<span class="tag red">Nukenin${N.rank ? ' · rank ' + N.rank : ''}</span>` : `<span class="tag">Cidadão</span>`;
+  const ilegal = `<button class="btn btn-ghost w-full mt-3" onclick="actB('/api/nk/ilegal', {}, loadBingo)">🗡️ Trabalho sujo (${N.ilegal.energia} energia, nível ${N.ilegal.nivel}+)</button>`;
+  const bingo = N.bingo.map((b, i) => `<div class="flex items-center gap-3 py-2 border-t border-line"><span class="lbl w-5">${i + 1}</span><span class="text-2xl">${esc(b.avatar)}</span>
+    <div class="min-w-0 flex-1"><div class="font-semibold truncate">${esc(b.nome)}${b.eu ? ' <span class="tag gold">você</span>' : ''}</div><div class="lbl">nível ${b.nivel} · rank ${b.rank}${b.org ? ' · ' + esc(b.org) : ''}</div></div>
+    <div class="text-right"><div class="text-gold text-sm font-bold">${fmt(b.recompensa)}</div><div class="lbl">ryos</div></div></div>`).join('');
+  let org;
+  if (N.org) {
+    const mem = N.org.membros.map(x => `<div class="flex justify-between text-sm py-1.5 border-t border-line"><span>${esc(x.avatar)} ${esc(x.nome)}${x.lider ? ' 👑' : ''} <span class="lbl">nv ${x.nivel}</span></span><span class="lbl">rank ${x.rank}</span></div>`).join('');
+    const mis = N.missoes.map(x => `<button class="w-full flex justify-between items-center py-2.5 border-t border-line text-sm ${x.feita ? 'opacity-50' : ''}" ${x.feita ? 'disabled' : ''} onclick="actB('/api/org/missao', { id: '${x.id}' }, loadBingo)">
+      <span>${esc(x.nome)}<span class="lbl block">${x.energia} energia · ${x.chance}% de sucesso · +${x.fama} fama</span></span><span class="text-gold text-xs">${x.feita ? 'feita hoje' : 'fazer'}</span></button>`).join('');
+    org = `<div class="card"><h2>${esc(N.org.nome)}</h2><p class="lbl mt-1">Líder: ${esc(N.org.lider)}</p><div class="mt-2">${mem}</div></div>
+      <div class="card"><h2>Missões da organização</h2><p class="lbl mt-1">Uma vez por dia cada. Falhar custa 20% da vida.</p>${mis}</div>
+      <button class="btn btn-ghost w-full" onclick="confirm('Sair da organização?') && actB('/api/org/sair', {}, loadBingo)">Sair da organização</button>`;
+  } else if (N.ativo) {
+    const lista = N.orgs.map(o => `<div class="flex justify-between items-center py-2 border-t border-line text-sm"><span>${esc(o.nome)} <span class="lbl">${o.membros}/${o.max}</span></span>
+      <button class="chip" ${o.membros >= o.max ? 'disabled' : ''} onclick="actB('/api/org/entrar', { org_id: ${o.id} }, loadBingo)">entrar</button></div>`).join('');
+    const ret = N.retorno ? `<p class="text-sm text-vermil mt-2">Para voltar à sua antiga organização você precisa de ${fmt(N.retorno.req)} de fama Nukenin.</p>` : '';
+    org = `<div class="card"><h2>Organizações criminosas</h2>${ret}${lista || '<p class="lbl mt-2">Nenhuma organização existe ainda.</p>'}
+      ${N.pode_fundar ? `<div class="flex gap-2 mt-3"><input id="orgNome" class="inp flex-1" maxlength="32" placeholder="Nome da organização"><button class="btn btn-gold" onclick="fundarOrg()">Fundar (${fmt(N.fundar_custo)})</button></div>` :
+        `<p class="lbl mt-3">Fundar uma organização exige ${fmt(m.org)} de fama Nukenin e ${fmt(N.fundar_custo)} ryos.</p>`}</div>`;
+  } else {
+    org = `<div class="card"><h2>Organizações criminosas</h2><p class="lbl mt-1">Só Nukenin (${fmt(m.expulso)} de fama) podem entrar. Fundar exige ${fmt(m.org)}.</p></div>`;
+  }
+  $('tab-bingo').innerHTML = `<div class="card"><div class="flex justify-between items-center"><h2>Fama Nukenin</h2>${estado}</div>
+    <div class="text-3xl font-bold text-gold mt-2">${fmt(N.fama)}</div><div class="bar mt-2"><i class="bg-gradient-to-r from-red-900 to-vermil" style="width:${pct(N.fama, m.expulso)}"></i></div>
+    <p class="lbl mt-2">${N.ativo ? prox : `Com ${fmt(m.expulso)} de fama você é expulso da aldeia: entra no Livro Bingo e perde o Hospital.`} Derrotas: ${N.mortes}.</p>${ilegal}</div>
+    ${org}
+    <div class="card"><h2>📕 Livro Bingo</h2><p class="lbl mt-1">Os 30 Nukenin mais procurados. Vença um em duelo para tomar fama, ryos e itens dele.</p>${bingo || '<p class="lbl mt-2">Ninguém foi procurado ainda.</p>'}</div>`;
+}
+function fundarOrg() { const n = $('orgNome').value.trim(); if (n) actB('/api/org/fundar', { nome: n }, loadBingo); }
 
 (async function init() {
   showTab('perfil');
