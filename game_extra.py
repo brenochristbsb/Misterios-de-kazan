@@ -515,6 +515,11 @@ def turno_inimigo(L: dict, me: dict, p: Player) -> None:
             aplicar_status(L, ef)
 
 
+def _sem_elemento(p: Player) -> bool:
+    """Taijutsu puro: sem elemento, sem ninjutsu e sem genjutsu. Só golpes físicos."""
+    return atributos5.classe_efetiva(p) == "taijutsu"
+
+
 def _me(p: Player, L: dict) -> dict:
     """Atributos do jogador na luta: equipamentos, clã, invocação e o bônus do pet, se ele ativou."""
     s = effective_stats(p)
@@ -527,7 +532,7 @@ def _me(p: Player, L: dict) -> dict:
 def iniciar_luta(p: Player, tipo: str, nome: str, stats: dict, hp: int, chakra: int, boss: bool = False, **ctx) -> None:
     L = {"tipo": tipo, "nome": nome, "boss": boss, "stats": stats, "hp": hp, "hp_max": hp, "chakra": chakra,
          "turno": 0, "log": [f"{nome} aparece diante de você."], "defendendo": False, "atordoado": False,
-         "me_atordoado": False, "pet": None, "pet_id": None, "meu_elem": p.elemento,
+         "me_atordoado": False, "pet": None, "pet_id": None, "meu_elem": None if _sem_elemento(p) else p.elemento,
          "elemento": random.choice(list(ELEMENTOS)), "st": {s: 2 for s in (p.status_fora or []) if s in STATUS_TURNOS}, **ctx}
     if L["st"]:
         L["log"].append("Você começa a luta " + ", ".join(L["st"]) + ".")
@@ -552,13 +557,19 @@ def iniciar_luta(p: Player, tipo: str, nome: str, stats: dict, hp: int, chakra: 
 
 def _acoes(p: Player, L: dict) -> list:
     """Ações de ataque com nome: básicas (por elemento) e os jutsus aprendidos, já com a vantagem contra o inimigo."""
-    c, foe = custo_tecnica(_me(p, L)), L.get("elemento")
-    acoes = [{"acao": "fisico", "nome": BASICO["fisico"], "custo": 0, "mod": 1.0, "elem": None},
-             {"acao": "ninjutsu", "nome": BASICO["ninjutsu"][p.elemento], "custo": c, "mod": mod_elem(p.elemento, foe), "elem": p.elemento},
-             {"acao": "genjutsu", "nome": BASICO["genjutsu"], "custo": c, "mod": 1.0, "elem": None}]
+    c, foe, tai = custo_tecnica(_me(p, L)), L.get("elemento"), _sem_elemento(p)
+    acoes = [{"acao": "fisico", "nome": BASICO["fisico"], "custo": 0, "mod": 1.0, "elem": None}]
+    if not tai:  # Taijutsu não tem ninjutsu nem genjutsu básicos
+        acoes += [{"acao": "ninjutsu", "nome": BASICO["ninjutsu"][p.elemento], "custo": c, "mod": mod_elem(p.elemento, foe), "elem": p.elemento},
+                  {"acao": "genjutsu", "nome": BASICO["genjutsu"], "custo": c, "mod": 1.0, "elem": None}]
     for nv in MARCOS:
         j = JUTSUS.get((p.jutsus or {}).get(str(nv), ""))
-        if j:
+        if j and tai and j["cat"] != "taijutsu":  # jutsus antigos de outra categoria ficam inativos
+            continue
+        if j and tai:  # jutsu de Taijutsu é golpe físico puro: sem elemento
+            acoes.append({"acao": "jutsu", "item": j["id"], "nome": j["nome"], "custo": max(1, round(c * j["custo"])),
+                          "mod": 1.0, "elem": None, "cat": j["cat"]})
+        elif j:
             acoes.append({"acao": "jutsu", "item": j["id"], "nome": j["nome"], "custo": max(1, round(c * j["custo"])),
                           "mod": mod_elem(j["elem"], foe), "elem": j["elem"], "cat": j["cat"]})
     return acoes
@@ -746,6 +757,9 @@ def luta_agir(payload: AgirReq, db: Session = Depends(get_db)):
         return agir_boneco(db, p, payload)
     L, acao = copy.deepcopy(p.luta), payload.acao
     me = _me(p, L)
+    tai = me.get("_classe") == "taijutsu"
+    if tai and acao in ("ninjutsu", "genjutsu", "secreta"):
+        raise HTTPException(400, "Taijutsu só usa golpes físicos: sem ninjutsu, genjutsu ou elementos.")
     L["turno"] += 1
     perdeu = efeitos_turno(p, L)
     if p.vida_atual <= 0:  # morreu por queimadura ou sangramento
@@ -794,8 +808,10 @@ def luta_agir(payload: AgirReq, db: Session = Depends(get_db)):
             j = JUTSUS.get(payload.item or "")
             if j is None or payload.item not in (p.jutsus or {}).values():
                 raise HTTPException(400, "Você ainda não aprendeu esse jutsu.")
+            if tai and j["cat"] != "taijutsu":
+                raise HTTPException(400, "Taijutsu só usa jutsus de Taijutsu.")
             base = {"ninjutsu": "ninjutsu", "genjutsu": "genjutsu", "taijutsu": "fisico"}[j["cat"]]
-            poder, el, nome_golpe = j["poder"], j["elem"], j["nome"]
+            poder, el, nome_golpe = j["poder"], (None if tai else j["elem"]), j["nome"]
             crit_extra = 0.15 if j["cat"] == "taijutsu" else 0.0
             custo = max(1, round(custo_tecnica(me) * j["custo"]))
         elif acao == "ninjutsu":
@@ -2076,6 +2092,8 @@ def elem_mapa(vi: int) -> str:
 def ofertas(p: Player, i: int) -> list:
     """As duas opções do marco `i`: ninjutsu de um dos seus elementos (o menos desenvolvido) e um jutsu sem elemento
     (genjutsu se esse for seu estilo, senão taijutsu)."""
+    if _sem_elemento(p):  # Taijutsu: só a opção física, nada de ninjutsu elemental nem genjutsu
+        return [JUTSUS[f"taijutsu_x_{i + 1}"]]
     els = [p.elemento, *(p.elementos_extra or [])]
     usados = [JUTSUS[j]["elem"] for j in (p.jutsus or {}).values() if j in JUTSUS]
     e = min(els, key=lambda x: (usados.count(x), els.index(x)))

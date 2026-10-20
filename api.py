@@ -145,7 +145,7 @@ def apply_exp(player: Player, amount: int) -> int:
         player.vida_atual += 10
         player.chakra_atual += 5
         gained += 1
-        if player.level >= 10 and random.random() < 0.06:  # pequena chance de despertar mais um elemento
+        if player.level >= 10 and player.classe != "taijutsu" and random.random() < 0.06:  # pequena chance de despertar mais um elemento (Taijutsu não usa elementos)
             livres = [e for e in ELEMENTOS if e != player.elemento and e not in (player.elementos_extra or [])]
             if livres:
                 player.elementos_extra = [*(player.elementos_extra or []), random.choice(livres)]
@@ -302,13 +302,18 @@ class RegisterRequest(BaseModel):
     agilidade: int = Field(default=0, ge=0, le=5)      # AGI
     destreza: int = Field(default=0, ge=0, le=5)       # DEX
     vigor: int = Field(default=0, ge=0, le=5)          # VIG
-    respostas: list[int] = Field(min_length=len(QUIZ), max_length=len(QUIZ))  # teste do elemento
+    respostas: list[int] = Field(default_factory=list, max_length=len(QUIZ))  # teste do elemento (Taijutsu não faz o teste)
 
     @model_validator(mode="after")
     def check_points(self):
         total = sum(getattr(self, k) for k in ("forca", "inteligencia", "agilidade", "destreza", "vigor"))
         if total != 5:
             raise ValueError("Distribua exatamente 5 pontos entre os atributos.")
+        if self.classe == "taijutsu":
+            self.respostas = []  # Taijutsu não tem elemento: ignora qualquer resposta enviada
+            return self
+        if len(self.respostas) != len(QUIZ):
+            raise ValueError("Responda todas as perguntas do teste do elemento.")
         if any(not 0 <= r <= 4 for r in self.respostas):
             raise ValueError("Respostas do teste inválidas.")
         return self
@@ -518,7 +523,7 @@ def build_player_out(player: Player) -> PlayerOut:
         energia=player.energia,
         avatar=player.avatar,
         elemento=player.elemento,
-        elementos=[player.elemento, *(player.elementos_extra or [])],
+        elementos=[e for e in (player.elemento, *(player.elementos_extra or [])) if e],  # Taijutsu: lista vazia
         chakra=Resource(atual=player.chakra_atual, max=player.chakra_max),
         vida=Resource(atual=player.vida_atual, max=player.vida_max),
         atributos_base=Attributes(**{a: getattr(player, a) for a in ATTRS}),
@@ -666,7 +671,7 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
         # Só os 5 universais: as colunas antigas ficam em 0 e os pontos entram na coluna que representa cada universal
         taijutsu=0, ninjutsu=0, genjutsu=0, chakra_attr=0, defesa=0,
         forca=5 + payload.forca, inteligencia=5 + payload.inteligencia, agilidade=5 + payload.agilidade,
-        destreza=5 + payload.destreza, vigor=5 + payload.vigor, elemento=elemento_do_teste(payload.respostas),
+        destreza=5 + payload.destreza, vigor=5 + payload.vigor, elemento="" if payload.classe == "taijutsu" else elemento_do_teste(payload.respostas),
         vida_max=100 + 5 * payload.vigor, vida_atual=100 + 5 * payload.vigor,
         chakra_max=100 + 4 * payload.inteligencia, chakra_atual=100 + 4 * payload.inteligencia,
     ))

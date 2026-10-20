@@ -203,7 +203,7 @@ const UNIV = [['forca', 'str', 'Força', 'dano físico bruto'], ['inteligencia',
 const POOL_UI = { str: ['taijutsu', 'forca'], int: ['ninjutsu', 'genjutsu', 'inteligencia', 'chakra_attr'], agi: ['agilidade'], dex: ['destreza'], vig: ['vigor', 'defesa'] };
 const univVal = (src, u) => POOL_UI[u].reduce((s, k) => s + (src[k] || 0), 0);
 // As 5 classes (Bloco 3). Só o que já funciona no combate é prometido aqui
-const CLS_UI = [['taijutsu', 'Taijutsu', 'Dano por Força e Agilidade. Sem bônus elemental. Portões Internos: em breve.'],
+const CLS_UI = [['taijutsu', 'Taijutsu', 'Só golpes físicos: sem elemento, sem ninjutsu e sem genjutsu. Dano por Força e Agilidade. Portões Internos: em breve.'],
   ['ninjutsu', 'Ninjutsu', 'Dano por Inteligência e Destreza. +50% de dano ao atingir a vantagem elemental.'],
   ['genjutsu', 'Genjutsu', 'Dano por Inteligência e Agilidade. Golpes podem atordoar o inimigo.'],
   ['marionetista', 'Marionetista', 'Dano por Inteligência e Destreza. Marionete que protege você: em breve.'],
@@ -433,12 +433,12 @@ function renderForja() {
     <div class="flex gap-2 flex-wrap">${chips}</div>${body}`;
 }
 function renderJutsus() {
-  const Jt = X.jutsus, el = e => `${ELEM[e][1]} ${ELEM[e][0]}`;
+  const Jt = X.jutsus, el = e => ELEM[e] ? `${ELEM[e][1]} ${ELEM[e][0]}` : '', tai = !ELEM[Jt.elemento];
   const cartao = j => `<div class="rounded-xl border border-line p-3"><div class="flex justify-between items-start gap-2"><b>${j.elem ? ELEM[j.elem][1] : j.cat === 'genjutsu' ? '🌀' : '👊'} ${esc(j.nome)}</b>
     <span class="tag shrink-0">${esc(j.cat)}, tier ${j.tier}</span></div><p class="text-xs text-paper/70 mt-1">${esc(j.desc)}</p></div>`;
   const est = { escolhido: 'aprendido', pendente: 'escolha agora', bloqueado: 'bloqueado' };
-  $('tab-jutsus').innerHTML = `<div class="card"><h2>Seus elementos</h2><p class="text-sm mt-2">Base: <b class="text-gold">${el(Jt.elemento)}</b>${Jt.extras.length ? `. Dominados: ${Jt.extras.map(el).join(', ')}` : ''}</p>
-    <p class="lbl mt-2">Fogo vence Vento, Vento vence Raio, Raio vence Terra, Terra vence Água e Água vence Fogo: +30% de dano com vantagem e -25% com desvantagem (vale para ninjutsus). A partir do nível 10, cada nível ganho tem uma pequena chance de despertar outro elemento.</p></div>`
+  $('tab-jutsus').innerHTML = (tai ? `<div class="card"><h2>Taijutsu puro</h2><p class="text-sm mt-2">Você não tem elemento: todos os seus jutsus são golpes físicos.</p></div>` : `<div class="card"><h2>Seus elementos</h2><p class="text-sm mt-2">Base: <b class="text-gold">${el(Jt.elemento)}</b>${Jt.extras.length ? `. Dominados: ${Jt.extras.map(el).join(', ')}` : ''}</p>
+    <p class="lbl mt-2">Fogo vence Vento, Vento vence Raio, Raio vence Terra, Terra vence Água e Água vence Fogo: +30% de dano com vantagem e -25% com desvantagem (vale para ninjutsus). A partir do nível 10, cada nível ganho tem uma pequena chance de despertar outro elemento.</p></div>`)
     + Jt.marcos.map(m => `<div class="card"><div class="flex justify-between items-center"><h2>Nível ${m.nivel}</h2><span class="tag ${m.estado === 'pendente' ? 'gold' : ''}">${est[m.estado]}</span></div>
       <div class="space-y-2 mt-3">${m.escolhido ? cartao(m.escolhido) : m.opcoes.map(o => `${cartao(o)}<button class="btn w-full" onclick="act('/api/jutsu/escolher', { nivel: ${m.nivel}, jutsu_id: '${o.id}' }, r => r.mensagem)">Aprender ${esc(o.nome)}</button>`).join('') || '<p class="lbl">Disponível ao alcançar o nível.</p>'}</div></div>`).join('');
 }
@@ -1004,7 +1004,7 @@ const pts = Object.fromEntries(REG.map(([k]) => [k, 0]));
 const ptsLeft = () => 5 - Object.values(pts).reduce((x, y) => x + y, 0);
 function renderPts() {
   $('rPts').innerHTML = `<p class="text-sm">Classe</p><div class="flex gap-2 flex-wrap">${CLS_UI.map(([k, n]) =>
-    `<button class="chip ${k === classe ? 'on' : ''}" onclick="classe='${k}'; renderPts()">${n}</button>`).join('')}</div>
+    `<button class="chip ${k === classe ? 'on' : ''}" onclick="classe='${k}'; renderPts(); renderQuiz()">${n}</button>`).join('')}</div>
     <p class="lbl">${CLS_UI.find(c => c[0] === classe)[2]}</p>
     <p class="text-sm">Distribua <b class="text-gold">${ptsLeft()}</b> pontos (todos começam em 5)</p>` + REG.map(([k, n, ds]) =>
     `<div class="flex items-center justify-between"><div><div>${n}</div><div class="lbl">${ds}</div></div><div class="flex items-center gap-3"><button class="round" aria-label="Menos ${n}" onclick="addPt('${k}', -1)">−</button>
@@ -1014,6 +1014,7 @@ function addPt(k, d) { if ((d > 0 && !ptsLeft()) || (d < 0 && !pts[k])) return; 
 
 let QZ = [], ans = [];
 function renderQuiz() {
+  if (classe === 'taijutsu') { $('rQuiz').innerHTML = '<p class="lbl">Taijutsu não usa elementos: não há teste a fazer.</p>'; return; }
   $('rQuiz').innerHTML = `<p class="text-sm">Teste do elemento: responda com sinceridade</p>` + QZ.map((q, i) => `<div><p class="text-sm font-semibold">${i + 1}. ${esc(q.p)}</p>
     <div class="grid gap-1.5 mt-1.5">${q.o.map((t, j) => `<button class="chip !justify-start text-left ${ans[i] === j ? 'on' : ''}" onclick="ans[${i}] = ${j}; renderQuiz()">${esc(t)}</button>`).join('')}</div></div>`).join('');
 }
@@ -1030,14 +1031,14 @@ async function showRegister() {
 }
 async function register() {
   if (ptsLeft()) return ($('rInfo').textContent = 'Distribua todos os 5 pontos.');
-  if (ans.some(a => a < 0)) return ($('rInfo').textContent = 'Responda todas as perguntas do teste do elemento.');
+  if (classe !== 'taijutsu' && ans.some(a => a < 0)) return ($('rInfo').textContent = 'Responda todas as perguntas do teste do elemento.');
   $('rInfo').textContent = '';
   try {
     await api('/api/register', { telegram_id: tgUser.id, username: tgUser.username || null, ninja_name: $('rName').value.trim(),
-      village_id: Number($('rVillage').value), classe, ...pts, respostas: ans });
+      village_id: Number($('rVillage').value), classe, ...pts, respostas: classe === 'taijutsu' ? [] : ans });
     $('regBox').classList.add('hidden');
     await refresh();
-    toast(`Bem-vindo, ${P.ninja_name}! Seu elemento: ${ELEM[P.elemento][0]}.`);
+    toast(ELEM[P.elemento] ? `Bem-vindo, ${P.ninja_name}! Seu elemento: ${ELEM[P.elemento][0]}.` : `Bem-vindo, ${P.ninja_name}! Seu caminho é o Taijutsu puro.`);
   } catch (e) { $('rInfo').textContent = e.message; }
 }
 // Vida e chakra regeneram com o tempo: atualiza só o cabeçalho, sem refazer as telas (preserva o que está sendo digitado)
