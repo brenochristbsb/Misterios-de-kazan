@@ -219,6 +219,10 @@ class Player(TimestampMixin, Base):
     # Hospital: última cura gratuita e buff temporário da recuperação Sannin {nome, attr, pct, ate}
     hospital_gratis_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     buff: Mapped[Optional[dict]] = mapped_column(JSON)
+    # Elementos: base (do teste da criação) e os dominados depois; jutsus escolhidos {nível: id do jutsu}
+    elemento: Mapped[str] = mapped_column(String(8), default="fogo", nullable=False)
+    elementos_extra: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    jutsus: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     # Ovos e alimentos de pet em estoque: {id: quantidade}
     ovos: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     alimentos: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)

@@ -41,6 +41,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from clas_dados import CLANS
 from vilas_dados import VILAS
+from jutsus_dados import ELEMENTOS, QUIZ, elemento_do_teste
 from sqlalchemy import create_engine, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload, sessionmaker
@@ -138,6 +139,10 @@ def apply_exp(player: Player, amount: int) -> int:
         player.vida_atual += 10
         player.chakra_atual += 5
         gained += 1
+        if player.level >= 10 and random.random() < 0.06:  # pequena chance de despertar mais um elemento
+            livres = [e for e in ELEMENTOS if e != player.elemento and e not in (player.elementos_extra or [])]
+            if livres:
+                player.elementos_extra = [*(player.elementos_extra or []), random.choice(livres)]
     return gained  # o rank sobe pelos exames da Jornada (game_extra.py)
 
 
@@ -254,6 +259,8 @@ class PlayerOut(BaseModel):
     fama: int
     energia: int
     avatar: str
+    elemento: str
+    elementos: list[str]
     chakra: Resource
     vida: Resource
     atributos_base: Attributes
@@ -267,6 +274,7 @@ class PlayerOut(BaseModel):
 class SetupOptions(BaseModel):
     villages: list[VillageOut]
     clans: list[ClanOut]
+    teste: list[dict] = []
 
 
 class RegisterRequest(BaseModel):
@@ -286,12 +294,15 @@ class RegisterRequest(BaseModel):
     defesa: int = Field(default=0, ge=0, le=5)
     vigor: int = Field(default=0, ge=0, le=5)
     destreza: int = Field(default=0, ge=0, le=5)
+    respostas: list[int] = Field(min_length=len(QUIZ), max_length=len(QUIZ))  # teste do elemento
 
     @model_validator(mode="after")
     def check_points(self):
         total = sum(getattr(self, k) for k in ("agilidade", "forca", "inteligencia", "chakra_attr", "defesa", "vigor", "destreza"))
         if total != 5:
             raise ValueError("Distribua exatamente 5 pontos entre os atributos.")
+        if any(not 0 <= r <= 4 for r in self.respostas):
+            raise ValueError("Respostas do teste inválidas.")
         return self
 
 
@@ -497,6 +508,8 @@ def build_player_out(player: Player) -> PlayerOut:
         fama=player.fama,
         energia=player.energia,
         avatar=player.avatar,
+        elemento=player.elemento,
+        elementos=[player.elemento, *(player.elementos_extra or [])],
         chakra=Resource(atual=player.chakra_atual, max=player.chakra_max),
         vida=Resource(atual=player.vida_atual, max=player.vida_max),
         atributos_base=Attributes(**{a: getattr(player, a) for a in ATTRS}),
@@ -586,6 +599,7 @@ def setup_options(db: Session = Depends(get_db)):
             ClanOut(id=c.id, name=c.name, passiva_atributo=c.passiva_atributo, bonus_val=c.bonus_val)
             for c in clans
         ],
+        teste=[{"p": q["p"], "o": [t for t, _ in q["o"]]} for q in QUIZ],
     )
 
 
@@ -617,7 +631,7 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
         genjutsu=5 + (3 if payload.estilo == "genjutsu" else 0),
         agilidade=5 + payload.agilidade, forca=5 + payload.forca, inteligencia=5 + payload.inteligencia,
         chakra_attr=5 + payload.chakra_attr, defesa=5 + payload.defesa, vigor=5 + payload.vigor,
-        destreza=5 + payload.destreza,
+        destreza=5 + payload.destreza, elemento=elemento_do_teste(payload.respostas),
         vida_max=100 + 5 * payload.vigor, vida_atual=100 + 5 * payload.vigor,
         chakra_max=100 + 4 * payload.chakra_attr, chakra_atual=100 + 4 * payload.chakra_attr,
     ))

@@ -109,6 +109,7 @@
   <section id="tab-bolsa" class="tab space-y-3 hidden"></section>
   <section id="tab-treino" class="tab space-y-3 hidden"></section>
   <section id="tab-hospital" class="tab space-y-3 hidden"></section>
+  <section id="tab-jutsus" class="tab space-y-3 hidden"></section>
   <section id="tab-perfil" class="tab space-y-3"></section>
   <section id="tab-jornada" class="tab space-y-3 hidden"></section>
   <section id="tab-mapas" class="tab space-y-3 hidden"></section>
@@ -132,6 +133,7 @@
     <p class="text-sm text-paper/60">Escolha o nome e a vila e distribua 5 pontos de atributo. Você começa como Estudante, sem clã, com 500 ryos.</p>
     <input id="rName" class="inp" maxlength="32" placeholder="Nome ninja (3 a 32 letras)">
     <div id="rPts" class="space-y-3"></div>
+    <div id="rQuiz" class="space-y-3"></div>
     <select id="rVillage" class="inp"></select>
     <p id="rDesc" class="text-xs text-paper/60 min-h-[2rem]"></p>
     <p id="rInfo" class="text-xs text-gold min-h-[1rem]"></p>
@@ -163,6 +165,7 @@ const RANKS = ['Estudante', 'Genin', 'Chunin', 'Jonin', 'Anbu', 'Sannin', 'Kage'
 const ATTRS = [['taijutsu', 'Taijutsu', 'golpes físicos'], ['ninjutsu', 'Ninjutsu', 'técnicas de chakra'], ['genjutsu', 'Genjutsu', 'ilusões que atordoam'],
   ['forca', 'Força', 'dano físico'], ['agilidade', 'Agilidade', 'iniciativa e esquiva'], ['inteligencia', 'Inteligência', 'controle de chakra e missões secretas'],
   ['chakra_attr', 'Chakra', 'reserva de chakra'], ['defesa', 'Defesa', 'reduz o dano'], ['vigor', 'Vigor', 'vida máxima'], ['destreza', 'Destreza', 'armas e crítico']];
+const ELEM = { fogo: ['Fogo', '🔥'], agua: ['Água', '💧'], raio: ['Raio', '⚡'], terra: ['Terra', '🪨'], vento: ['Vento', '🌪️'] };
 const REG = ATTRS.slice(3);  // os 7 atributos de combate que recebem os 5 pontos do cadastro
 const TIPOS = { Arma: 'Armas', Armadura: 'Armaduras', Pergaminho: 'Pergaminhos' };
 const bonusTxt = b => Object.entries(b).map(([k, v]) => `+${v} ${k}`).join(', ');
@@ -225,7 +228,7 @@ document.querySelectorAll('nav button').forEach(b => b.onclick = () => showTab(b
 
 /* ───────── Renderização ───────── */
 function renderHeader() {
-  $('hName').textContent = P.ninja_name; $('hRank').textContent = P.rank; $('hAv').textContent = P.avatar;
+  $('hName').textContent = P.ninja_name; $('hRank').textContent = `${P.rank} ${(ELEM[P.elemento] || [])[1] || ''}`; $('hAv').textContent = P.avatar;
   $('hSub').textContent = `Nível ${P.level}, fama ${fmt(P.fama)}, ${P.village.name}`;
   $('hRyos').textContent = fmt(P.ryos);
   $('tHp').textContent = `${P.vida.atual}/${P.vida.max}`; $('tCk').textContent = `${P.chakra.atual}/${P.chakra.max}`;
@@ -236,7 +239,7 @@ function renderHeader() {
 function render() {
   renderHeader();
   renderPerfil(); renderJornada(); renderMapas(); renderVila(); renderGuilda();
-  renderMenu(); renderAldeia(); renderBolsa(); renderTreino(); renderHospital();
+  renderJutsus(); renderMenu(); renderAldeia(); renderBolsa(); renderTreino(); renderHospital();
 }
 
 /* Perfil: atributos (com treino), equipamento e invocações */
@@ -314,7 +317,18 @@ function renderTreino() {
     <div class="flex gap-1.5">${[1, 5, 10].map(n => `<button class="chip ${n === reps ? 'on' : ''}" onclick="setReps(${n})">×${n}</button>`).join('')}</div></div>
     ${rows}<p class="lbl">Cada treino custa ${25 * reps} ryos e rende ${3 * reps} de XP.</p></div>`;
 }
+function renderJutsus() {
+  const Jt = X.jutsus, el = e => `${ELEM[e][1]} ${ELEM[e][0]}`;
+  const cartao = j => `<div class="rounded-xl border border-line p-3"><div class="flex justify-between items-start gap-2"><b>${j.elem ? ELEM[j.elem][1] : j.cat === 'genjutsu' ? '🌀' : '👊'} ${esc(j.nome)}</b>
+    <span class="tag shrink-0">${esc(j.cat)}, tier ${j.tier}</span></div><p class="text-xs text-paper/70 mt-1">${esc(j.desc)}</p></div>`;
+  const est = { escolhido: 'aprendido', pendente: 'escolha agora', bloqueado: 'bloqueado' };
+  $('tab-jutsus').innerHTML = `<div class="card"><h2>Seus elementos</h2><p class="text-sm mt-2">Base: <b class="text-gold">${el(Jt.elemento)}</b>${Jt.extras.length ? `. Dominados: ${Jt.extras.map(el).join(', ')}` : ''}</p>
+    <p class="lbl mt-2">Fogo vence Vento, Vento vence Raio, Raio vence Terra, Terra vence Água e Água vence Fogo: +30% de dano com vantagem e -25% com desvantagem (vale para ninjutsus). A partir do nível 10, cada nível ganho tem uma pequena chance de despertar outro elemento.</p></div>`
+    + Jt.marcos.map(m => `<div class="card"><div class="flex justify-between items-center"><h2>Nível ${m.nivel}</h2><span class="tag ${m.estado === 'pendente' ? 'gold' : ''}">${est[m.estado]}</span></div>
+      <div class="space-y-2 mt-3">${m.escolhido ? cartao(m.escolhido) : m.opcoes.map(o => `${cartao(o)}<button class="btn w-full" onclick="act('/api/jutsu/escolher', { nivel: ${m.nivel}, jutsu_id: '${o.id}' }, r => r.mensagem)">Aprender ${esc(o.nome)}</button>`).join('') || '<p class="lbl">Disponível ao alcançar o nível.</p>'}</div></div>`).join('');
+}
 function renderPerfil() {
+  const jutsuBtn = `<button class="w-full flex justify-between items-center py-3 border-t border-line text-sm" onclick="showTab('jutsus')"><span>Jutsus e elementos</span><span class="text-gold">${ELEM[P.elemento][1]} ›</span></button>`;
   const pat = X.patente, soon = t => `<button class="w-full flex justify-between items-center py-3 border-t border-line text-sm" onclick="toast('${t}: em breve.', true)"><span>${t}</span><span class="text-gold text-xs">em breve</span></button>`;
   const rows = ATTRS.map(([k, n, ds]) => { const b = P.atributos_base[k], e = P.atributos_efetivos[k], d = e - b;
     return `<div><div class="flex justify-between text-sm"><span>${n} <span class="lbl ml-1">${ds}</span></span><span class="font-bold">${e}${d ? `<span class="text-gold text-xs font-normal"> +${d}</span>` : ''}</span></div>
@@ -328,7 +342,7 @@ function renderPerfil() {
       <button class="chip mt-3" onclick="showTab('ranking')">Ver rankings</button></div>
     <div class="card"><h2>Patente: ${esc(pat.atual)}</h2><p class="text-sm text-paper/70 mt-2">${pat.proxima ? `Próxima: <b class="text-gold">${esc(pat.proxima)}</b>. ` : ''}${esc(pat.texto)}</p></div>
     <div class="card space-y-3"><h2>Atributos</h2>${rows}<button class="chip" onclick="showTab('treino')">Treinar no boneco</button></div>
-    <div class="card"><h2 class="mb-1">Opções</h2>${['Jutsus', 'Amigos', 'Skins', 'Conquistas', 'Livro Bingo', 'Trocar nome', 'Trocar classe e sexo', 'Fórum e tutoriais'].map(soon).join('')}</div>
+    <div class="card"><h2 class="mb-1">Opções</h2>${jutsuBtn}${['Amigos', 'Skins', 'Conquistas', 'Livro Bingo', 'Trocar nome', 'Trocar classe e sexo', 'Fórum e tutoriais'].map(soon).join('')}</div>
     <details class="card"><summary class="font-jp font-extrabold">Trocar avatar</summary><div class="grid grid-cols-6 gap-2 mt-3">${X.avatares.map(a => `<button class="round !w-full !h-11 !text-2xl ${a === P.avatar ? 'bg-gold/20' : ''}" aria-label="Avatar ${a}" onclick="act('/api/avatar', { avatar: '${a}' })">${a}</button>`).join('')}</div></details>`;
 }
 const train = k => act('/api/train', { atributo: k, repeticoes: reps }, r => `${k} subiu para ${r.novo_valor}` + (r.niveis_ganhos ? `. Nível ${r.level}!` : ''));
@@ -390,26 +404,28 @@ async function agir(acao, item) {
     if (r.resultado) {
       battle = r.resultado;
       tg?.HapticFeedback?.impactOccurred?.(battle.vitoria ? 'heavy' : 'light');
-      toast(battle.clan || (battle.fuga ? 'Você fugiu.' : battle.vitoria ? 'Vitória!' : 'Derrota.'), !!battle.vitoria);
+      toast(battle.clan || (battle.elemento_novo ? `Você despertou o elemento ${ELEM[battle.elemento_novo][0]}!` : battle.fuga ? 'Você fugiu.' : battle.vitoria ? 'Vitória!' : 'Derrota.'), !!battle.vitoria);
     }
     await refresh();
   } catch (e) { toast(e.message, false); }
 }
+const abtn = a => {
+  const sem = P.chakra.atual + (LU.reserva || 0) < a.custo, tag = a.mod > 1 ? ' ▲' : a.mod < 1 ? ' ▼' : '';
+  return `<button class="btn ${a.mod > 1 ? 'btn-gold' : ''}" ${sem ? 'disabled' : ''} onclick="agir('${a.acao}'${a.item ? `, '${a.item}'` : ''})">${a.elem ? ELEM[a.elem][1] + ' ' : ''}${esc(a.nome)}${a.custo ? ` (${a.custo})` : ''}${tag}</button>`;
+};
 function lutaHtml() {
   const l = LU, pc = (a, b) => Math.max(0, Math.round(100 * a / b)) + '%', sem = P.chakra.atual + (l.reserva || 0) < l.custo;
   return `<div class="card border-vermil"><div class="flex justify-between items-center"><div class="flex items-center gap-3 min-w-0"><div class="seal foe w-12 h-12 text-2xl shrink-0">${l.chefe ? '👹' : l.tipo === 'pvp' ? '⚔️' : l.tipo === 'clan' ? '🏯' : '🐺'}</div><h2 class="truncate">${esc(l.inimigo)}</h2></div>
       ${l.chefe ? '<span class="tag red">Chefe</span>' : l.tipo === 'pvp' ? '<span class="tag gold">Duelo</span>' : ''}</div>
-    <div class="flex justify-between text-xs mt-3 mb-1"><span>Vida do inimigo</span><span>${l.hp}/${l.hp_max}</span></div>
+    <div class="flex justify-between text-xs mt-3 mb-1"><span>Vida do inimigo ${ELEM[l.elemento] ? ELEM[l.elemento][1] + ' ' + ELEM[l.elemento][0] : ''}</span><span>${l.hp}/${l.hp_max}</span></div>
     <div class="bar"><i class="bg-vermil" style="width:${pc(l.hp, l.hp_max)}"></i></div>
     <div class="grid grid-cols-2 gap-3 mt-3 text-xs"><div><div class="flex justify-between mb-1"><span>Sua vida</span><span>${P.vida.atual}/${P.vida.max}</span></div><div class="bar"><i class="bg-gradient-to-r from-red-900 to-vermil" style="width:${pc(P.vida.atual, P.vida.max)}"></i></div></div>
       <div><div class="flex justify-between mb-1"><span>Chakra</span><span>${P.chakra.atual}/${P.chakra.max}</span></div><div class="bar"><i class="bg-chakra" style="width:${pc(P.chakra.atual, P.chakra.max)}"></i></div></div></div>
     ${l.escudo || l.reserva ? `<div class="text-xs text-gold mt-2">Bônus de vigor e chakra: escudo de ${l.escudo} de vida e reserva de ${l.reserva} de chakra.</div>` : ''}
     ${l.pet ? `<div class="text-xs text-gold mt-1">${esc(l.pet.nome)} ativo: +${l.pet.n} ${esc(attrNome(l.pet.attr))}.</div>` : ''}
     <div class="text-xs text-paper/70 mt-3 space-y-1 max-h-36 overflow-y-auto">${l.log.map(x => `<div class="${/^Você/.test(x) ? 'log-me' : ''} ${/crítico/.test(x) ? 'log-crit' : ''}">${esc(x)}</div>`).join('')}</div>
-    <div class="grid grid-cols-2 gap-2 mt-4"><button class="btn" onclick="agir('fisico')">Golpe físico</button>
-      <button class="btn" ${sem ? 'disabled' : ''} onclick="agir('ninjutsu')">Ninjutsu (${l.custo})</button>
-      <button class="btn" ${sem ? 'disabled' : ''} onclick="agir('genjutsu')">Genjutsu (${l.custo})</button>
-      ${l.tecnica ? `<button class="btn col-span-2" ${P.chakra.atual + (l.reserva || 0) < l.custo * 3 ? 'disabled' : ''} onclick="agir('secreta')">${esc(l.tecnica)} (${l.custo * 3} de chakra)</button>` : ''}
+    <div class="grid grid-cols-2 gap-2 mt-4">${(l.acoes || []).map(a => abtn(a)).join('')}
+            ${l.tecnica ? `<button class="btn col-span-2" ${P.chakra.atual + (l.reserva || 0) < l.custo * 3 ? 'disabled' : ''} onclick="agir('secreta')">${esc(l.tecnica)} (${l.custo * 3} de chakra)</button>` : ''}
       <button class="btn btn-ghost" onclick="agir('defender')">Defender</button>
       ${(l.pocoes || []).map(x => `<button class="btn btn-ghost" onclick="agir('pocao', '${x.id}')">${esc(x.nome)} x${x.qtd}</button>`).join('')}
       <button class="btn btn-ghost col-span-2" onclick="agir('fugir')">Fugir</button></div></div>`;
@@ -624,11 +640,16 @@ function renderPts() {
 }
 function addPt(k, d) { if ((d > 0 && !ptsLeft()) || (d < 0 && !pts[k])) return; pts[k] += d; renderPts(); }
 
+let QZ = [], ans = [];
+function renderQuiz() {
+  $('rQuiz').innerHTML = `<p class="text-sm">Teste do elemento: responda com sinceridade</p>` + QZ.map((q, i) => `<div><p class="text-sm font-semibold">${i + 1}. ${esc(q.p)}</p>
+    <div class="grid gap-1.5 mt-1.5">${q.o.map((t, j) => `<button class="chip !justify-start text-left ${ans[i] === j ? 'on' : ''}" onclick="ans[${i}] = ${j}; renderQuiz()">${esc(t)}</button>`).join('')}</div></div>`).join('');
+}
 async function showRegister() {
   renderPts();
   try {
     const o = await api('/api/setup/options');
-    VILS = o.villages;
+    VILS = o.villages; QZ = o.teste; ans = QZ.map(() => -1); renderQuiz();
     $('rVillage').innerHTML = VILS.map(v => `<option value="${v.id}">${esc(v.name)}</option>`).join('');
     const desc = () => { $('rDesc').textContent = (VILS.find(v => v.id === Number($('rVillage').value)) || {}).description || ''; };
     $('rVillage').onchange = desc; desc();
@@ -637,13 +658,14 @@ async function showRegister() {
 }
 async function register() {
   if (ptsLeft()) return ($('rInfo').textContent = 'Distribua todos os 5 pontos.');
+  if (ans.some(a => a < 0)) return ($('rInfo').textContent = 'Responda todas as perguntas do teste do elemento.');
   $('rInfo').textContent = '';
   try {
     await api('/api/register', { telegram_id: tgUser.id, username: tgUser.username || null, ninja_name: $('rName').value.trim(),
-      village_id: Number($('rVillage').value), estilo, ...pts });
+      village_id: Number($('rVillage').value), estilo, ...pts, respostas: ans });
     $('regBox').classList.add('hidden');
     await refresh();
-    toast(`Bem-vindo, ${P.ninja_name}!`);
+    toast(`Bem-vindo, ${P.ninja_name}! Seu elemento: ${ELEM[P.elemento][0]}.`);
   } catch (e) { $('rInfo').textContent = e.message; }
 }
 // Vida e chakra regeneram com o tempo: atualiza só o cabeçalho, sem refazer as telas (preserva o que está sendo digitado)

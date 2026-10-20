@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from clas_dados import CLANS
 from vilas_dados import VILAS
+from jutsus_dados import BASICO, ELEMENTOS, JUTSUS, MARCOS, VANTAGEM
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, object_session
 
@@ -139,6 +140,7 @@ def extras(telegram_id: int, db: Session = Depends(get_db)):
         "avatares": AVATARS,
         "patente": patente_info(p),
         "hospital": hospital_info(p),
+        "jutsus": jutsus_info(p),
         "reputacao": p.reputation,
         "titulo": reputation_title(p.reputation),
         "inventario": [{"id": i.id, "nome": i.item_name, "tipo": i.item_type.value,
@@ -161,7 +163,7 @@ NOME_ACAO = {"fisico": "um golpe físico", "ninjutsu": "um ninjutsu", "genjutsu"
 
 class AgirReq(BaseModel):
     telegram_id: int = Field(gt=0)
-    acao: Literal["fisico", "ninjutsu", "genjutsu", "secreta", "pocao", "defender", "fugir"]
+    acao: Literal["fisico", "ninjutsu", "genjutsu", "jutsu", "secreta", "pocao", "defender", "fugir"]
     item: Optional[str] = None  # id da poção, quando acao = "pocao"
 
 
@@ -175,8 +177,17 @@ def custo_tecnica(s: dict) -> int:
     return max(4, 12 - s["inteligencia"] // 3)
 
 
-def golpe(att: dict, dfn: dict, acao: str):
-    """Retorna (dano, crítico, atordoa). Dano 0 = esquivou."""
+def mod_elem(atq, defe) -> float:
+    """Vantagem elemental: +30% contra o elemento mais fraco, -25% contra o que o vence."""
+    if not atq or not defe:
+        return 1.0
+    if VANTAGEM.get(atq) == defe:
+        return 1.3
+    return 0.75 if VANTAGEM.get(defe) == atq else 1.0
+
+
+def golpe(att: dict, dfn: dict, acao: str, poder: float = 1.0, mod: float = 1.0, crit_extra: float = 0.0):
+    """Retorna (dano, crítico, atordoa). Dano 0 = esquivou. `poder` é o multiplicador do jutsu e `mod` o elemental."""
     if random.random() < 0.5 * dfn["agilidade"] / (dfn["agilidade"] + att["agilidade"] + 10):
         return 0, False, False
     if acao == "fisico":
@@ -187,17 +198,18 @@ def golpe(att: dict, dfn: dict, acao: str):
         raw, red = att["ninjutsu"] * 1.3 + att["inteligencia"] * 0.5, dfn["defesa"] * 0.3
     else:  # genjutsu: a defesa mental é a inteligência
         raw, red = att["genjutsu"] + att["inteligencia"] * 0.8, dfn["inteligencia"] * 0.5
-    dmg = (raw - red) * 1.3 * random.uniform(0.85, 1.15)
-    crit = random.random() < att["destreza"] / (att["destreza"] + 60)
+    dmg = (raw - red) * 1.3 * poder * mod * random.uniform(0.85, 1.15)
+    crit = random.random() < att["destreza"] / (att["destreza"] + 60) + crit_extra
     if crit:
         dmg *= 1.5
     return max(1, int(dmg)), crit, acao == "genjutsu" and random.random() < 0.3
 
 
-def _linha(quem: str, acao: str, dmg: int, crit: bool) -> str:
+def _linha(quem: str, acao: str, dmg: int, crit: bool, nome: str = None) -> str:
+    nome = nome or NOME_ACAO[acao]
     if not dmg:
-        return f"{quem} tentou {NOME_ACAO[acao]}, mas errou."
-    return f"{quem} usou {NOME_ACAO[acao]}: {dmg} de dano" + (" (crítico!)" if crit else "") + "."
+        return f"{quem} tentou {nome}, mas errou."
+    return f"{quem} usou {nome}: {dmg} de dano" + (" (crítico!)" if crit else "") + "."
 
 
 def turno_inimigo(L: dict, me: dict, p: Player) -> None:
@@ -209,14 +221,16 @@ def turno_inimigo(L: dict, me: dict, p: Player) -> None:
     if L["chakra"] >= custo_tecnica(f) and random.random() < 0.4:
         acao = "ninjutsu" if f["ninjutsu"] >= f["genjutsu"] else "genjutsu"
         L["chakra"] -= custo_tecnica(f)
-    dmg, crit, stun = golpe(f, me, acao)
+    mod = mod_elem(L.get("elemento"), L.get("meu_elem")) if acao == "ninjutsu" else 1.0
+    dmg, crit, stun = golpe(f, me, acao, mod=mod)
+    nome = BASICO["ninjutsu"][L["elemento"]] if acao == "ninjutsu" and L.get("elemento") in ELEMENTOS else None
     if dmg and L["defendendo"]:
         dmg = max(1, dmg // 2)
     L["defendendo"] = False
     absorvido = min(L.get("escudo", 0), dmg)  # o escudo de vigor absorve o dano primeiro
     L["escudo"] = L.get("escudo", 0) - absorvido
     p.vida_atual = max(0, p.vida_atual - (dmg - absorvido))
-    L["log"].append(_linha(L["nome"], acao, dmg, crit) + (" Você ficou atordoado!" if stun and dmg else ""))
+    L["log"].append(_linha(L["nome"], acao, dmg, crit, nome) + (" Você ficou atordoado!" if stun and dmg else ""))
     if stun and dmg:
         L["me_atordoado"] = True
 
@@ -232,7 +246,8 @@ def _me(p: Player, L: dict) -> dict:
 def iniciar_luta(p: Player, tipo: str, nome: str, stats: dict, hp: int, chakra: int, boss: bool = False, **ctx) -> None:
     L = {"tipo": tipo, "nome": nome, "boss": boss, "stats": stats, "hp": hp, "hp_max": hp, "chakra": chakra,
          "turno": 0, "log": [f"{nome} aparece diante de você."], "defendendo": False, "atordoado": False,
-         "me_atordoado": False, "pet": None, "pet_id": None, **ctx}
+         "me_atordoado": False, "pet": None, "pet_id": None, "meu_elem": p.elemento,
+         "elemento": random.choice(list(ELEMENTOS)), **ctx}
     pet = object_session(p).scalar(select(Pet).where(Pet.player_id == p.id, Pet.ativo.is_(True)))
     if pet:  # a chance de o bônus do pet ativar cresce com a afinidade
         L["pet_id"] = pet.id
@@ -251,13 +266,27 @@ def iniciar_luta(p: Player, tipo: str, nome: str, stats: dict, hp: int, chakra: 
     p.luta = L
 
 
+def _acoes(p: Player, L: dict) -> list:
+    """Ações de ataque com nome: básicas (por elemento) e os jutsus aprendidos, já com a vantagem contra o inimigo."""
+    c, foe = custo_tecnica(_me(p, L)), L.get("elemento")
+    acoes = [{"acao": "fisico", "nome": BASICO["fisico"], "custo": 0, "mod": 1.0, "elem": None},
+             {"acao": "ninjutsu", "nome": BASICO["ninjutsu"][p.elemento], "custo": c, "mod": mod_elem(p.elemento, foe), "elem": p.elemento},
+             {"acao": "genjutsu", "nome": BASICO["genjutsu"], "custo": c, "mod": 1.0, "elem": None}]
+    for nv in MARCOS:
+        j = JUTSUS.get((p.jutsus or {}).get(str(nv), ""))
+        if j:
+            acoes.append({"acao": "jutsu", "item": j["id"], "nome": j["nome"], "custo": max(1, round(c * j["custo"])),
+                          "mod": mod_elem(j["elem"], foe), "elem": j["elem"], "cat": j["cat"]})
+    return acoes
+
+
 def luta_view(p: Player):
     L = p.luta
     if not L:
         return None
     return {"inimigo": L["nome"], "chefe": L["boss"], "tipo": L["tipo"], "hp": max(0, L["hp"]), "hp_max": L["hp_max"],
             "turno": L["turno"], "log": L["log"][-8:], "custo": custo_tecnica(_me(p, L)), "tecnica": p.tecnica, "pet": L.get("pet"),
-            "escudo": L.get("escudo", 0), "reserva": L.get("reserva", 0),
+            "escudo": L.get("escudo", 0), "reserva": L.get("reserva", 0), "elemento": L.get("elemento"), "acoes": _acoes(p, L),
             "pocoes": [{"id": k, "nome": POCOES[k][0], "qtd": q} for k, q in (p.pocoes or {}).items()
                        if q > 0 and k in POCOES and POCOES[k][1] in ("vida", "chakra")]}
 
@@ -301,7 +330,10 @@ def fim_luta(db: Session, p: Player, L: dict, won: bool) -> dict:
                 gain = {"coleta": int(random.random() < 0.7), "caca": 1, "busca": int(L["boss"])}[mis["tipo"]]
                 p.journey_prog = min(mis["qtd"], p.journey_prog + gain)
                 res["missao"] = {"progresso": p.journey_prog, "qtd": mis["qtd"]}
+    antes = len(p.elementos_extra or [])
     res["niveis_ganhos"] = apply_exp(p, res["exp"])
+    if len(p.elementos_extra or []) > antes:
+        res["elemento_novo"] = p.elementos_extra[-1]
     return res
 
 
@@ -333,7 +365,7 @@ def explore(payload: ExploreReq, db: Session = Depends(get_db)):
     player.energia -= 1
     iniciar_luta(player, "pve", mp["chefe"] if boss else mp["inimigo"], {a: power for a in ATTRS},
                  int((60 + 30 * mp["perigo"]) * (1.4 if boss else 1)), 60 + 20 * mp["perigo"], boss,
-                 mapa=mp["id"], on_mission=on_mission)
+                 mapa=mp["id"], on_mission=on_mission, elemento=elem_mapa(vila_idx(player)))
     db.commit()
     return {"luta": luta_view(player)}
 
@@ -354,7 +386,7 @@ def pvp_desafiar(payload: PvpReq, db: Session = Depends(get_db)):
     if p.vida_atual < 10:
         raise HTTPException(400, "Vida baixa demais. Descanse antes de duelar.")
     p.energia -= 2
-    iniciar_luta(p, "pvp", t.ninja_name, {k: int(v) for k, v in effective_stats(t).items()}, t.vida_max, t.chakra_max)
+    iniciar_luta(p, "pvp", t.ninja_name, {k: int(v) for k, v in effective_stats(t).items()}, t.vida_max, t.chakra_max, elemento=t.elemento)
     db.commit()
     return {"luta": luta_view(p)}
 
@@ -387,18 +419,34 @@ def luta_agir(payload: AgirReq, db: Session = Depends(get_db)):
         p.chakra_atual = min(p.chakra_max, p.chakra_atual + 2)
         L["log"].append("Você se defende e recupera o fôlego.")
     else:
-        if acao != "fisico":
-            if acao == "secreta" and not p.tecnica:
+        poder, crit_extra, base, custo, nome_golpe, el = 1.0, 0.0, acao, 0, BASICO["fisico"], None
+        if acao == "jutsu":
+            j = JUTSUS.get(payload.item or "")
+            if j is None or payload.item not in (p.jutsus or {}).values():
+                raise HTTPException(400, "Você ainda não aprendeu esse jutsu.")
+            base = {"ninjutsu": "ninjutsu", "genjutsu": "genjutsu", "taijutsu": "fisico"}[j["cat"]]
+            poder, el, nome_golpe = j["poder"], j["elem"], j["nome"]
+            crit_extra = 0.15 if j["cat"] == "taijutsu" else 0.0
+            custo = max(1, round(custo_tecnica(me) * j["custo"]))
+        elif acao == "ninjutsu":
+            custo, el, nome_golpe = custo_tecnica(me), p.elemento, BASICO["ninjutsu"][p.elemento]
+        elif acao == "genjutsu":
+            custo, nome_golpe = custo_tecnica(me), BASICO["genjutsu"]
+        elif acao == "secreta":
+            if not p.tecnica:
                 raise HTTPException(400, "Você ainda não domina uma técnica secreta.")
-            custo = custo_tecnica(me) * (3 if acao == "secreta" else 1)
+            custo, nome_golpe = custo_tecnica(me) * 3, p.tecnica
+        if custo:
             if p.chakra_atual + L.get("reserva", 0) < custo:
-                raise HTTPException(400, f"Chakra insuficiente: a técnica custa {custo}.")
+                raise HTTPException(400, f"Chakra insuficiente: {nome_golpe} custa {custo}.")
             da_reserva = min(L.get("reserva", 0), custo)  # a reserva de bônus é gasta primeiro
             L["reserva"] = L.get("reserva", 0) - da_reserva
             p.chakra_atual -= custo - da_reserva
-        dmg, crit, stun = golpe(me, L["stats"], acao)
+        mod = mod_elem(el, L.get("elemento"))
+        dmg, crit, stun = golpe(me, L["stats"], base, poder, mod, crit_extra)
+        nota = " Vantagem elemental!" if dmg and mod > 1 else " O elemento do inimigo resiste." if dmg and mod < 1 else ""
+        L["log"].append(_linha("Você", base, dmg, crit, nome_golpe) + nota + (" O inimigo ficou atordoado!" if stun and dmg else ""))
         L["hp"] -= dmg
-        L["log"].append(_linha("Você", acao, dmg, crit) + (" O inimigo ficou atordoado!" if stun and dmg else ""))
         if stun and dmg:
             L["atordoado"] = True
         if L["hp"] <= 0:
@@ -949,7 +997,7 @@ def prova_acao(payload: RestReq, db: Session = Depends(get_db)):
         if p.vida_atual < 10:
             raise HTTPException(400, "Vida baixa demais. Descanse antes do duelo.")
         power = 4 + d["nivel"]
-        iniciar_luta(p, "clan", d["lider"], {a: power for a in ATTRS}, 100 + 12 * d["nivel"], 80 + 10 * d["nivel"], True, clan_id=clan.id)
+        iniciar_luta(p, "clan", d["lider"], {a: power for a in ATTRS}, 100 + 12 * d["nivel"], 80 + 10 * d["nivel"], True, clan_id=clan.id, elemento=elem_mapa(d["vila"]))
         msg, duelo = f"{d['lider']} aceitou o duelo.", True
     else:
         raise HTTPException(400, "Esta etapa avança vencendo lutas nos mapas.")
@@ -1515,3 +1563,53 @@ def bolsa(telegram_id: int, db: Session = Depends(get_db)):
             "consumiveis": [{"id": k, "nome": POCOES[k][0], "efeito": POCOES[k][1], "valor": POCOES[k][2], "qtd": q}
                             for k, q in (p.pocoes or {}).items() if q > 0 and k in POCOES],
             "materiais": [], "quests": quests}
+
+
+# ───────── Elementos e jutsus com nome ─────────
+VILA_ELEMENTO = ["fogo", "agua", "vento", "agua", "raio", "terra", None]  # a Lua Cinzenta não tem elemento fixo
+
+
+def elem_mapa(vi: int) -> str:
+    """Elemento de um inimigo: 70% o da vila, senão sorteado (a Lua Cinzenta é sempre sorteada)."""
+    base = VILA_ELEMENTO[vi % len(VILA_ELEMENTO)]
+    return base if base and random.random() < 0.7 else random.choice(list(ELEMENTOS))
+
+
+def ofertas(p: Player, i: int) -> list:
+    """As duas opções do marco `i`: ninjutsu de um dos seus elementos (o menos desenvolvido) e um jutsu sem elemento
+    (genjutsu se esse for seu estilo, senão taijutsu)."""
+    els = [p.elemento, *(p.elementos_extra or [])]
+    usados = [JUTSUS[j]["elem"] for j in (p.jutsus or {}).values() if j in JUTSUS]
+    e = min(els, key=lambda x: (usados.count(x), els.index(x)))
+    cat = "genjutsu" if p.genjutsu > p.taijutsu else "taijutsu"
+    return [JUTSUS[f"ninjutsu_{e}_{i + 1}"], JUTSUS[f"{cat}_x_{i + 1}"]]
+
+
+def jutsus_info(p: Player) -> dict:
+    marcos = []
+    for i, nv in enumerate(MARCOS):
+        esc = (p.jutsus or {}).get(str(nv))
+        estado = "escolhido" if esc else "pendente" if p.level >= nv else "bloqueado"
+        marcos.append({"nivel": nv, "estado": estado, "escolhido": JUTSUS[esc] if esc else None,
+                       "opcoes": ofertas(p, i) if estado == "pendente" else []})
+    return {"elemento": p.elemento, "extras": list(p.elementos_extra or []), "marcos": marcos}
+
+
+class JutsuReq(BaseModel):
+    telegram_id: int = Field(gt=0)
+    nivel: int
+    jutsu_id: str
+
+
+@router.post("/api/jutsu/escolher")
+def jutsu_escolher(payload: JutsuReq, db: Session = Depends(get_db)):
+    p = get_player(db, payload.telegram_id, lock=True)
+    if payload.nivel not in MARCOS or p.level < payload.nivel:
+        raise HTTPException(403, "Esse marco ainda não foi alcançado.")
+    if str(payload.nivel) in (p.jutsus or {}):
+        raise HTTPException(409, "Você já escolheu o jutsu deste nível.")
+    if payload.jutsu_id not in [o["id"] for o in ofertas(p, MARCOS.index(payload.nivel))]:
+        raise HTTPException(400, "Essa opção não está disponível para você.")
+    p.jutsus = {**(p.jutsus or {}), str(payload.nivel): payload.jutsu_id}
+    db.commit()
+    return {"mensagem": f"Você aprendeu {JUTSUS[payload.jutsu_id]['nome']}."}
