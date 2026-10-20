@@ -245,6 +245,10 @@ class Player(TimestampMixin, Base):
     arena: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     torre_sessao: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)  # dentro da Torre: sem hospital nem descanso
     progresso: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)  # missões, conquistas, login e passe (progresso_extra.py)
+    # Amigos, skins, sexo, retorno à organização e outros dados pessoais (blocos_extra.py); fama Nukenin (0 a 100.000) e organização criminosa
+    blocos: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    nk_fama: Mapped[int] = mapped_column(Integer, default=0, nullable=False, index=True)
+    org_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
     arena_temp: Mapped[int] = mapped_column(Integer, default=0, nullable=False)  # temporada em que os troféus valem
 
     # Chaves estrangeiras
@@ -532,3 +536,28 @@ class Pet(Base):
     natureza: Mapped[str] = mapped_column(String(24), nullable=False)
     afinidade: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     ativo: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+
+# ─────────────────────────────────────────────────────────────
+# Chat: canal "global", "guilda:<id>" ou "dm:<menor>-<maior>" (ids dos jogadores). Mensagens antigas são apagadas sozinhas.
+# ─────────────────────────────────────────────────────────────
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    canal: Mapped[str] = mapped_column(String(48), nullable=False, index=True)
+    autor_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    autor_nome: Mapped[str] = mapped_column(String(32), nullable=False)
+    destino_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)  # só nas mensagens privadas
+    texto: Mapped[str] = mapped_column(String(300), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class Organizacao(Base):
+    """Organização criminosa de Nukenin (fundada com 2.000 de fama Nukenin)."""
+    __tablename__ = "organizations"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    nome: Mapped[str] = mapped_column(String(40), unique=True, nullable=False)
+    lider_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)  # sem FK: a liderança passa de mão em mão
+    dados: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)

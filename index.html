@@ -120,6 +120,8 @@
   <section id="tab-torre" class="tab space-y-3 hidden"></section>
   <section id="tab-arena" class="tab space-y-3 hidden"></section>
   <section id="tab-prog" class="tab space-y-3 hidden"></section>
+  <section id="tab-chat" class="tab space-y-3 hidden"></section>
+  <section id="tab-forum" class="tab space-y-3 hidden"></section>
   <section id="tab-jutsus" class="tab space-y-3 hidden"></section>
   <section id="tab-perfil" class="tab space-y-3"></section>
   <section id="tab-jornada" class="tab space-y-3 hidden"></section>
@@ -130,13 +132,12 @@
   <section id="tab-ranking" class="tab space-y-3 hidden"></section>
 </main>
 
-<nav class="fixed bottom-0 inset-x-0 z-30 grid grid-cols-6 bg-sumi/95 backdrop-blur border-t border-line" style="padding-bottom:env(safe-area-inset-bottom,0px)">
-  <button data-tab="perfil"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg> Perfil</button>
-  <button data-tab="mapas"><svg viewBox="0 0 24 24"><path d="M3 6h18M5 9.5h14M7 6v14M17 6v14M4 4c4 1 12 1 16 0"/></svg> Portão</button>
-  <button data-tab="jornada"><svg viewBox="0 0 24 24"><path d="M7 3h10a2 2 0 0 1 2 2v14l-3-2-2 2-2-2-2 2-3-2V5a2 2 0 0 1 2-2z"/><path d="M9 8h6M9 12h6"/></svg> Quests</button>
-  <button data-tab="hospital"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M12 8v8M8 12h8"/></svg> Hospital</button>
-  <button data-tab="loja"><svg viewBox="0 0 24 24"><path d="M4 9h16l-1.5 11h-13z"/><path d="M8 9V7a4 4 0 0 1 8 0v2"/></svg> Loja</button>
+<nav class="fixed bottom-0 inset-x-0 z-30 grid grid-cols-5 bg-sumi/95 backdrop-blur border-t border-line" style="padding-bottom:env(safe-area-inset-bottom,0px)">
   <button data-tab="menu"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg> Menu</button>
+  <button data-tab="mapas"><svg viewBox="0 0 24 24"><path d="M3 6h18M5 9.5h14M7 6v14M17 6v14M4 4c4 1 12 1 16 0"/></svg> Portão</button>
+  <button data-tab="bolsa"><svg viewBox="0 0 24 24"><path d="M5 8h14l-1 12H6z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/></svg> Itens</button>
+  <button data-tab="guilda"><svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 5-3.5 8-7 10-3.5-2-7-5-7-10V6z"/></svg> Guilda</button>
+  <button data-tab="perfil"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg> Perfil</button>
 </nav>
 
 <div id="regBox" class="hidden fixed inset-0 z-40 bg-sumi overflow-y-auto p-5">
@@ -232,9 +233,9 @@ async function act(path, body, msg) {
 }
 
 /* ───────── Abas ───────── */
-const MAIN = ['perfil', 'mapas', 'jornada', 'hospital', 'loja', 'menu'];
+const MAIN = ['menu', 'mapas', 'bolsa', 'guilda', 'perfil'];
 // Subtelas acendem o ícone da aba de onde se chega nelas
-const PAI = { atributos: 'perfil', status: 'perfil', opcoes: 'perfil', jutsus: 'perfil', bolsa: 'perfil', guilda: 'perfil' };
+const PAI = { atributos: 'perfil', status: 'perfil', opcoes: 'perfil', jutsus: 'perfil' };
 let cur = 'perfil', navStack = [];
 const goBack = () => showTab(navStack.pop() || 'menu', true);
 function showTab(name, back) {
@@ -249,6 +250,8 @@ function showTab(name, back) {
   if (name === 'torre') loadTorre();
   if (name === 'arena') loadArena();
   if (name === 'prog') loadProg();
+  if (name === 'chat') loadChat();
+  if (name === 'forum') renderForum();
   document.querySelectorAll('.tab').forEach(s => s.classList.toggle('hidden', s.id !== 'tab-' + name));
   document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.tab === (MAIN.includes(name) ? name : PAI[name] || 'menu')));
   tg?.HapticFeedback?.selectionChanged?.();
@@ -278,13 +281,15 @@ const PAL = [['#4a1a14', '#140e0e'], ['#14323f', '#0c1014'], ['#3d2d12', '#120f0
 const tile = (id, ico, nome, sub_, fn, i = 0, soon = false) => `<button class="tile" style="--a:${PAL[i % PAL.length][0]};--b:${PAL[i % PAL.length][1]}" onclick="${soon ? `toast('${nome}: em breve.', true)` : fn}">
   <img src="img/${id}.jpg" alt="" onerror="this.remove()"><span class="ico">${ico}</span>${soon ? '<span class="tag absolute top-2 left-2 z-10">em breve</span>' : ''}
   <b class="font-jp text-base">${nome}</b><span class="text-xs text-paper/70">${sub_}</span></button>`;
-/* Menu: 8 atalhos compactos em 4 colunas. Portão, Quests, Hospital e Loja ficam na barra inferior. */
+/* Menu: atalhos compactos em 4 colunas. Barra inferior: Menu, Portão, Itens, Guilda e Perfil. */
 const mini = (id, ico, nome, fn, soon = false) => `<button class="mini" onclick="${soon ? `toast('${nome}: em breve.', true)` : fn}">
   <img src="img/${id}.jpg" alt="" onerror="this.remove()"><span class="ico">${ico}</span><b>${nome}</b>${soon ? '<i class="soon">breve</i>' : ''}</button>`;
 function renderMenu() {
   const T = [['dojo', '🥋', 'Dojo', "showTab('treino')"], ['kage', '👘', 'Sala do Kage', "showTab('vila')"], ['forja', '⚒️', 'Forja', "showTab('forja')"],['arena', '⚔️', 'Arena', "showTab('arena')"],
     ['masmorras', '🕳️', 'Masmorras', "showTab('masmorras')"], ['torre', '🗼', 'Torre', "showTab('torre')"],['vila', '🏘️', 'Vila e clãs', "showTab('vila')"], ['ranking', '🏆', 'Ranking', "showTab('ranking')"],
-    ['missoes', '📜', PGP ? `Missões (${PGP})` : 'Missões', "abrirProg('missoes')"], ['conq', '🏅', 'Conquistas', "abrirProg('conq')"], ['login', '📅', 'Login', "abrirProg('login')"], ['passe', '🎫', 'Passe', "abrirProg('passe')"]];
+    ['missoes', '📜', PGP ? `Missões (${PGP})` : 'Missões', "abrirProg('missoes')"], ['conq', '🏅', 'Conquistas', "abrirProg('conq')"], ['login', '📅', 'Login', "abrirProg('login')"], ['passe', '🎫', 'Passe', "abrirProg('passe')"],
+    ['quests', '📖', 'Quests', "showTab('jornada')"], ['hospital', '🏥', 'Hospital', "showTab('hospital')"], ['loja', '🛒', 'Loja', "ljSec = 'itens'; showTab('loja')"],
+    ['pets', '🐾', 'Pets', "ljSec = 'pets'; showTab('loja')"], ['chat', '💬', 'Chat', "abrirChat('global')"], ['forum', '📚', 'Fórum', "showTab('forum')"], ['boneco', '🎯', 'Boneco de treino', '', true]];
   $('tab-menu').innerHTML = `<h2>Menu</h2><div class="grid grid-cols-4 gap-2">${T.map(([id, ico, n, fn, soon]) => mini(id, ico, n, fn, !!soon)).join('')}</div>`;
 }
 function renderHospital() {
@@ -443,8 +448,11 @@ function renderStatus() {
     <div class="card"><h2>Patente: ${esc(pat.atual)}</h2><p class="text-sm text-paper/70 mt-2">${pat.proxima ? `Próxima: <b class="text-gold">${esc(pat.proxima)}</b>. ` : ''}${esc(pat.texto)}</p></div>`;
 }
 function renderOpcoes() {
+  const lk = (t, fn) => `<button class="w-full flex justify-between items-center py-3 border-t border-line text-sm" onclick="${fn}"><span>${t}</span><span class="text-gold text-xs">abrir</span></button>`;
   const soon = t => `<button class="w-full flex justify-between items-center py-3 border-t border-line text-sm" onclick="toast('${t}: em breve.', true)"><span>${t}</span><span class="text-gold text-xs">em breve</span></button>`;
-  $('tab-opcoes').innerHTML = `<div class="card"><h2 class="mb-1">Opções</h2>${['Amigos', 'Skins', 'Conquistas', 'Livro Bingo', 'Trocar nome', 'Trocar classe e sexo', 'Fórum e tutoriais'].map(soon).join('')}</div>
+  $('tab-opcoes').innerHTML = `<div class="card"><h2 class="mb-1">Opções</h2>${['Amigos', 'Skins'].map(soon).join('')}${lk('Conquistas', "abrirProg('conq')")}${soon('Livro Bingo')}${soon('Trocar classe e sexo')}${lk('Fórum e tutoriais', "showTab('forum')")}</div>
+    <div class="card"><h2>Trocar nome</h2><p class="lbl mt-1">Custa 2.000 ryos. Use letras, números e espaços (3 a 32 caracteres).</p>
+      <div class="flex gap-2 mt-3"><input id="novoNome" class="inp flex-1" maxlength="32" placeholder="${esc(P.ninja_name)}"><button class="btn btn-gold" onclick="trocarNome()">Trocar</button></div></div>
     <div class="card"><h2>Nacionalidade</h2><p class="lbl mt-1">Você é de ${esc(P.village.name)}. Trocar de vila zera sua fama e reinicia a missão atual. Clãs de outra vila ficam para trás. Kage e Sannin não podem trocar.</p>
       <button class="btn btn-ghost w-full mt-3" onclick="abrirTroca()">Trocar de vila</button><div id="trocaBox"></div></div>
     <div class="card border-vermil"><h2>Excluir conta</h2><p class="lbl mt-1">Apaga seu ninja, itens, pets e progresso de forma definitiva. Não dá para desfazer. Se você lidera uma guilda, o comando passa para outro membro.</p>
@@ -1066,6 +1074,74 @@ function pgPasse() {
     <p class="lbl mt-1">Ganhe XP do passe lutando, treinando, forjando e cumprindo missões. Cada nível libera um prêmio. O passe zera a cada 28 dias, então colete antes de acabar.</p>
     <div class="flex items-center justify-between mt-3 text-sm"><b>Nível ${S.nivel}/${S.max}</b><span class="lbl">${S.nivel >= S.max ? 'máximo' : `${rest}/${S.xp_nivel} XP`}</span></div>
     <div class="bar mt-1"><i class="bg-gold" style="width:${S.nivel >= S.max ? '100%' : pct(rest, S.xp_nivel)}"></i></div></div><div class="card">${niv}</div>`;
+}
+
+/* Chat: global, guilda e privado. Consulta só as mensagens novas a cada 5 s enquanto a aba está aberta. */
+let chCanal = 'global', chCom = '', chMsgs = [], chUlt = 0, chConv = [], chTimer = null;
+const abrirChat = c => { chCanal = c || 'global'; chCom = ''; showTab('chat'); };
+async function loadChat() {
+  chMsgs = []; chUlt = 0; renderChat(); await chPuxar(true);
+  clearInterval(chTimer); chTimer = setInterval(() => cur === 'chat' ? chPuxar() : clearInterval(chTimer), 5000);
+}
+function chAdd(novas, sub) {
+  if (sub) chMsgs = novas; else if (novas.length) chMsgs = chMsgs.concat(novas).slice(-100);
+  if (chMsgs.length) chUlt = chMsgs[chMsgs.length - 1].id;
+  if (sub || novas.length) chLista();
+}
+async function chPuxar(inicial) {
+  try {
+    if (chCanal === 'dm' && !chCom) { chConv = (await api('/api/chat/conversas', { telegram_id: tgUser.id })).conversas; return renderChat(); }
+    const r = await api('/api/chat/ler', { telegram_id: tgUser.id, canal: chCanal, com: chCom || null, depois: inicial ? 0 : chUlt });
+    chAdd(r.mensagens, inicial);
+  } catch (e) { if (inicial) { chMsgs = []; chLista(e.message); } }
+}
+function chLista(erro) {
+  const el = $('chLista'); if (!el) return;
+  el.innerHTML = erro ? `<p class="lbl">${esc(erro)}</p>` : chMsgs.length ? chMsgs.map(m => `<div class="py-1 text-sm ${m.eu ? 'text-gold' : ''}"><b>${esc(m.autor)}</b> <span class="lbl">${esc(m.hora)}</span><br>${esc(m.texto)}</div>`).join('') : '<p class="lbl">Nenhuma mensagem ainda. Diga olá.</p>';
+  el.scrollTop = el.scrollHeight;
+}
+function chTrocar(c) { chCanal = c; chCom = ''; loadChat(); }
+function chAbrirDm(nome) { chCom = (nome || '').trim(); if (chCom) loadChat(); }
+async function chEnviar() {
+  const inp = $('chTexto'), t = inp.value.trim(); if (!t) return;
+  try {
+    const r = await api('/api/chat/enviar', { telegram_id: tgUser.id, canal: chCanal, com: chCom || null, texto: t, depois: chUlt });
+    inp.value = ''; chAdd(r.mensagens, false);
+  } catch (e) { toast(e.message, false); }
+}
+function renderChat() {
+  const abas = [['global', '🌐 Global'], ['guilda', '🛡️ Guilda'], ['dm', '✉️ Privado']].map(([k, n]) => `<button class="chip ${k === chCanal ? 'on' : ''}" onclick="chTrocar('${k}')">${n}</button>`).join('');
+  let corpo;
+  if (chCanal === 'dm' && !chCom) {
+    corpo = `<div class="card"><h2>Mensagem privada</h2><div class="flex gap-2 mt-2"><input id="chAlvo" class="inp flex-1" maxlength="32" placeholder="Nome do ninja"><button class="btn btn-gold" onclick="chAbrirDm($('chAlvo').value)">Abrir</button></div>
+      ${chConv.length ? `<p class="lbl mt-3">Conversas recentes</p>${chConv.map(n => `<button class="w-full text-left py-2 border-t border-line text-sm" data-n="${esc(n)}" onclick="chAbrirDm(this.dataset.n)">${esc(n)}</button>`).join('')}` : ''}</div>`;
+  } else {
+    corpo = `<div class="card">${chCanal === 'dm' ? `<div class="flex items-center justify-between mb-2"><b>${esc(chCom)}</b><button class="chip" onclick="chCom=''; loadChat()">Trocar</button></div>` : ''}
+      <div id="chLista" class="overflow-y-auto" style="max-height:48vh;min-height:8rem"></div>
+      <div class="flex gap-2 mt-3"><input id="chTexto" class="inp flex-1" maxlength="200" placeholder="Escreva uma mensagem" onkeydown="if(event.key==='Enter')chEnviar()"><button class="btn btn-gold" onclick="chEnviar()">Enviar</button></div></div>`;
+  }
+  $('tab-chat').innerHTML = `<h2>Chat</h2><div class="flex gap-1.5 flex-wrap">${abas}</div>${corpo}`;
+  chLista();
+}
+
+/* Fórum e tutoriais: guia rápido das regras do jogo */
+const TUTORIAIS = [
+  ['Começando', 'Faça as missões da aba Quests para ganhar XP, ryos, itens e fama. Cada missão entregue sobe sua patente aos poucos. Caçar nos mapas do Portão rende XP e itens; mapas mais perigosos dão mais, mas exigem nível maior.'],
+  ['Combate e elementos', 'A luta é por turnos: golpe físico, ninjutsu, genjutsu, técnica secreta ou itens. Os elementos têm vantagem em ciclo: Fogo vence Vento, Vento vence Raio, Raio vence Terra, Terra vence Água e Água vence Fogo. Você escolhe novos jutsus nos níveis 2, 12, 22, 32 e 42.'],
+  ['Hospital', 'A cura gratuita devolve metade da vida perdida e libera de novo a cada 10 minutos. A cura total e a Sannin custam ryos; a Sannin ainda dá um bônus aleatório por 15 minutos. Dentro da Torre e das masmorras o hospital fica fechado: use os itens da bolsa.'],
+  ['Forja', 'Refine equipamentos até +10 com ryos e materiais. Se o refino falhar você perde o custo, mas o item nunca é destruído. Desmonte itens que não usa para ganhar materiais e crie equipamentos pelas receitas.'],
+  ['Arena', 'Duelos ranqueados só entre jogadores: custam energia, não têm fuga e exigem vida acima de 30%. Há um limite de lutas por dia, e os troféus definem sua liga. Os rankings diário, semanal e mensal ficam na própria Arena, e a semana rende prêmio.'],
+  ['Masmorras e Torre', 'Masmorras exigem fragmentos de chave, que caem de chefes de mapa, e têm 5 andares seguidos sem cura entre eles. A Torre é infinita: cada andar vencido pela primeira vez dá a recompensa, e chefes soltam materiais e ovos. Perder expulsa você da Torre ou da masmorra.'],
+  ['Guilda', 'Crie ou entre em uma guilda para doar ryos, subir o nível dela e enfrentar o chefe cooperativo. O líder define vices e expulsa membros. O limite de membros e o bônus de XP e ryos crescem com o nível da guilda.'],
+  ['Missões, conquistas e passe', 'Em Menu → Missões você tem 3 missões diárias, 3 semanais e o evento da semana. Conquistas dão prêmios por marcos, o login diário dá recompensas em ciclo de 7 dias e o passe de temporada libera prêmios a cada nível por 28 dias.'],
+  ['Chat e conta', 'No Chat há canais global, da guilda e privado. Em Opções você troca o nome do ninja (custa ryos), troca de vila ou exclui a conta de forma definitiva.'],
+];
+function renderForum() {
+  $('tab-forum').innerHTML = `<h2>Fórum e tutoriais</h2>${TUTORIAIS.map(([t, x]) => `<details class="card"><summary class="font-semibold cursor-pointer">${esc(t)}</summary><p class="text-sm mt-2 text-paper/80">${esc(x)}</p></details>`).join('')}`;
+}
+async function trocarNome() {
+  const v = $('novoNome').value.trim(); if (!v) return;
+  try { toast((await api('/api/conta/nome', { telegram_id: tgUser.id, novo_nome: v })).mensagem, true); await refresh(); } catch (e) { toast(e.message, false); }
 }
 
 (async function init() {

@@ -187,6 +187,8 @@ def registrar(p, ev: str, n: int = 1) -> None:
         if ev in PASSE_XP:
             _passe_add(s, PASSE_XP[ev] * n)
         _salvar(p, s)
+        from blocos_extra import guilda_registrar  # missões diárias da guilda
+        guilda_registrar(p, ev, n)
     except Exception:
         pass
 
@@ -197,6 +199,11 @@ def registrar_luta(p, L: dict, res: dict, won: bool) -> None:
     if t == "pvp":
         if won:
             registrar(p, "pvp")
+            try:
+                from blocos_extra import nk_pos_pvp  # Livro Bingo: recompensa e prisão do Nukenin derrotado
+                nk_pos_pvp(p, L, res, won)
+            except Exception:
+                pass
     elif t == "arena":
         registrar(p, "arena_luta")
         if won:

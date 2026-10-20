@@ -915,5 +915,12 @@ app.include_router(extra_router)
 from progresso_extra import router as progresso_router  # noqa: E402
 
 app.include_router(progresso_router)
+from blocos_extra import router as blocos_router  # noqa: E402
+
+app.include_router(blocos_router)
+# Chat (global, guilda e privado) e troca de nome
+from social_reserva import router as social_router  # noqa: E402
+
+app.include_router(social_router)
 # Backup/restauração (protegido por ADMIN_TOKEN; fica fora do login do Telegram de propósito)
 app.mount("/api/admin", persistencia.criar_app_admin(engine, Base))
