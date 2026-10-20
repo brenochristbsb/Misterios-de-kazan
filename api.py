@@ -3,7 +3,7 @@ api.py — Rotas HTTP (FastAPI) consumidas pelo Telegram Mini App do RPG Ninja.
 
 Dependências:  pip install fastapi uvicorn sqlalchemy pydantic
 Executar:      uvicorn api:app --reload
-Variáveis:     DATABASE_URL  (padrão: sqlite:///./ninja_rpg.db)
+Variáveis:     DATABASE_URL  (padrão: ver persistencia.py; guarda o banco fora do código)
                CORS_ORIGINS  (lista separada por vírgula; padrão: "*")
 
 Endpoints:
@@ -67,10 +67,10 @@ logger = logging.getLogger("ninja_api")
 # ─────────────────────────────────────────────────────────────
 # Banco de dados / sessão
 # ─────────────────────────────────────────────────────────────
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./ninja_rpg.db")
-# Alguns provedores entregam "postgres://", que o SQLAlchemy 2 não aceita
-if DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+# persistencia.py escolhe o banco (DATABASE_URL > SQLITE_PATH > disco persistente > arquivo local) e protege os dados nos deploys
+import persistencia  # noqa: E402
+
+DATABASE_URL = persistencia.resolver_database_url()
 _connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
 engine = create_engine(DATABASE_URL, pool_pre_ping=True, connect_args=_connect_args)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
@@ -594,10 +594,13 @@ def ensure_columns() -> None:
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     # Em produção prefira migrações (Alembic) a create_all
+    persistencia.proteger_antes(engine, Base)   # backup antes de migrar + aviso se o banco for volátil
     Base.metadata.create_all(bind=engine)
+    persistencia.proteger_depois(engine, Base)  # restaura sozinho se o banco veio vazio; liga o backup periódico
     ensure_columns()
     seed_initial_data()
     yield
+    persistencia.proteger_ao_encerrar(engine, Base)  # última cópia antes do servidor desligar (deploy)
 
 
 app = FastAPI(title="RPG Ninja API", version="1.0.0", lifespan=lifespan, dependencies=[Depends(require_auth)])
@@ -909,3 +912,5 @@ def guild_war_attack(payload: WarAttackRequest, db: Session = Depends(get_db)):
 from game_extra import router as extra_router  # noqa: E402
 
 app.include_router(extra_router)
+# Backup/restauração (protegido por ADMIN_TOKEN; fica fora do login do Telegram de propósito)
+app.mount("/api/admin", persistencia.criar_app_admin(engine, Base))
