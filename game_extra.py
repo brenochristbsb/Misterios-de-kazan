@@ -16,14 +16,14 @@ from clas_dados import CLANS
 from vilas_dados import VILAS
 from jutsus_dados import BASICO, ELEMENTOS, JUTSUS, MARCOS, VANTAGEM
 from vilas_mapas_extra import MAPAS_VILA_EXTRA, PRIMEIRO_MAPA_EXTRA
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session, object_session
 
 from api import ATTRS, NO_CLAN_NAME, active_summon_link, apply_exp, as_utc, effective_stats, get_db, get_player, rank_titulo
 import atributos5
 import bloco4
 from vip_passe import multiplicador_ryos, multiplicador_xp  # bônus do VIP (Shinobi/Shogun)
-from models import BossThreat, Clan, Guild, InventoryItem, ItemType, MarketListing, NinjaRank, Pet, Player, PlayerSummon, Summon, Village
+from models import BossThreat, Clan, Guild, InventoryItem, ItemType, MarketListing, NinjaRank, Pet, Player, PlayerSummon, QuestInventory, Summon, Village
 
 router = APIRouter()
 
@@ -134,6 +134,27 @@ def recurso_vila(vi: int, mid: int) -> str:
         return rec[mid - 1]
     ex = MAPAS_VILA_EXTRA.get(vi, [])
     return ex[mid - PRIMEIRO_MAPA_EXTRA][3] if 0 <= mid - PRIMEIRO_MAPA_EXTRA < len(ex) else MAPS_BY_ID[mid]["recurso"]
+
+def quest_item_id(vi: int, mid: int) -> str:
+    """Id do item de coleta na tabela quest_inventory (cabe em 48 caracteres)."""
+    return f"coleta:{recurso_vila(vi, mid)}"[:48]
+
+
+def quest_guardar(db: Session, p: Player, vi: int, mid: int, qtd: int) -> None:
+    """Itens de coleta da missão ficam em quest_inventory, fora da mochila: não ocupam espaço nem vão para venda ou mercado."""
+    if qtd <= 0:
+        return
+    row = db.get(QuestInventory, (p.id, quest_item_id(vi, mid)))
+    if row:
+        row.quantidade = qtd
+    else:
+        db.add(QuestInventory(player_id=p.id, item_id=quest_item_id(vi, mid), quantidade=qtd))
+
+
+def quest_limpar(db: Session, p: Player) -> None:
+    """Entregar a missão (ou trocar de vila) consome os itens de coleta guardados."""
+    db.execute(delete(QuestInventory).where(QuestInventory.player_id == p.id))
+
 
 # Requisitos de ingresso por clã (nível, rank). Clãs fora da lista usam o padrão.
 CLAN_DATA = {c[1]: {"vila": c[0], "nome": c[1], "atr": c[2], "bonus": c[3], "nivel": c[4], "rank": c[5], "historia": c[6],
@@ -654,6 +675,8 @@ def fim_luta(db: Session, p: Player, L: dict, won: bool) -> dict:
                 mis = mission_for(p.journey + 1, vila_idx(p))
                 gain = {"coleta": int(random.random() < 0.7), "caca": 1, "busca": int(L["boss"])}[mis["tipo"]]
                 p.journey_prog = min(mis["qtd"], p.journey_prog + gain)
+                if mis["tipo"] == "coleta":
+                    quest_guardar(db, p, vila_idx(p), mis["mapa"], p.journey_prog)
                 res["missao"] = {"progresso": p.journey_prog, "qtd": mis["qtd"]}
     antes = len(p.elementos_extra or [])
     res["niveis_ganhos"] = apply_exp(p, res["exp"])
@@ -997,6 +1020,7 @@ def jornada_entregar(payload: JornadaDone, db: Session = Depends(get_db)):
     p.reputation = max(-100, min(100, p.reputation + (-8 if sombra else 5)))
     p.journey += 1
     p.journey_prog = 0
+    quest_limpar(db, p)  # os itens de coleta foram entregues
     if sombra:  # o caminho da sombra rende fama Nukenin
         try:
             from blocos_extra import nk_ganhar
@@ -2000,6 +2024,7 @@ def trocar_nacionalidade(payload: NacReq, db: Session = Depends(get_db)):
     p.prov_clan_id, p.prov_etapa, p.prov_prog = None, 0, 0
     perdida = p.fama
     p.village_id, p.fama, p.journey_prog, p.sannin_desde = novo.id, 0, 0, None
+    quest_limpar(db, p)
     db.commit()
     return {"mensagem": f"Você agora é de {novo.name}. Sua fama ({_n(perdida)}) foi zerada.", "fama_perdida": perdida}
 
@@ -2068,7 +2093,8 @@ def bolsa(telegram_id: int, db: Session = Depends(get_db)):
     mis = mission_for(p.journey + 1, vi)
     quests = []
     if mis["tipo"] == "coleta" and p.level >= mis["req_nivel"]:
-        quests.append({"nome": recurso_vila(vi, mis["mapa"]), "qtd": p.journey_prog, "meta": mis["qtd"],
+        linha = db.get(QuestInventory, (p.id, quest_item_id(vi, mis["mapa"])))  # lê da tabela quest_inventory
+        quests.append({"nome": recurso_vila(vi, mis["mapa"]), "qtd": linha.quantidade if linha else p.journey_prog, "meta": mis["qtd"],
                        "mapa": mapa_vila(mis["mapa"], vi)["nome"]})
     return {"max": BOLSA_MAX, "slots": SLOTS,
             "itens": [{"id": i.id, "nome": i.item_name, "tipo": i.item_type.value, "bonus": i.status_bonus or {},
@@ -2925,7 +2951,7 @@ def conta_excluir(payload: ExcluirReq, db: Session = Depends(get_db)):
         if v.challenger_id == pid:
             v.challenger_id, v.challenger_since = None, None
     db.flush()
-    for modelo, col in ((Pet, Pet.player_id), (MarketListing, MarketListing.seller_id), (PlayerMission, PlayerMission.player_id)):
+    for modelo, col in ((Pet, Pet.player_id), (MarketListing, MarketListing.seller_id), (PlayerMission, PlayerMission.player_id), (QuestInventory, QuestInventory.player_id)):
         for x in db.scalars(select(modelo).where(col == pid)).all():
             db.delete(x)
     db.delete(p)

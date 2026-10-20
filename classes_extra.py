@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 
 from api import get_db, get_player
 from combate import CLASSES
+from jutsus_dados import QUIZ, elemento_do_teste
 from game_extra import BOLSA_MAX
 
 router = APIRouter()
@@ -45,6 +46,7 @@ ClasseId = Literal["taijutsu", "ninjutsu", "genjutsu", "marionetista", "ninja_me
 class ClasseReq(BaseModel):
     telegram_id: int = Field(gt=0)
     classe: ClasseId
+    respostas: list[int] = Field(default_factory=list, max_length=len(QUIZ))  # teste do elemento, só para quem sai do Taijutsu
 
 
 class SlotReq(BaseModel):
@@ -88,6 +90,12 @@ def classe_resetar(payload: ClasseReq, db: Session = Depends(get_db)):
         raise HTTPException(400, "Você já é desta classe.")
     if p.luta or p.masmorra:
         raise HTTPException(409, "Termine a luta ou a masmorra antes de resetar sua classe.")
+    # Taijutsu não tem elemento. Quem sai do Taijutsu (elemento vazio) precisa fazer o teste do elemento
+    novo_elem = None
+    if payload.classe != "taijutsu" and not p.elemento:
+        if len(payload.respostas) != len(QUIZ) or any(not 0 <= r <= 4 for r in payload.respostas):
+            raise HTTPException(422, "Responda o teste do elemento para sair do Taijutsu.")
+        novo_elem = elemento_do_teste(payload.respostas)
     equipados = [i for i in p.inventory if i.is_equipped]
     # Bloco 1: com a mochila cheia (30/30) a transação é bloqueada, antes de cobrar qualquer coisa
     if equipados and len(p.inventory) >= BOLSA_MAX:
@@ -98,6 +106,10 @@ def classe_resetar(payload: ClasseReq, db: Session = Depends(get_db)):
     for it in equipados:  # tudo volta para a mochila
         it.is_equipped = False
     antiga, p.classe = p.classe, payload.classe
+    if payload.classe == "taijutsu":  # Taijutsu abre mão do elemento e dos elementos extras
+        p.elemento, p.elementos_extra = "", []
+    elif novo_elem:
+        p.elemento = novo_elem
     p.ouro_ninja -= CUSTO_RESET_CLASSE
     db.commit()
     log.info("reset_classe player=%s %s->%s custo=%s", p.id, antiga, p.classe, CUSTO_RESET_CLASSE)

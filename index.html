@@ -372,11 +372,54 @@ function renderTreino() {
       <button class="round" aria-label="Treinar ${n}" onclick="train('${k}')">+</button></div>`; }).join('');
   $('tab-treino').innerHTML = `<div class="card space-y-4"><div class="flex items-center justify-between"><h2>Dojo</h2>
     <div class="flex gap-1.5">${[1, 5, 10].map(n => `<button class="chip ${n === reps ? 'on' : ''}" onclick="setReps(${n})">×${n}</button>`).join('')}</div></div>
-    ${rows}<p class="lbl">Cada treino custa ${25 * reps} ryos e rende ${3 * reps} de XP.</p></div>${senseiHtml()}`;
+    ${rows}<p class="lbl">Cada treino custa ${25 * reps} ryos e rende ${3 * reps} de XP.</p></div>${senseiHtml()}${classeHtml()}`;
 }
 /* Senseis: sessões que gastam energia, rendem mais pontos e sobem a maestria do atributo */
+/* Classe: troca paga no Dojo (Ouro Ninja) e slots de pet */
+let CX = null, clNova = '', clQz = [], clAns = [];
+async function loadClasses() { try { CX = await api(`/api/player/${tgUser.id}/classes`); } catch { CX = null; } }
+async function escolherNova(id) {
+  clNova = clNova === id ? '' : id; clAns = [];
+  if (clNova && clNova !== 'taijutsu' && !P.elemento && !clQz.length) {  // quem sai do Taijutsu precisa do teste do elemento
+    try { clQz = (await api('/api/setup/options')).teste; } catch (e) { toast(e.message, false); clNova = ''; }
+  }
+  clAns = clQz.map(() => -1); renderTreino();
+}
+function classeHtml() {
+  if (!CX || !CX.atual) return '';
+  const outras = CX.classes.filter(c => c.id !== CX.atual), sel = outras.find(c => c.id === clNova);
+  const quiz = sel && sel.id !== 'taijutsu' && !P.elemento, sem = CX.ouro_ninja < CX.custo_reset;
+  const nomeDe = id => (CLS_UI.find(c => c[0] === id) || [id, id])[1], descDe = id => (CLS_UI.find(c => c[0] === id) || [])[2] || '';
+  const chips = outras.map(c => `<button class="chip ${c.id === clNova ? 'on' : ''}" onclick="escolherNova('${c.id}')">${esc(nomeDe(c.id))}</button>`).join('');
+  const qz = quiz ? `<p class="text-sm font-semibold mt-3">Teste do elemento</p>` + clQz.map((q, i) => `<div class="mt-2"><p class="text-sm">${i + 1}. ${esc(q.p)}</p>
+    <div class="grid gap-1.5 mt-1.5">${q.o.map((t, j) => `<button class="chip !justify-start text-left ${clAns[i] === j ? 'on' : ''}" onclick="clAns[${i}] = ${j}; renderTreino()">${esc(t)}</button>`).join('')}</div></div>`).join('') : '';
+  const det = sel ? `<p class="lbl mt-3">${esc(descDe(sel.id))}</p>${sel.id === 'taijutsu' ? '<p class="text-xs text-gold mt-1">Você perde seu elemento e os elementos extras.</p>' : ''}${qz}
+    <button class="btn btn-gold w-full mt-3" ${sem || (quiz && clAns.some(a => a < 0)) ? 'disabled' : ''} onclick="trocarClasse()">Trocar para ${esc(nomeDe(sel.id))} (${CX.custo_reset} Ouro Ninja)</button>` : '';
+  return `<div class="card"><div class="flex items-center justify-between"><h2>Trocar de classe</h2><b class="text-sm text-gold">${fmt(CX.ouro_ninja)} Ouro Ninja</b></div>
+    <p class="lbl mt-1">Classe atual: ${esc(nomeDe(CX.atual))}. A troca custa ${CX.custo_reset} Ouro Ninja e seus itens equipados voltam para a mochila. Seus atributos não mudam.</p>
+    <div class="flex gap-1.5 flex-wrap mt-3">${chips}</div>${det}</div>`;
+}
+function trocarClasse() {
+  const nome = (CLS_UI.find(c => c[0] === clNova) || [0, clNova])[1], quiz = clNova !== 'taijutsu' && !P.elemento;
+  if (quiz && clAns.some(a => a < 0)) return toast('Responda todas as perguntas do teste do elemento.', false);
+  askOk(`Trocar para ${nome}? Custa ${CX.custo_reset} Ouro Ninja e seus itens equipados voltam para a mochila.`, async () => {
+    const r = await act('/api/classe/resetar', { classe: clNova, respostas: quiz ? clAns : [] }, r => r.mensagem);
+    if (r) { clNova = ''; clQz = []; clAns = []; }
+    await loadClasses(); renderTreino();
+  });
+}
+function slotsHtml() {
+  if (!CX) return '';
+  const s = CX.pet_slots, cheio = s.atual >= s.max, sem = CX.ouro_ninja < s.custo;
+  return `<div class="card"><div class="flex items-center justify-between"><h2>Slots de pet</h2><b class="text-sm text-gold">${s.atual}/${s.max}</b></div>
+    <p class="lbl mt-1">Você começa com 2 slots. Cada slot extra custa ${s.custo} Ouro Ninja (você tem ${fmt(CX.ouro_ninja)}).</p>
+    <button class="btn w-full mt-3" ${cheio || sem ? 'disabled' : ''} onclick="comprarSlot()">${cheio ? 'Limite de slots atingido' : `Comprar 1 slot (${s.custo} Ouro Ninja)`}</button></div>`;
+}
+function comprarSlot() {
+  askOk(`Comprar 1 slot de pet por ${CX.pet_slots.custo} Ouro Ninja?`, async () => { await act('/api/pets/slot/comprar', {}, r => r.mensagem); await loadLoja(); });
+}
 async function loadDojo() {
-  try { DO = await api(`/api/player/${tgUser.id}/dojo`); renderTreino(); } catch (e) { toast(e.message, false); }
+  try { [DO] = await Promise.all([api(`/api/player/${tgUser.id}/dojo`), loadClasses()]); renderTreino(); } catch (e) { toast(e.message, false); }
 }
 const treinarSensei = id => act('/api/dojo/treinar', { atributo: doAttr, sensei: id, sessoes: dsess }, r => r.mensagem).then(loadDojo);
 function senseiHtml() {
@@ -795,7 +838,7 @@ function renderVila() {
 }
 /* Loja: itens por nível, poções, venda ao mercador e mercado entre jogadores */
 async function loadLoja() {
-  try { [LJ, PT] = await Promise.all([api(`/api/player/${tgUser.id}/loja`), api(`/api/player/${tgUser.id}/pets`)]); renderLoja(); } catch (e) { toast(e.message, false); }
+  try { [LJ, PT] = await Promise.all([api(`/api/player/${tgUser.id}/loja`), api(`/api/player/${tgUser.id}/pets`), loadClasses()]); renderLoja(); } catch (e) { toast(e.message, false); }
 }
 const askOk = (t, f) => tg?.showConfirm ? tg.showConfirm(t, ok => ok && f()) : (confirm(t) && f());
 async function lj(path, body, msg) { await act(path, body, msg); await loadLoja(); }
@@ -826,7 +869,7 @@ function renderLoja() {
     const eggs = PT.ovos.filter(o => o.qtd).map(o => `<button class="btn w-full" onclick="lj('/api/pet/chocar', { ovo: '${o.id}' }, r => r.mensagem)">Chocar ${esc(o.nome)} (x${o.qtd})</button>`).join('');
     const foods = PT.alimentos.filter(a => a.qtd);
     body = `<div class="card"><h2>Seus pets (${PT.pets.length}/${PT.max})</h2><p class="lbl mt-1">Só um pet fica ativo. Em cada luta, a chance de o bônus dele ativar vai de 10% a 100% conforme a afinidade, que cresce com alimentos e vitórias.</p>${eggs ? `<div class="space-y-2 mt-3">${eggs}</div>` : ''}</div>`
-      + (PT.pets.map(x => `<div class="card ${x.ativo ? 'border-gold' : ''}"><div class="flex items-center justify-between"><h2>${esc(x.especie)}</h2><span class="tag ${x.tier >= 2 ? 'gold' : ''}">${esc(x.raridade)}</span></div>
+      + slotsHtml() + (PT.pets.map(x => `<div class="card ${x.ativo ? 'border-gold' : ''}"><div class="flex items-center justify-between"><h2>${esc(x.especie)}</h2><span class="tag ${x.tier >= 2 ? 'gold' : ''}">${esc(x.raridade)}</span></div>
         <p class="text-sm text-paper/70 mt-1">Natureza ${esc(x.natureza)}: +${x.bonus} ${esc(attrNome(x.atributo))} quando ativa.</p>
         <div class="flex justify-between text-xs mt-3 mb-1"><span>Afinidade</span><span>${x.afinidade} de ${PT.afinidade_max}, ativa em ${x.chance}%</span></div><div class="bar"><i class="bg-gold" style="width:${pct(x.afinidade, PT.afinidade_max)}"></i></div>
         <div class="flex flex-wrap gap-2 mt-3"><button class="chip ${x.ativo ? 'on' : ''}" ${x.ativo ? 'disabled' : ''} onclick="lj('/api/pet/ativar', { pet_id: ${x.id} })">${x.ativo ? 'Ativo' : 'Ativar'}</button>
