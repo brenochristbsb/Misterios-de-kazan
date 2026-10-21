@@ -1,0 +1,7 @@
+Shadow Clan RPG - servidor + tela (inclui Guerra das Vilas e Trono do Kage)
+Rodar:   pip install flask ; python api.py   (porta 8000)
+Dev:     SHADOW_DEV=1 python api.py  e abra http://localhost:8000/?dev=1
+Producao: BOT_TOKEN=... python api.py (valida initData do Telegram)
+Testes:  python -m unittest tests -v   (45 testes)
+Simular: python combate_reativo.py sim 400
+Regras de governo/guerra: governo.py
