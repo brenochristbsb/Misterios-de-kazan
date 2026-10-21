@@ -63,8 +63,13 @@ def conectar(path):
 def iniciar_banco(path):
     """Cria o banco SE não existir; nunca apaga nada (regra de ouro, GDD 0)."""
     db = conectar(path)
-    with open(os.path.join(AQUI, "schema.sql"), encoding="utf-8") as f:
-        db.executescript(f.read())
+    caminho = os.path.join(AQUI, "schema.sql")
+    if os.path.exists(caminho):
+        with open(caminho, encoding="utf-8") as f:
+            sql = f.read()
+    else:  # copia embutida (hospedagens/uploads que perdem arquivos .sql)
+        from schema_sql import SCHEMA as sql
+    db.executescript(sql)
     if not db.execute("SELECT 1 FROM villages LIMIT 1").fetchone():
         for nome, sig, pedra in D.ALDEIAS:
             cur = db.execute("INSERT INTO villages(nome, significado, pedra_selo) VALUES (?,?,?)", (nome, sig, pedra))
