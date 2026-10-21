@@ -174,11 +174,14 @@
 
   <!-- ── 4. CONTROLADOR DE INTERAÇÃO (JAVASCRIPT INTEGRADO) ── -->
   <script>
-    // Inicialização segura do Telegram Mini App
+    // Inicialização do Telegram Mini App
     const tg = window.Telegram.WebApp;
     tg.expand();
 
-    // Captura estática do ID do usuário (Fallback para ID 1 em testes locais)
+    // Endereço absoluto da API rodando no seu backend local
+    const URL_SERVIDOR_API = "http://127.0.0.1:8000";
+
+    // Captura segura do ID e avatar do usuário do Telegram (Fallback id 1 para testes locais)
     const telegramId = tg.initDataUnsafe?.user?.id || 1;
     const userAvatarUrl = tg.initDataUnsafe?.user?.photo_url || "";
 
@@ -187,7 +190,12 @@
     const botoesNav = document.querySelectorAll('nav button');
     const todasAbas = document.querySelectorAll('.tab');
 
-    // Função central para alternar exibições gráficas e abas de metadados
+    // Tratamento de falha gráfica caso o backend esteja desligado ou sem a imagem base
+    telaDinamica.onerror = function() {
+      console.warn("Aviso: Falha ao carregar imagem dinâmica. Verifique se o backend está ativo e o arquivo 'modelo_ia.png' existe na pasta imagem/.");
+    };
+
+    // Função central para gerenciar abas e caminhos absolutos de imagem
     function gerenciarNavegacao(idBotao, alvoAba) {
       // 1. Resetar botões do menu inferior
       botoesNav.forEach(btn => btn.classList.remove('on'));
@@ -199,12 +207,12 @@
       const campoAlvo = document.getElementById(alvoAba);
       if (campoAlvo) campoAlvo.classList.remove('hidden');
 
-      // 3. Chamar as rotas dinâmicas do Python (Pillow) limpando cache (?t=timestamp)
+      // 3. Forçar recarga da imagem na API limpando cache com Timestamp
       const ts = new Date().getTime();
       if (idBotao === 'btn-nav-jutsus') {
-        telaDinamica.src = `/api/player/${telegramId}/renderizar_jutsus?t=${ts}`;
+        telaDinamica.src = `${URL_SERVIDOR_API}/api/player/${telegramId}/renderizar_jutsus?t=${ts}`;
       } else {
-        telaDinamica.src = `/api/player/${telegramId}/cartao_perfil?url_avatar=${encodeURIComponent(userAvatarUrl)}&t=${ts}`;
+        telaDinamica.src = `${URL_SERVIDOR_API}/api/player/${telegramId}/cartao_perfil?url_avatar=${encodeURIComponent(userAvatarUrl)}&t=${ts}`;
       }
     }
 
@@ -214,7 +222,6 @@
     });
 
     document.getElementById('btn-nav-jutsus').addEventListener('click', () => {
-      // Abre a renderização de habilidades ocultando o container de equipamentos
       gerenciarNavegacao('btn-nav-jutsus', 'none'); 
     });
 
@@ -223,7 +230,6 @@
     });
 
     document.getElementById('btn-nav-itens').addEventListener('click', () => {
-      // Abre os consumíveis e mochila secundária abaixo da imagem mestre
       gerenciarNavegacao('btn-nav-itens', 'aba-itens');
     });
 
@@ -231,10 +237,10 @@
       gerenciarNavegacao('btn-nav-menu', 'none');
     });
 
-    // Inicialização automática: Carrega o Cartão de Perfil Mestre do Ninja ao entrar
+    // Inicialização automática: Dispara o Perfil Ninja unificado assim que o DOM estiver pronto
     window.addEventListener('DOMContentLoaded', () => {
       const ts = new Date().getTime();
-      telaDinamica.src = `/api/player/${telegramId}/cartao_perfil?url_avatar=${encodeURIComponent(userAvatarUrl)}&t=${ts}`;
+      telaDinamica.src = `${URL_SERVIDOR_API}/api/player/${telegramId}/cartao_perfil?url_avatar=${encodeURIComponent(userAvatarUrl)}&t=${ts}`;
     });
   </script>
 </body>
