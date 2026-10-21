@@ -1,20 +1,11 @@
 services:
   - type: web
     name: misterios-de-kazan
-    env: python
-    region: sao-paulo
-    plan: free
-    buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn --bind 0.0.0.0:10000 wsgi:app
+    runtime: python
+    buildCommand: pip install -r requisitos.txt
+    startCommand: gunicorn wsgi:app --workers 1 --bind 0.0.0.0:$PORT
     envVars:
-      - key: DEBUG
-        value: "False"
-      - key: HOST
-        value: 0.0.0.0
-      - key: PORT
-        value: 10000
-      - key: DB_PATH
-        value: /opt/render/project/src/mysterious_kazan.db
-      - key: ENV
-        value: production
-        
+      - key: BOT_TOKEN
+        sync: false
+      - key: PYTHON_VERSION
+        value: 3.11.9
