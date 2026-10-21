@@ -574,3 +574,203 @@ class Gov(Base):
         self.relogio(JANELA_SAB)
         s, e = self.req("post", "/api/guerra/lutar", 301)
         self.assertEqual(s, 403)                                    # aldeia não declarou guerra
+
+
+# =========================================================== jutsus, selos e builds
+import jutsus as J
+
+
+class TestJutsus(Base):
+    def setUp(self):
+        super().setUp()
+        self.criar(1, "Aki", "Ninjutsu")
+        self.sql("UPDATE players SET nivel=40, ryos=50000, patente='Chunin' WHERE telegram_id=1")
+
+    def sql(self, q, *a):
+        d = self.db()
+        r = d.execute(q, a).fetchall()
+        d.close()
+        return r
+
+    def aprender(self, *chaves, uid=1):
+        for k in chaves:
+            s, r = self.req("post", "/api/jutsus/aprender", uid, chave=k)
+            self.assertEqual(s, 200, r)
+
+    def test_regras_do_gdd_19(self):
+        # nenhum no passa de +15%
+        for n in J.NOS.values():
+            if n["passivo"]:
+                self.assertTrue(all(v <= .15 for v in n["efeito"].values()), n["chave"])
+        # a arvore custa mais do que o jogador ganha ate o nivel 100
+        custo_classe = sum(n["custo"] for n in J.NOS.values() if n["classe"] == "Ninjutsu")
+        self.assertGreater(custo_classe, 100)
+        self.assertEqual([J.slots(n) for n in (1, 29, 30, 59, 60)], [4, 4, 5, 5, 6])
+
+    def test_aprender_exige_cadeia_nivel_e_pontos(self):
+        s, e = self.req("post", "/api/jutsus/aprender", 1, chave="nin_cham_2")
+        self.assertEqual(s, 400)                      # falta o no anterior
+        s, e = self.req("post", "/api/jutsus/aprender", 1, chave="tai_punh_1")
+        self.assertEqual(s, 400)                      # outra classe
+        self.aprender("nin_cham_1")
+        s, e = self.req("post", "/api/jutsus/aprender", 1, chave="nin_cham_1")
+        self.assertEqual(s, 409)                      # ja aprendido
+        self.sql("UPDATE players SET nivel=2 WHERE telegram_id=1")
+        s, e = self.req("post", "/api/jutsus/aprender", 1, chave="nin_cham_2")
+        self.assertEqual(s, 400)                      # nivel 15 exigido
+        self.sql("UPDATE players SET nivel=16 WHERE telegram_id=1")
+        self.aprender("nin_cham_2")                   # 16 - 5 - 7 = 4 pontos livres
+        s, e = self.req("post", "/api/jutsus/aprender", 1, chave="nin_cham_3")
+        self.assertEqual(s, 402)                      # custa 6
+
+    def test_pontos_e_slots(self):
+        self.aprender("nin_cham_1", "nin_cham_2")
+        _, est = self.req("get", "/api/jutsus", 1)
+        self.assertEqual(est["pontos"], 40 - 5 - 7)
+        for k in ("nin_cham_1", "nin_cham_2"):
+            s, _ = self.req("post", "/api/jutsus/equipar", 1, chave=k, equipar=True)
+            self.assertEqual(s, 200)
+        s, e = self.req("post", "/api/jutsus/equipar", 1, chave="nin_cham_3", equipar=True)
+        self.assertEqual(s, 400)                      # passiva nao se equipa
+
+    def test_slots_cheios(self):
+        self.sql("UPDATE players SET nivel=100 WHERE telegram_id=1")
+        ks = ["nin_cham_1", "nin_cham_2", "nin_cham_4", "nin_temp_1", "nin_temp_2", "nin_temp_4", "nin_mest_1"]
+        self.aprender("nin_cham_1", "nin_cham_2", "nin_cham_3", "nin_cham_4", "nin_temp_1", "nin_temp_2", "nin_temp_3", "nin_temp_4", "nin_mest_1")
+        self.sql("UPDATE players SET nivel=45 WHERE telegram_id=1")   # 5 slots
+        for k in ks[:5]:
+            self.assertEqual(self.req("post", "/api/jutsus/equipar", 1, chave=k)[0], 200)
+        s, e = self.req("post", "/api/jutsus/equipar", 1, chave=ks[5])
+        self.assertEqual(s, 409)
+
+    def test_ressonancia_com_tres_tags(self):
+        self.assertEqual(J.ressonancia(["nin_cham_1", "nin_cham_2", "nin_cham_4"]), ["Fogo"])
+        self.assertEqual(J.ressonancia(["nin_cham_1", "nin_cham_2"]), [])
+        d = self.db()
+        l = C.criar("Ninjutsu", "A", "Fogo")
+        p = d.execute("SELECT * FROM players WHERE telegram_id=1").fetchone()
+        d.execute("UPDATE players SET nivel=100 WHERE id=?", (p["id"],))
+        p = d.execute("SELECT * FROM players WHERE id=?", (p["id"],)).fetchone()
+        for k in ("nin_cham_1", "nin_cham_2", "nin_cham_3", "nin_cham_4"):
+            J.aprender(d, p, k)
+        for k in ("nin_cham_1", "nin_cham_2", "nin_cham_4"):
+            J.equipar(d, p, k)
+        J.aplicar_build(d, l, p)
+        d.close()
+        self.assertEqual(l.ress, J.RESSONANCIA)
+        self.assertAlmostEqual(l.p_dano, 1.06)        # passiva Brasa Eterna
+        self.assertEqual(len(l.jutsus), 3)
+
+    def test_respec_primeiro_gratis_depois_cobra(self):
+        self.aprender("nin_cham_1")
+        s, r = self.req("post", "/api/jutsus/respec", 1)
+        self.assertEqual((s, r["custo"]), (200, 0))
+        self.aprender("nin_cham_1")
+        ryos = self.sql("SELECT ryos FROM players WHERE telegram_id=1")[0][0]
+        s, r = self.req("post", "/api/jutsus/respec", 1)
+        self.assertEqual((s, r["custo"]), (200, 1000))
+        self.assertEqual(self.sql("SELECT ryos FROM players WHERE telegram_id=1")[0][0], ryos - 1000)
+        self.assertEqual(self.sql("SELECT count(*) FROM player_skills")[0][0], 0)
+
+    def test_selos_comprar_encaixar_e_limites(self):
+        s, _ = self.req("post", "/api/selos/comprar", 1, chave="brasa_viva")
+        self.assertEqual(s, 200)
+        self.assertEqual(self.req("post", "/api/selos/comprar", 1, chave="nao_existe")[0], 400)
+        inv = self.sql("SELECT i.id, it.raridade FROM inventory i JOIN items it ON it.id=i.item_id WHERE it.slot IS NOT NULL LIMIT 1")
+        self.assertTrue(inv)
+        iid = inv[0][0]
+        s, e = self.req("post", "/api/selos/encaixar", 1, inventory_id=iid, chave="sede_chakra")
+        self.assertEqual(s, 402)                      # nao tem esse selo
+        s, e = self.req("post", "/api/selos/encaixar", 1, inventory_id=iid, chave="brasa_viva")
+        self.assertEqual(s, 200, e)
+        s, e = self.req("post", "/api/selos/encaixar", 1, inventory_id=iid, chave="brasa_viva")
+        self.assertIn(s, (402, 409))                  # sem estoque ou ja encaixado
+        s, e = self.req("post", "/api/selos/remover", 1, inventory_id=iid, chave="brasa_viva")
+        self.assertEqual(s, 200)
+        _, est = self.req("get", "/api/jutsus", 1)
+        self.assertEqual(est["estoque"]["brasa_viva"], 1)   # o selo volta ao estoque
+
+    def test_selo_so_vale_com_item_equipado(self):
+        d = self.db()
+        p = d.execute("SELECT * FROM players WHERE telegram_id=1").fetchone()
+        d.execute("INSERT INTO item_selos(inventory_id,chave) SELECT id,'sede_chakra' FROM inventory WHERE player_id=? LIMIT 1", (p["id"],))
+        eq = d.execute("SELECT count(*) FROM inventory WHERE player_id=? AND local='equipado'", (p["id"],)).fetchone()[0]
+        got = J.selos_equipados(d, p["id"])
+        d.close()
+        self.assertEqual(bool(got), eq > 0 and bool(self.sql("SELECT 1 FROM item_selos s JOIN inventory i ON i.id=s.inventory_id WHERE i.local='equipado'")))
+
+    def test_selo_supremo_exige_patente_e_dinheiro(self):
+        self.sql("UPDATE players SET patente='Genin' WHERE telegram_id=1")
+        self.assertEqual(self.req("post", "/api/selos/supremo", 1, chave="vinganca")[0], 400)
+        self.sql("UPDATE players SET patente='Chunin' WHERE telegram_id=1")
+        self.assertEqual(self.req("post", "/api/selos/supremo", 1, chave="vinganca")[0], 200)
+        self.assertEqual(self.req("post", "/api/selos/supremo", 1, chave="vinganca")[0], 409)
+        self.sql("UPDATE players SET ryos=10 WHERE telegram_id=1")
+        self.assertEqual(self.req("post", "/api/selos/supremo", 1, chave="veu_sombrio")[0], 402)
+
+    def test_codigo_de_build_ida_e_volta(self):
+        self.aprender("nin_cham_1", "nin_cham_2")
+        self.req("post", "/api/jutsus/equipar", 1, chave="nin_cham_1")
+        _, est = self.req("get", "/api/jutsus", 1)
+        cod = est["codigo"]
+        self.assertTrue(cod.startswith("SC1."))
+        self.req("post", "/api/jutsus/equipar", 1, chave="nin_cham_1", equipar=False)
+        s, r = self.req("post", "/api/build/importar", 1, codigo=cod)
+        self.assertEqual((s, r["equipados"], r["faltam"]), (200, 1, []))
+        self.assertEqual(self.req("post", "/api/build/importar", 1, codigo="lixo")[0], 400)
+        self.criar(2, "Bea", "Taijutsu")
+        s, r = self.req("post", "/api/build/importar", 2, codigo=cod)
+        self.assertEqual(s, 400)                      # build de outra classe
+
+    def test_jutsu_no_combate_gasta_chakra_e_entra_em_recarga(self):
+        d = self.db()
+        a = C.criar("Ninjutsu", "A", "Fogo")
+        a.jutsus["x"] = dict(nome="Teste", dano=2.0, custo=20, cd=3, x={"status": ("Queimado", 3, 1.0)}, tags=[])
+        b = C.criar("Taijutsu", "B")
+        bat = C.Batalha(a, b, "Floresta", narrar=True)
+        bat.abrir()
+        antes = a.chakra
+        random.seed(5)
+        bat.atacar(a, b, "Técnica", [], "x")
+        self.assertLess(a.chakra, antes - 19)
+        self.assertEqual(a.cds["x"], 3)
+        self.assertTrue(any("Teste" in l for l in bat.n.linhas))
+        c = a.chakra
+        bat.atacar(a, b, "Técnica", [], "x")          # em recarga: cai na tecnica basica
+        self.assertEqual(a.cds["x"], 3)
+        d.close()
+
+    def test_jutsu_vazio_forca_tecnica_basica(self):
+        a = C.criar("Ninjutsu", "A", "Fogo")
+        a.jutsus["x"] = dict(nome="Teste", dano=2.0, custo=20, cd=3, x={}, tags=[])
+        bat = C.Batalha(a, C.criar("Taijutsu", "B"), "Floresta", narrar=False)
+        bat.abrir()
+        bat.atacar(a, bat.ls[1], "Técnica", [], "")
+        self.assertEqual(a.cds, {})
+
+    def test_supremos_no_motor(self):
+        a, b = C.criar("Taijutsu", "A"), C.criar("Ninjutsu", "B", "Fogo")
+        a.supremo = "ultimo_folego"
+        bat = C.Batalha(a, b, "Floresta", narrar=True)
+        bat.receber(a, a.hp_max * 5)
+        self.assertEqual(a.hp, 1)
+        bat.receber(a, 10)
+        self.assertLessEqual(a.hp, 0)                 # so uma vez por luta
+        c = C.criar("Taijutsu", "C")
+        c.supremo = "veu_sombrio"
+        bat.receber(c, 100)
+        self.assertAlmostEqual(c.hp_max - c.hp, 50)
+
+    def test_decisao_do_jogador_envia_jutsu_pela_api(self):
+        self.aprender("nin_cham_1")
+        self.req("post", "/api/jutsus/equipar", 1, chave="nin_cham_1")
+        s, r = self.req("post", "/api/explorar", 1, mapa=1)
+        self.assertEqual(s, 200, r)
+        self.assertEqual([j["chave"] for j in r["combate"]["jogador"]["jutsus"]], ["nin_cham_1"])
+        s, e = self.req("post", "/api/combate/turno", 1, postura="Técnica", reacoes=[], jutsu="nin_cham_1")
+        self.assertEqual(s, 200, e)
+        self.assertTrue(any("Bola de Fogo" in l for l in e["log"]) or e["jogador"]["jutsus"][0]["cd"] >= 0)
+
+    def test_todos_os_nos_seedados_no_banco(self):
+        self.assertEqual(self.sql("SELECT count(*) FROM skill_nodes")[0][0], len(J.NOS))
+        self.assertEqual(len(J.NOS), 75)

@@ -92,6 +92,15 @@ class Lutador:
     ctrl_consec: int = 0
     sem_ctrl: int = 0
     historico: list = field(default_factory=list)
+    jutsus: dict = field(default_factory=dict)   # chave -> dados do jutsu equipado
+    cds: dict = field(default_factory=dict)
+    selos: set = field(default_factory=set)
+    supremo: str = ""
+    supremo_usado: bool = False
+    p_dano: float = 1.0
+    p_crit: float = 0.0
+    p_esq: float = 0.0
+    ress: float = 1.0
 
     def __post_init__(self):
         if self.classe == "Taijutsu":
@@ -133,6 +142,7 @@ def criar(classe, nome=None, elemento="Fogo"):
 
 # --------------------------------------------------------------- NARRADOR
 FRASES = {
+    "jutsu": ["{atk} molda o chakra e libera {jutsu}!", "{jutsu}! {atk} coloca tudo nesse golpe.", "O ar vibra: {atk} executa {jutsu}.", "{atk} sela as mãos e invoca {jutsu}!", "Sem aviso, {atk} lança {jutsu} contra {dfn}."],
     "abertura": ["Folhas giram no ar. {a} e {b} param frente a frente em {terreno}.", "{terreno}. {a} encara {b}, e ninguém recua.",
                  "O ar muda em {terreno}. {a} e {b} se medem em silêncio.",
                  "{terreno} aguarda. {a} contra {b}: o primeiro erro pode ser o último."],
@@ -244,7 +254,11 @@ class Batalha:
         mit = 100 / (100 + vig)
         if p == "Perfurante":
             mit += (1 - mit) * .2
-        f = POSTURA[p]["dano"] * mult * random.uniform(.95, 1.05) * CLASS_COEF[att.classe] * att.buff
+        f = POSTURA[p]["dano"] * mult * random.uniform(.95, 1.05) * CLASS_COEF[att.classe] * att.buff * att.p_dano * att.ress
+        if att.supremo == "vinganca" and att.hp < att.hp_max * .3:
+            f *= 1.25
+        if "olho_vazio" in att.selos and any(k in dfn.status for k in ("Congelado", "Atordoado", "Confusão", "Paralisado")):
+            f *= 1.10
         f *= mod_elemental(att.classe, att.elemento, dfn.elemento)
         if att.elemento:
             f *= 1 + self.amb("elem", {}).get(att.elemento, 0)
@@ -256,7 +270,7 @@ class Batalha:
             f *= 1 + TRIANGULO
         elif att.classe in FORTE_CONTRA[dfn.classe]:
             f *= 1 - TRIANGULO
-        crit = pode_crit and random.random() < min(.40, .05 + att.attr("DEX") * .002)
+        crit = pode_crit and random.random() < min(.40, .05 + att.attr("DEX") * .002 + att.p_crit)
         if crit:
             f *= 1.5
         if att.classe == "Kunoichi":  # 60% dano verdadeiro, coeficiente x0,85
@@ -265,6 +279,9 @@ class Batalha:
 
     def receber(self, dfn, dano):
         """Marionete absorve 100% do dano direto; o excedente se perde."""
+        if dfn.supremo == "veu_sombrio" and not dfn.supremo_usado:
+            dano *= .5
+            dfn.supremo_usado = True
         if dfn.classe == "Marionetista" and dfn.marionete > 0:
             if dano < dfn.marionete:
                 dfn.marionete -= dano
@@ -272,13 +289,20 @@ class Batalha:
             dfn.marionete = 0
             return 0, True
         dfn.hp -= dano
+        if dfn.hp <= 0 and dfn.supremo == "ultimo_folego" and not dfn.supremo_usado:
+            dfn.hp, dfn.supremo_usado = 1, True
+            self.n.linhas.append(f"{dfn.nome} resiste ao golpe fatal por pura vontade!")
         return dano, False
 
     # --- ataque
-    def atacar(self, att, dfn, p, reacoes):
+    def atacar(self, att, dfn, p, reacoes, jutsu=None):
         n, d = self.n, dict(atk=att.nome, dfn=dfn.nome, postura=p)
         mult, interno, combo = 1.0, False, False
-        if att.classe == "Taijutsu":
+        J = self.escolher_jutsu(att, p, jutsu)
+        if J:
+            mult *= J["dano"]
+            n.dizer("jutsu", jutsu=J["nome"], **d)
+        elif att.classe == "Taijutsu":
             if p == "Técnica":
                 if att.furia >= 50:
                     att.furia -= 50
@@ -297,17 +321,21 @@ class Batalha:
             mult *= 1.25
             att.cd_combo = 3
             n.dizer("combo", **d)
-        esq = min(30, dfn.attr("AGI") * .25 + self.amb("esquiva"))
+        esq = min(30, dfn.attr("AGI") * .25 + self.amb("esquiva") + dfn.p_esq * 100)
         if random.random() * 100 > self.acerto(att, dfn, p):
             return n.dizer("erro", **d)
         usada = self.reacao_usada(dfn, p, reacoes)
         certa = usada is not None
         if not certa and random.random() * 100 < esq:
+            if "danca_furia" in dfn.selos:
+                dfn.buff = max(dfn.buff, 1.15)
             return n.dizer("esquiva", **d)
         dano, crit = self.calc(att, dfn, p, interno, mult)
         att.buff = 1.0
         if crit:
             n.dizer("critico", **d)
+            if "sangue_frio" in att.selos:
+                att.hp = min(att.hp_max, att.hp + att.hp_max * .04)
         if certa:
             dano *= REACAO_CERTA
             n.dizer("reacao", reacao=usada, **d)
@@ -324,7 +352,14 @@ class Batalha:
             dfn.furia = min(100, dfn.furia + 5)
         if dfn.hp <= 0:
             return n.dizer("final", **d)
-        if p == "Técnica":
+        if "sede_chakra" in att.selos:
+            if att.chakra_max:
+                att.chakra = min(att.chakra_max, att.chakra + 3)
+            else:
+                att.furia = min(100, att.furia + 4)
+        if J:
+            self.efeito_jutsu(att, dfn, J, d)
+        elif p == "Técnica":
             self.efeito_tecnica(att, dfn, d)
         cmult = CONTRA_ATAQUE
         if usada == CLASSE_REACAO[dfn.classe][0]:
@@ -361,6 +396,52 @@ class Batalha:
             dfn.hp = min(dfn.hp_max, dfn.hp + dfn.hp_max * .04)
             dfn.chakra = min(dfn.chakra_max, dfn.chakra + 8)
         return CONTRA_ATAQUE
+
+    def escolher_jutsu(self, att, p, jutsu):
+        """Jutsu so sai na postura Tecnica. jutsu=None: o bot escolhe; jutsu='': tecnica basica."""
+        if p != "Técnica" or not att.jutsus or jutsu == "":
+            return None
+        cand = [jutsu] if jutsu else sorted(att.jutsus, key=lambda k: -att.jutsus[k]["dano"])
+        for k in cand:
+            J = att.jutsus.get(k)
+            if not J or att.cds.get(k, 0) > 0:
+                continue
+            pool = "furia" if att.classe == "Taijutsu" else "chakra"
+            if getattr(att, pool) < J["custo"]:
+                continue
+            setattr(att, pool, getattr(att, pool) - J["custo"])
+            att.cds[k] = J["cd"]
+            return J
+        return None
+
+    def efeito_jutsu(self, att, dfn, J, d):
+        n, x = self.n, J.get("x", {})
+        if "status" in x:
+            nome, t, ch = x["status"]
+            if nome == "Queimado" and "brasa_viva" in att.selos and nome in dfn.status:
+                dfn.status[nome] = t + 1
+            elif random.random() < ch and nome not in dfn.status and not (self.boss and nome in ("Atordoado", "Congelado") and random.random() < .5):
+                dfn.status[nome] = t
+                n.dizer("status", status=nome.lower(), **d)
+        if x.get("veneno"):
+            dfn.veneno = min(5, dfn.veneno + x["veneno"] + (1 if "veneno_duplo" in att.selos else 0))
+            n.dizer("status", status=f"envenenado (x{dfn.veneno})", **d)
+        if x.get("dreno") and dfn.chakra_max:
+            dr = min(dfn.chakra, x["dreno"])
+            dfn.chakra -= dr
+            if att.chakra_max and x.get("sifao"):
+                att.chakra = min(att.chakra_max, att.chakra + dr)
+            n.dizer("dreno", dano=int(dr), **d)
+        if x.get("cura"):
+            h = att.hp_max * x["cura"]
+            att.hp = min(att.hp_max, att.hp + h)
+            n.dizer("cura", atk=att.nome, dano=int(h))
+        if x.get("escudo") and att.classe == "Marionetista":
+            att.marionete = min(att.marionete_max, att.marionete + att.marionete_max * x["escudo"])
+        if x.get("buff"):
+            att.buff = max(att.buff, x["buff"])
+        if x.get("furia"):
+            att.furia = min(100, att.furia + x["furia"])
 
     def efeito_tecnica(self, att, dfn, d):
         n = self.n
@@ -441,7 +522,7 @@ class Batalha:
                 self.receber(att, c)
                 n.dizer("confuso", atk=att.nome, dano=int(c))
                 continue
-            self.atacar(att, dfn, posts[i], decs[1 - i].get("reacoes", [])[:2])
+            self.atacar(att, dfn, posts[i], decs[1 - i].get("reacoes", [])[:2], decs[i].get("jutsu"))
             att.historico.append(posts[i])
         self.fim_rodada()
 
@@ -465,6 +546,7 @@ class Batalha:
                 l.chakra = min(l.chakra_max, l.chakra + 3 + self.amb("regen"))
             l.status = {k: v - 1 for k, v in l.status.items() if v > 1}
             l.cd_cura = max(0, l.cd_cura - 1)
+            l.cds = {k: v - 1 for k, v in l.cds.items() if v > 1}
             l.cd_combo = max(0, l.cd_combo - 1)
             l.sem_ctrl += 1
             if l.sem_ctrl >= 3:

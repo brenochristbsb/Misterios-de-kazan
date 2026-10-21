@@ -236,9 +236,14 @@ def decisor_de(db, pid):
     return DecisorPlaybook(json.loads(row[0]) if row else [])
 
 
-def lutador_normalizado(p):
-    """Arena, Trono e Guerra normalizam atributos: equipamento e Ascensao nao decidem."""
-    return C.criar(p["classe"], p["nome"], p["elemento"] or "Fogo")
+def lutador_normalizado(p, db=None):
+    """Arena, Trono e Guerra normalizam atributos: equipamento e Ascensao nao decidem.
+    A BUILD (jutsus, passivas, Selos) vale: e a habilidade do jogador, nao poder comprado."""
+    l = C.criar(p["classe"], p["nome"], p["elemento"] or "Fogo")
+    if db is not None:
+        import jutsus
+        jutsus.aplicar_build(db, l, p)
+    return l
 
 
 # --------------------------------------------------------- duelo do trono
@@ -359,7 +364,7 @@ def iniciar_luta_guerra(db, p):
     cand = db.execute("SELECT * FROM players WHERE village_id=? AND nivel>=10 ORDER BY random() LIMIT 1", (alvo_v,)).fetchone()
     nome_v = db.execute("SELECT nome FROM villages WHERE id=?", (alvo_v,)).fetchone()[0]
     if cand:
-        rival, dec = lutador_normalizado(cand), decisor_de(db, cand["id"])
+        rival, dec = lutador_normalizado(cand, db), decisor_de(db, cand["id"])
     else:
         rival, dec = C.criar(random.choice(C.CLASSES), f"Sentinela de {nome_v}", random.choice(C.ELEMENTOS)), C.decisor_monstro
     return rival, dec, {"tipo": "guerra", "semana": sem, "alvo": alvo_v, "bid": f"g{p['id']}-{n}-{sem}"}

@@ -23,6 +23,7 @@ from flask import Flask, g, jsonify, request, send_from_directory
 import combate_reativo as C
 import dados as D
 import governo as G
+import jutsus as J
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 ENERGIA_MAX, ENERGIA_MIN_REGEN = 25, 6          # 1 ponto a cada 6 min (GDD 28)
@@ -73,6 +74,7 @@ def iniciar_banco(path):
         for it in D.ITENS:
             db.execute("""INSERT INTO items(chave,nome,slot,raridade,classe_restrita,dano,preco_npc,empilhavel,bonus_json)
                           VALUES (?,?,?,?,?,?,?,?,?)""", (*it, D.BONUS.get(it[0], "{}")))
+    J.semear(db)
     db.close()
 
 
@@ -179,6 +181,7 @@ def montar_lutador(db, p):
         k = "STR" if p["classe"] == "Taijutsu" else "INT"
         attrs[k] = int(attrs[k] * 1.2)
     l = C.Lutador(p["nome"], p["classe"], p["elemento"], attrs, arma=arma)
+    J.aplicar_build(db, l, p)
     if p["hp_atual"] is not None:
         l.hp = min(l.hp_max, max(1.0, p["hp_atual"]))
     return l
@@ -267,7 +270,8 @@ def estado_combate(bat, linhas):
         return {"nome": l.nome, "classe": l.classe, "hp": max(0, int(l.hp)), "hp_max": int(l.hp_max),
                 "chakra": int(l.chakra), "furia": l.furia, "portoes": l.portoes,
                 "marionete": int(l.marionete), "veneno": l.veneno, "status": list(l.status),
-                "historico": l.historico[-3:]}
+                "historico": l.historico[-3:], "selos": sorted(l.selos), "supremo": l.supremo,
+                "jutsus": [{"chave": k, "nome": j["nome"], "custo": j["custo"], "dano": j["dano"], "cd": l.cds.get(k, 0)} for k, j in l.jutsus.items()]}
     return {"rodada": bat.rodada, "ambiente": bat.ambiente, "terminou": bat.terminou(), "jogador": lut(a), "rival": lut(b),
             "efeitos": list(bat.efeitos), "anuncio": D.ANUNCIO_BOSS.get(bat.plano_boss) if bat.plano_boss else None,
             "log": linhas}
@@ -293,7 +297,8 @@ def validar_decisao(p, corpo):
     reacoes = corpo.get("reacoes") or []
     if not isinstance(reacoes, list) or len(reacoes) > 2 or any(r not in C.REACOES + [nome_cls] for r in reacoes):
         raise Erro("reações inválidas (máximo 2)")
-    return {"postura": postura, "reacoes": reacoes, "portao": bool(corpo.get("portao")), "curar": bool(corpo.get("curar"))}
+    return {"postura": postura, "reacoes": reacoes, "portao": bool(corpo.get("portao")), "curar": bool(corpo.get("curar")),
+            "jutsu": str(corpo.get("jutsu") or "")}
 
 
 def liquidar(db, p, bat, tipo, ctx):
@@ -712,8 +717,8 @@ def create_app(db_path=None, dev=None, bot_token=None):
         with tx(db()):
             G.manutencao(db(), p["village_id"])
             kage, ctx = G.iniciar_desafio(db(), p)
-            estado = iniciar_combate(db(), p, G.lutador_normalizado(kage), "trono", random.choice(list(C.AMBIENTES)), ctx,
-                                     jogador_l=G.lutador_normalizado(p), decisor_rival=G.decisor_de(db(), kage["id"]))
+            estado = iniciar_combate(db(), p, G.lutador_normalizado(kage, db()), "trono", random.choice(list(C.AMBIENTES)), ctx,
+                                     jogador_l=G.lutador_normalizado(p, db()), decisor_rival=G.decisor_de(db(), kage["id"]))
         return jsonify(combate=estado)
 
     @app.post("/api/trono/desconfianca")
@@ -762,8 +767,65 @@ def create_app(db_path=None, dev=None, bot_token=None):
         with tx(db()):
             rival, dec, ctx = G.iniciar_luta_guerra(db(), p)
             estado = iniciar_combate(db(), p, rival, "guerra", random.choice(list(C.AMBIENTES)), ctx,
-                                     jogador_l=G.lutador_normalizado(p), decisor_rival=dec)
+                                     jogador_l=G.lutador_normalizado(p, db()), decisor_rival=dec)
         return jsonify(combate=estado)
+
+    # --- jutsus, selos e builds (GDD 19)
+    @app.get("/api/jutsus")
+    def jutsus_estado():
+        p = atual()
+        with tx(db()):
+            return jsonify(J.estado(db(), p))
+
+    @app.post("/api/jutsus/aprender")
+    def jutsus_aprender():
+        p, c = atual(), request.get_json(force=True)
+        with tx(db()):
+            return jsonify(J.aprender(db(), p, c.get("chave")))
+
+    @app.post("/api/jutsus/equipar")
+    def jutsus_equipar():
+        p, c = atual(), request.get_json(force=True)
+        with tx(db()):
+            return jsonify(J.equipar(db(), p, c.get("chave"), bool(c.get("equipar", True))))
+
+    @app.post("/api/jutsus/respec")
+    def jutsus_respec():
+        p = atual()
+        if em_luta(p["id"]):
+            raise Erro("termine a luta atual", 409)
+        with tx(db()):
+            return jsonify(J.respec(db(), p, mover))
+
+    @app.post("/api/selos/comprar")
+    def selos_comprar():
+        p, c = atual(), request.get_json(force=True)
+        with tx(db()):
+            return jsonify(J.comprar_selo(db(), p, c.get("chave"), mover))
+
+    @app.post("/api/selos/encaixar")
+    def selos_encaixar():
+        p, c = atual(), request.get_json(force=True)
+        with tx(db()):
+            return jsonify(J.encaixar(db(), p, int(c.get("inventory_id", 0)), c.get("chave")))
+
+    @app.post("/api/selos/remover")
+    def selos_remover():
+        p, c = atual(), request.get_json(force=True)
+        with tx(db()):
+            return jsonify(J.remover_selo(db(), p, int(c.get("inventory_id", 0)), c.get("chave")))
+
+    @app.post("/api/selos/supremo")
+    def selos_supremo():
+        p, c = atual(), request.get_json(force=True)
+        with tx(db()):
+            return jsonify(J.escolher_supremo(db(), p, c.get("chave"), mover))
+
+    @app.post("/api/build/importar")
+    def build_importar():
+        p, c = atual(), request.get_json(force=True)
+        with tx(db()):
+            return jsonify(J.importar(db(), p, str(c.get("codigo", ""))))
 
     @app.get("/api/hall")
     def hall():

@@ -1,7 +1,16 @@
-Shadow Clan RPG - servidor + tela (inclui Guerra das Vilas e Trono do Kage)
+Shadow Clan RPG - servidor + tela
+Inclui: combate reativo, Guerra das Vilas, Trono do Kage, Arvore de Jutsus, Selos e Builds.
 Rodar:   pip install flask ; python api.py   (porta 8000)
 Dev:     SHADOW_DEV=1 python api.py  e abra http://localhost:8000/?dev=1
 Producao: BOT_TOKEN=... python api.py (valida initData do Telegram)
-Testes:  python -m unittest tests -v   (45 testes)
-Simular: python combate_reativo.py sim 400
-Regras de governo/guerra: governo.py
+Testes:  python -m unittest tests -v   (60 testes)
+Simular: python combate_reativo.py sim 400   |   python sim_build.py 150  (com builds)
+Arquivos: governo.py (Kage/guerra) | jutsus.py (arvore, selos, ressonancia, codigo de build)
+
+DEPLOY (Render):
+  Build Command: pip install -r requirements.txt
+  Start Command: gunicorn wsgi:app --workers 1 --threads 4 --bind 0.0.0.0:$PORT
+  Variaveis: BOT_TOKEN (token do bot), SHADOW_SECRET (qualquer texto longo e secreto)
+  Os arquivos precisam ficar na RAIZ do repositorio (requirements.txt ao lado de api.py).
+  Banco: SQLite. No plano gratis do Render o disco e apagado a cada deploy/reinicio.
+  Para guardar dados: adicione um Disk (ex.: /var/data) e defina SHADOW_DB=/var/data/shadow.db

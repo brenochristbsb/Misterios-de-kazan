@@ -41,7 +41,9 @@ function toast(m){const t=$("#toast");t.textContent=m;t.style.display="block";cl
 async function api(url, corpo){
   const h = {"Content-Type":"application/json"};
   if (DEV) h["X-Dev-User"] = DEV; else h["X-Telegram-Init-Data"] = tg ? tg.initData : "";
-  const r = await fetch(url, {method: corpo ? "POST" : "GET", headers: h, body: corpo ? JSON.stringify(corpo) : undefined});
+  const ctl = new AbortController(), to = setTimeout(() => ctl.abort(), 8000);
+  let r; try { r = await fetch(url, {method: corpo ? "POST" : "GET", headers: h, body: corpo ? JSON.stringify(corpo) : undefined, signal: ctl.signal}); }
+  catch (_) { const e = new Error("Sem conexão com o servidor do jogo."); e.offline = true; throw e; } finally { clearTimeout(to); }
   const j = await r.json().catch(() => ({}));
   if (!r.ok) { const e = new Error(j.erro || "erro " + r.status); e.status = r.status; throw e; }
   return j;
@@ -51,7 +53,7 @@ const bar = (v, m, c) => `<div class="bar"><i style="width:${Math.max(0, Math.mi
 
 async function boot(){
   try { P = await api("/api/perfil"); C = P.em_luta ? await api("/api/combate") : null; tab = C ? "luta" : "home"; render(); }
-  catch (e) { if (e.status === 404) return criacao(); app.innerHTML = `<div class="card">${esc(e.message)}</div>`; }
+  catch (e) { if (e.status === 404) return criacao(); app.innerHTML = e.offline ? `<div class="card"><b>🔌 Servidor não encontrado</b><p class="mut">Esta tela só funciona junto do servidor do jogo (api.py), aberta pelo endereço dele ou pelo Mini App do Telegram. Abrir o arquivo index.html sozinho não carrega o jogo.</p></div>` : `<div class="card">${esc(e.message)}</div>`; }
 }
 
 /* ---------- criação de personagem ---------- */
@@ -90,7 +92,7 @@ const TABS = [["home","🏯","Aldeia"],["luta","⚔️","Luta"],["bag","🎒","M
 function render(){
   $("#nav").style.display = "flex";
   $("#nav").innerHTML = TABS.map(([k,i,n]) => `<button class="${tab===k?"on":""}" data-tab="${k}">${i}<br>${n}</button>`).join("");
-  app.onchange = null; ({home, luta, bag, mkt, kage, rank})[tab]();
+  app.onchange = null; ({home, luta, bag, mkt, kage, rank, jut:jutsus})[tab]();
 }
 $("#nav").onclick = e => { const b = e.target.closest("[data-tab]"); if (b) { tab = b.dataset.tab; render(); } };
 async function refresh(){ P = await api("/api/perfil"); }
@@ -101,6 +103,7 @@ function home(){
     const b = e.target.closest("button"); if (!b) return;
     if (b.dataset.mapa) go(async () => { const r = await api("/api/explorar", {mapa:+b.dataset.mapa}); C = r.combate; P.em_luta = true; sel = {postura:"Rápida", reacoes:[]}; tab = "luta"; toast(r.tier === "boss" ? "⚠️ Um chefe apareceu!" : "Inimigo encontrado!"); render(); });
     if (b.dataset.at) go(async () => { const pts = {}; pts[b.dataset.at] = 1; await api("/api/atributos", {pontos:pts}); await refresh(); home(); });
+    if (b.id === "jutbtn") { tab = "jut"; render(); }
     if (b.id === "hosp") go(async () => { const r = await api("/api/hospital", {tipo:"gratis"}); await refresh(); toast(r.mensagem || "Atendimento iniciado"); home(); });
     if (b.id === "treino") go(async () => { const r = await api("/api/treino", {classe:"Taijutsu", ambiente:"Floresta"}); C = r.combate; P.em_luta = true; tab = "luta"; render(); });
   };
@@ -113,7 +116,8 @@ function home(){
   <div class="card"><div class="row"><b>Atributos</b><span class="mut">${P.pontos_livres} pontos livres</span></div><div class="g" style="margin-top:8px">` +
     Object.entries(a).map(([k, v]) => `<div class="row"><span>${k} <b>${v}</b></span>${P.pontos_livres > 0 ? `<button class="s" data-at="${k.toLowerCase()}">+1</button>` : ""}</div>`).join("") + `</div></div>
   <div class="card"><b>Explorar</b> <span class="mut">(gasta energia)</span><div class="g" style="margin-top:8px">` + mapas.map(m => `<button data-mapa="${m}">Mapa ${m}</button>`).join("") + `</div></div>
-  <div class="g"><button class="s" id="hosp">🏥 Hospital</button><button class="s" id="treino">🎯 Treinar</button></div>`;
+  <div class="g"><button class="s" id="hosp">🏥 Hospital</button><button class="s" id="treino">🎯 Treinar</button></div>
+  <button class="s" id="jutbtn" style="width:100%;margin-top:8px">📜 Jutsus, Selos e Builds</button>`;
 }
 
 /* ---------- combate reativo ---------- */
@@ -131,6 +135,7 @@ function luta(){
   <div class="card log" id="log">${(C.log || []).map(l => `<p>${esc(l)}</p>`).join("")}</div>` +
   (fim ? `<div class="card"><b>${C.recompensa && C.recompensa.venceu ? "🏆 Vitória!" : "💀 Derrota"}</b><p class="mut">${[].concat(C.cronica || []).map(esc).join(" ")}</p><p style="margin:6px 0 0">${recomp(C.recompensa)}</p><button id="sair" style="margin-top:8px;width:100%">Voltar à aldeia</button></div>` :
   `<div class="card"><b>1. Postura de ataque</b><div class="g" style="margin-top:6px">` + Object.keys(POST).map(p => `<button class="s ${sel.postura===p?"on":""}" data-p="${p}">${p}<br><span class="mut">${POST[p]}</span></button>`).join("") + `</div></div>
+   ${sel.postura === "Técnica" && j.jutsus && j.jutsus.length ? `<div class="card"><b>Jutsu da Técnica</b><p class="mut" style="margin:2px 0 6px">${P.classe === "Taijutsu" ? "Custa fúria" : "Custa chakra"} · ${j.jutsus.length} equipado(s)</p><button class="s ${!sel.jutsu ? "on" : ""}" style="width:100%;margin-bottom:6px" data-j="">Técnica básica</button>` + j.jutsus.map(x => `<button class="s ${sel.jutsu === x.chave ? "on" : ""}" style="width:100%;margin-bottom:6px;text-align:left" data-j="${esc(x.chave)}" ${x.cd > 0 ? "disabled" : ""}>${esc(x.nome)} <span class="mut">x${x.dano} · custo ${x.custo}${x.cd > 0 ? " · recarga " + x.cd : ""}</span></button>`).join("") + `</div>` : ""}
    <div class="card"><b>2. Reações (até 2)</b><p class="mut" style="margin:2px 0 6px">Cada reação anula uma postura do rival. Ele costuma repetir o que fez: veja o histórico.</p>
    <p class="mut">Últimos golpes dele: ${esc((r.historico || []).join(" → ") || "—")}</p><div class="g">` +
    reas.map(x => `<button class="s ${sel.reacoes.includes(x)?"on":""}" data-r="${esc(x)}">${esc(x)}</button>`).join("") + `</div></div>
@@ -139,8 +144,9 @@ function luta(){
   app.onclick = e => {
     const b = e.target.closest("button"); if (!b) return;
     if (b.dataset.p) { sel.postura = b.dataset.p; luta(); }
+    if (b.dataset.j !== undefined) { sel.jutsu = b.dataset.j; luta(); }
     if (b.dataset.r) { const i = sel.reacoes.indexOf(b.dataset.r); if (i >= 0) sel.reacoes.splice(i, 1); else if (sel.reacoes.length < 2) sel.reacoes.push(b.dataset.r); else toast("Máximo de 2 reações"); luta(); }
-    if (b.id === "go") go(async () => { b.disabled = true; C = await api("/api/combate/turno", {postura:sel.postura, reacoes:sel.reacoes}); sel.reacoes = []; luta(); if (C.terminou) refresh(); });
+    if (b.id === "go") go(async () => { b.disabled = true; C = await api("/api/combate/turno", {postura:sel.postura, reacoes:sel.reacoes, jutsu:sel.postura === "Técnica" ? (sel.jutsu || "") : ""}); sel.reacoes = []; luta(); if (C.terminou) refresh(); });
     if (b.id === "fugir") go(async () => { await api("/api/combate/fugir", {}); C = null; await refresh(); tab = "home"; render(); });
     if (b.id === "sair") { C = null; refresh().then(() => { tab = "home"; render(); }); }
   };
@@ -241,6 +247,39 @@ async function kage() {
 function kageRedesenhar() { const r = app.querySelector("#regras"); if (!r) return; r.innerHTML = REGRAS.map(regraHTML).join(""); const a = app.querySelector("#addr"); if (a) a.disabled = REGRAS.length >= 3; }
 
 /* ---------- ranking ---------- */
+/* ---------- jutsus, selos e builds ---------- */
+async function jutsus(){
+  const s = await api("/api/jutsus").catch(e => (toast(e.message), null)); if (!s) return;
+  const SELO = k => (s.selos[k] || s.supremos[k] || {nome: k}).nome;
+  const no = n => `<div class="card" style="margin:6px 0;${n.equipado ? "border-color:var(--ac)" : ""}"><div class="row"><div><b>${esc(n.nome)}</b> ${n.passivo ? '<span class="mut">passiva</span>' : ""}<br><span class="mut">${esc(n.desc)}${n.tags.length ? " · " + n.tags.map(esc).join(", ") : ""}</span></div><div>` +
+    (!n.aprendido ? `<button data-ap="${n.chave}" ${n.bloqueio ? "disabled" : ""}>${n.bloqueio ? esc(n.bloqueio) : n.custo + " pts"}</button>` : n.passivo ? '<span class="mut">ativa</span>' : `<button class="${n.equipado ? "" : "s"}" data-eq="${n.chave}" data-on="${n.equipado ? 0 : 1}">${n.equipado ? "Equipado" : "Equipar"}</button>`) + `</div></div></div>`;
+  app.innerHTML = `<h2>📜 Jutsus</h2><div class="card"><div class="row"><span><b>${s.pontos}</b> pontos livres</span><span>Slots ${s.usados}/${s.slots}</span></div>
+    <p class="mut" style="margin:6px 0 0">${s.ressonancia.length ? "✨ Ressonância +8%: " + s.ressonancia.map(esc).join(", ") : "Equipe 3 jutsus com a mesma tag para ativar a Ressonância (+8%)."}</p></div>` +
+    s.ramos.map(r => `<h2 style="font-size:16px">${esc(r.nome)}</h2>` + r.nos.map(no).join("")).join("") +
+    `<h2>🔖 Selos nos itens</h2><p class="mut">Selo ${s.preco_selo} ryos. Só valem com o item equipado e mudam o comportamento do golpe.</p><div class="card">` +
+    Object.entries(s.selos).map(([k, v]) => `<div class="row" style="margin-bottom:6px"><span><b>${esc(v.nome)}</b> <span class="mut">×${s.estoque[k] || 0}<br>${esc(v.desc)}</span></span><button class="s" data-bs="${k}">Comprar</button></div>`).join("") + `</div>` +
+    s.itens.map(i => `<div class="card"><b>${esc(i.nome)}</b> <span class="mut">${i.selos.length}/${i.sockets} encaixes</span><div style="margin-top:6px">` +
+      i.selos.map(k => `<button class="s" data-rm="${i.id}|${k}">✖ ${esc(SELO(k))}</button> `).join("") +
+      (i.selos.length < i.sockets ? `<button data-en="${i.id}">+ Encaixar selo</button>` : "") + `</div></div>`).join("") +
+    `<h2>👑 Selo Supremo</h2><p class="mut">Exige patente Chunin · ${s.preco_supremo} ryos. Atual: ${s.supremo ? esc(SELO(s.supremo)) : "nenhum"}</p>` +
+    Object.entries(s.supremos).map(([k, v]) => `<div class="card row"><span><b>${esc(v.nome)}</b><br><span class="mut">${esc(v.desc)}</span></span><button class="${s.supremo === k ? "" : "s"}" data-su="${k}" ${s.supremo === k ? "disabled" : ""}>${s.supremo === k ? "Em uso" : "Usar"}</button></div>`).join("") +
+    `<h2>🧬 Build</h2><div class="card"><p class="mut" style="word-break:break-all">${esc(s.codigo)}</p><div class="g"><button class="s" id="cp">Copiar código</button><button class="s" id="im">Importar código</button></div>
+    <button class="s" id="rs" style="width:100%;margin-top:8px">♻️ Redistribuir pontos (${s.respec_custo ? s.respec_custo + " ryos" : "grátis"})</button></div>`;
+  app.onclick = e => {
+    const b = e.target.closest("button"); if (!b) return; const d = b.dataset;
+    const fim = async f => { await f(); await refresh(); jutsus(); };
+    if (d.ap) go(() => fim(() => api("/api/jutsus/aprender", {chave:d.ap})));
+    if (d.eq) go(() => fim(() => api("/api/jutsus/equipar", {chave:d.eq, equipar:d.on === "1"})));
+    if (d.bs) go(() => fim(() => api("/api/selos/comprar", {chave:d.bs})));
+    if (d.rm) { const [i, k] = d.rm.split("|"); go(() => fim(() => api("/api/selos/remover", {inventory_id:+i, chave:k}))); }
+    if (d.en) { const op = Object.keys(s.selos).filter(k => s.estoque[k] > 0); if (!op.length) return toast("Compre um selo primeiro");
+      const k = op[(parseInt(prompt("Selo:\n" + op.map((x, i) => (i + 1) + ". " + SELO(x)).join("\n"), "1"), 10) || 0) - 1]; if (k) go(() => fim(() => api("/api/selos/encaixar", {inventory_id:+d.en, chave:k}))); }
+    if (d.su) go(() => fim(() => api("/api/selos/supremo", {chave:d.su})));
+    if (b.id === "cp") { (navigator.clipboard ? navigator.clipboard.writeText(s.codigo) : Promise.reject()).then(() => toast("Copiado!"), () => prompt("Copie:", s.codigo)); }
+    if (b.id === "im") { const c = prompt("Cole o código da build (SC1...)"); if (c) go(async () => { const r = await api("/api/build/importar", {codigo:c}); toast(r.equipados + " equipados" + (r.faltam.length ? ", faltam " + r.faltam.map(x => x.nome).join(", ") : "")); jutsus(); }); }
+    if (b.id === "rs" && confirm("Remover todos os jutsus aprendidos e recuperar os pontos?")) go(() => fim(() => api("/api/jutsus/respec", {})));
+  };
+}
 async function rank(por = "nivel"){
   const r = await api("/api/ranking?por=" + por).catch(e => (toast(e.message), null)); if (!r) return;
   app.innerHTML = `<div class="g" style="margin-bottom:10px"><button class="${por==="nivel"?"":"s"}" data-por="nivel">Nível</button><button class="${por==="fama"?"":"s"}" data-por="fama">Fama</button></div>` +
