@@ -38,6 +38,7 @@ const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;
 let P = null, tab = "home", C = null, sel = {postura:"Rápida", reacoes:[]}, criar = {};
 
 function toast(m){const t=$("#toast");t.textContent=m;t.style.display="block";clearTimeout(t._t);t._t=setTimeout(()=>t.style.display="none",2600)}
+const semanaTxt = w => { const m = /(\d{4})-W(\d+)/.exec(w || ""); return m ? `Semana ${+m[2]} de ${m[1]}` : ""; };
 async function api(url, corpo){
   const h = {"Content-Type":"application/json"};
   if (DEV) h["X-Dev-User"] = DEV; else h["X-Telegram-Init-Data"] = tg ? tg.initData : "";
@@ -106,16 +107,31 @@ function home(){
     if (b.dataset.mapa) go(async () => { const r = await api("/api/explorar", {mapa:+b.dataset.mapa}); C = r.combate; P.em_luta = true; sel = {postura:"Rápida", reacoes:[]}; tab = "luta"; toast(r.tier === "boss" ? "⚠️ Um chefe apareceu!" : "Inimigo encontrado!"); render(); });
     if (b.dataset.at) go(async () => { const pts = {}; pts[b.dataset.at] = 1; await api("/api/atributos", {pontos:pts}); await refresh(); home(); });
     if (b.id === "jutbtn") { tab = "jut"; render(); }
+    if (b.id === "tutok") { try { localStorage.setItem("tut1", "1"); } catch (_) {} home(); }
+    if (b.id === "mcoletar") go(async () => { const r = await api("/api/missao/coletar", {}); toast("🎁 +" + r.ryos + " ryos!"); await refresh(); home(); });
     if (b.id === "hosp") hospitalTela();
     if (b.id === "treino") treinoMenu();
   };
   const a = P.atributos, mapas = [1,2,3,4,5,6,7,8,9,10].filter(m => P.nivel >= (m-1)*10);
-  app.innerHTML = `<div class="card"><div class="row"><div><b>${esc(P.nome)}</b> <span class="mut">${esc(P.classe)}${P.elemento ? " · " + esc(P.elemento) : ""}</span><br><span class="mut">${esc(P.aldeia)} · ${esc(P.patente)} · Fama ${P.fama}</span></div><div>Nv ${P.nivel}</div></div>
+  let viu = "1"; try { viu = localStorage.getItem("tut1"); } catch (_) {}
+  const tut = viu ? "" : `<div class="card" style="border-color:var(--ac)"><b>👋 Bem-vindo, ${esc(P.nome)}!</b>
+    <p style="margin:8px 0 0"><b>1.</b> Toque em <b>Mapa 1</b> para explorar e lutar. Cada exploração gasta 1 de energia.</p>
+    <p style="margin:6px 0 0"><b>2.</b> Vença lutas para ganhar XP, ryos e itens. Ao subir de nível você ganha pontos para gastar em Atributos.</p>
+    <p style="margin:6px 0 0"><b>3.</b> Se a vida ficar baixa, use o 🏥 Hospital. Para treinar sem risco, use 🎯 Treinar.</p>
+    <p style="margin:6px 0 0"><b>4.</b> Cumpra a missão diária e colete o prêmio todo dia!</p>
+    <button id="tutok" style="width:100%;margin-top:10px">Entendi, vamos lá!</button></div>`;
+  const M = P.missao || {meta: 5, vitorias: 0, coletada: false, pronta: false, recompensa: 0};
+  const miss = `<div class="card"><div class="row"><b>📅 Missão diária</b><span class="mut">${M.vitorias}/${M.meta}</span></div>
+    <p class="mut" style="margin:6px 0 4px">Vença ${M.meta} lutas explorando. Prêmio: 🪙 ${M.recompensa} ryos.</p>${bar(M.vitorias, M.meta, "var(--ok)")}
+    ${M.coletada ? '<p class="mut" style="margin:8px 0 0">✅ Prêmio de hoje coletado. Volte amanhã!</p>' : M.pronta ? '<button id="mcoletar" style="width:100%;margin-top:8px">🎁 Coletar prêmio</button>' : ""}</div>`;
+  app.innerHTML = tut + `<div class="card"><div class="row"><div><b>${esc(P.nome)}</b> <span class="mut">${esc(P.classe)}${P.elemento ? " · " + esc(P.elemento) : ""}</span><br><span class="mut">${esc(P.aldeia)} · ${esc(P.patente)} · Fama ${P.fama}</span></div><div>Nv ${P.nivel}</div></div>
     <p class="mut" style="margin:8px 0 2px">HP ${P.hp}/${P.hp_max}</p>${bar(P.hp, P.hp_max, "var(--ok)")}
     <p class="mut" style="margin:8px 0 2px">Energia ${P.energia}/${P.energia_max}</p>${bar(P.energia, P.energia_max, "var(--ac)")}
     <p class="mut" style="margin:8px 0 2px">XP (faltam ${P.xp_falta})</p>${bar(P.xp, P.xp + P.xp_falta, "var(--xp)")}
+    <p style="margin:10px 0 0">🎯 <b>Próximo objetivo:</b> ${P.pontos_livres > 0 ? "gaste seus " + P.pontos_livres + " " + (P.pontos_livres === 1 ? "ponto" : "pontos") + " de atributo" : P.energia > 0 ? "explore a Aldeia e vença lutas — faltam " + P.xp_falta + " XP para o nível " + (P.nivel + 1) : "sua energia acabou — volte em alguns minutos"}</p>
     <p style="margin:10px 0 0">🪙 ${P.ryos} ryos · 🟡 ${P.ouro_ninja} ouro ninja</p></div>
-  <div class="card"><div class="row"><b>Atributos</b><span class="mut">${P.pontos_livres} pontos livres</span></div><div class="g" style="margin-top:8px">` +
+  ${miss}
+  <div class="card"><div class="row"><b>Atributos</b><span class="mut">${P.pontos_livres} ${P.pontos_livres === 1 ? "ponto livre" : "pontos livres"}</span></div><div class="g" style="margin-top:8px">` +
     Object.entries(a).map(([k, v]) => `<div class="row"><span>${k} <b>${v}</b></span>${P.pontos_livres > 0 ? `<button class="s" data-at="${k.toLowerCase()}">+1</button>` : ""}</div>`).join("") + `</div></div>
   <div class="card"><b>Explorar</b> <span class="mut">(gasta energia)</span><div class="g" style="margin-top:8px">` + mapas.map(m => `<button data-mapa="${m}">Mapa ${m}</button>`).join("") + `</div></div>
   <div class="g"><button class="s" id="hosp">🏥 Hospital</button><button class="s" id="treino">🎯 Treinar</button></div>
@@ -211,7 +227,7 @@ function recomp(r){ if (!r) return ""; const n={xp:"XP",ryos:"ryos",fama:"fama",
 /* ---------- mochila ---------- */
 async function bag(){
   const m = await api("/api/mochila").catch(e => (toast(e.message), null)); if (!m) return;
-  const li = i => `<div class="card"><div class="row"><div><b class="r-${esc(i.raridade)}">${esc(i.nome)}</b> <span class="mut">${esc(i.slot || "")} · dano ${i.dano ?? 0} · q${i.qualidade ?? 1}${i.vinculado ? " · 🔒" : ""}${i.anunciado ? " · à venda" : ""}</span></div>
+  const li = i => `<div class="card"><div class="row"><div><b class="r-${esc(i.raridade)}">${esc(i.nome)}</b> <span class="mut">${esc(i.slot || "")} · dano ${i.dano ?? 0} · ${esc(i.qualidade ?? "Comum")}${i.vinculado ? " · 🔒" : ""}${i.anunciado ? " · à venda" : ""}</span></div>
     <div>${i.local === "equipado" ? `<button class="s" data-un="${i.id}">Tirar</button>` : (i.slot ? `<button data-eq="${i.id}">Equipar</button> ` : "") + (!i.vinculado && !i.anunciado ? `<button class="s" data-sell="${i.id}">Vender</button>` : "")}</div></div></div>`;
   const eq = m.itens.filter(i => i.local === "equipado"), mo = m.itens.filter(i => i.local !== "equipado");
   app.innerHTML = `<h2>Equipado</h2>${eq.map(li).join("") || '<p class="mut">Nada equipado.</p>'}<h2>Mochila ${mo.length}/${m.capacidade}</h2>${mo.map(li).join("") || '<p class="mut">Vazia.</p>'}` +
@@ -247,7 +263,7 @@ async function mkt(){
     return;
   }
   const m = await api("/api/mercado").catch(e => (toast(e.message), null)); if (!m) return;
-  app.innerHTML = topo + `<p class="mut">Taxa de listagem ${m.taxa_listagem} ryos · taxa de venda ${Math.round(m.taxa_venda * 100)}%. Aqui os jogadores vendem itens entre si: para anunciar, abra a Mochila e toque em Vender.</p>` + (m.anuncios.map(a => `<div class="card"><div class="row"><div><b class="r-${esc(a.raridade)}">${esc(a.nome)}</b><br><span class="mut">dano ${a.dano ?? 0} · q${a.qualidade ?? 1} · ${esc(a.vendedor)}</span></div>
+  app.innerHTML = topo + `<p class="mut">Taxa de listagem ${m.taxa_listagem} ryos · taxa de venda ${Math.round(m.taxa_venda * 100)}%. Aqui os jogadores vendem itens entre si: para anunciar, abra a Mochila e toque em Vender.</p>` + (m.anuncios.map(a => `<div class="card"><div class="row"><div><b class="r-${esc(a.raridade)}">${esc(a.nome)}</b><br><span class="mut">dano ${a.dano ?? 0} · ${esc(a.qualidade ?? "Comum")} · ${esc(a.vendedor)}</span></div>
     <div>${a.seller_id === P.id ? `<button class="s" data-cx="${a.id}">Cancelar</button>` : `<button data-buy="${a.id}">🪙 ${a.preco}</button>`}</div></div></div>`).join("") || '<p class="mut">Nenhum anúncio de jogadores ainda.</p>');
 }
 
@@ -281,7 +297,7 @@ async function kage() {
     acoes += e.pode_desafiar ? `<button id="desafiar" style="width:100%;margin-top:8px">⚔️ Desafiar o Kage</button>` : `<p class="mut" style="margin-top:8px">Desafio: ${esc(e.motivo_desafio)}</p>`;
     acoes += `<button class="s" id="desconf" style="width:100%;margin-top:6px">Voto de Desconfiança</button>`;
   }
-  let guerra = `<p class="mut">Batalha: sábado, 20h–22h (Brasília). Semana ${esc(g.semana)}.</p>`;
+  let guerra = `<p class="mut">Batalha: sábado, 20h–22h (Brasília). ${semanaTxt(g.semana)}.</p>`;
   guerra += g.declaracao ? `<p>Guerra da sua aldeia: <b>${g.declaracao === "aprovada" ? "aprovada ✅" : "pendente (" + g.votos_sim + "/2 votos)"}</b></p>` : `<p class="mut">Sua aldeia não declarou guerra.</p>`;
   if (e.sou_kage && !g.declaracao) guerra += `<button id="gdecl" style="width:100%">📜 Declarar guerra</button>`;
   if (e.sou_sannin && !e.sou_kage && g.declaracao === "pendente") guerra += `<button id="gvot" style="width:100%">✅ Apoiar a guerra</button>`;
@@ -321,8 +337,8 @@ async function jutsus(){
   const s = await api("/api/jutsus").catch(e => (toast(e.message), null)); if (!s) return;
   const SELO = k => (s.selos[k] || s.supremos[k] || {nome: k}).nome;
   const no = n => `<div class="card" style="margin:6px 0;${n.equipado ? "border-color:var(--ac)" : ""}"><div class="row"><div><b>${esc(n.nome)}</b> ${n.passivo ? '<span class="mut">passiva</span>' : ""}<br><span class="mut">${esc(n.desc)}${n.tags.length ? " · " + n.tags.map(esc).join(", ") : ""}</span></div><div>` +
-    (!n.aprendido ? `<button data-ap="${n.chave}" ${n.bloqueio ? "disabled" : ""}>${n.bloqueio ? esc(n.bloqueio) : n.custo + " pts"}</button>` : n.passivo ? '<span class="mut">ativa</span>' : `<button class="${n.equipado ? "" : "s"}" data-eq="${n.chave}" data-on="${n.equipado ? 0 : 1}">${n.equipado ? "Equipado" : "Equipar"}</button>`) + `</div></div></div>`;
-  app.innerHTML = `<h2>📜 Jutsus</h2><div class="card"><div class="row"><span><b>${s.pontos}</b> pontos livres</span><span>Slots ${s.usados}/${s.slots}</span></div>
+    (!n.aprendido ? `<button data-ap="${n.chave}" ${n.bloqueio || n.custo > s.pontos ? "disabled" : ""}>${n.bloqueio ? esc(n.bloqueio) : n.custo + (n.custo === 1 ? " pt" : " pts")}</button>` : n.passivo ? '<span class="mut">ativa</span>' : `<button class="${n.equipado ? "" : "s"}" data-eq="${n.chave}" data-on="${n.equipado ? 0 : 1}">${n.equipado ? "Equipado" : "Equipar"}</button>`) + `</div></div></div>`;
+  app.innerHTML = `<h2>📜 Jutsus</h2><div class="card"><div class="row"><span><b>${s.pontos}</b> ${s.pontos === 1 ? "ponto livre" : "pontos livres"}</span><span>Slots ${s.usados}/${s.slots}</span></div>
     <p class="mut" style="margin:6px 0 0">${s.ressonancia.length ? "✨ Ressonância +8%: " + s.ressonancia.map(esc).join(", ") : "Equipe 3 jutsus com a mesma tag para ativar a Ressonância (+8%)."}</p></div>` +
     s.ramos.map(r => `<h2 style="font-size:16px">${esc(r.nome)}</h2>` + r.nos.map(no).join("")).join("") +
     `<h2>🔖 Selos nos itens</h2><p class="mut">Selo ${s.preco_selo} ryos. Só valem com o item equipado e mudam o comportamento do golpe.</p><div class="card">` +

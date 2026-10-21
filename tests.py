@@ -304,6 +304,43 @@ class TestMotor(unittest.TestCase):
         self.assertEqual(b.n.linhas[-1], "— Desfecho —")
 
 
+class TestMissaoDiaria(Base):
+    def test_missao_conta_vitorias_e_paga_uma_vez(self):
+        import itertools
+        from unittest import mock
+        relogio = itertools.count(1_000_000_000, 5)      # cada chamada avança 5s: não dispara o anti-spam
+        with mock.patch.object(api.time, "time", lambda: next(relogio)):
+            self._missao()
+
+    def _missao(self):
+        self.criar(1)
+        _, p = self.req("get", "/api/perfil", 1)
+        self.assertEqual(p["missao"]["vitorias"], 0)
+        st, _ = self.req("post", "/api/missao/coletar", 1)
+        self.assertEqual(st, 409)                      # ainda nao concluida
+        vitorias = 0
+        for _ in range(40):
+            _, pf = self.req("get", "/api/perfil", 1)
+            self.db().execute("UPDATE players SET energia=25, hp_atual=? WHERE telegram_id=1", (pf["hp_max"],))
+            st, e = self.req("post", "/api/explorar", 1, mapa=1)
+            if st != 200:
+                break
+            fim = self.luta_completa(1)
+            vitorias += bool(fim["recompensa"]["venceu"])
+            if vitorias >= 5:
+                break
+        _, p = self.req("get", "/api/perfil", 1)
+        self.assertEqual(p["missao"]["vitorias"], min(vitorias, 5))
+        self.assertTrue(p["missao"]["pronta"])
+        ryos0 = p["ryos"]
+        st, r = self.req("post", "/api/missao/coletar", 1)
+        self.assertEqual(st, 200)
+        _, p = self.req("get", "/api/perfil", 1)
+        self.assertEqual(p["ryos"], ryos0 + r["ryos"])
+        st, _ = self.req("post", "/api/missao/coletar", 1)
+        self.assertEqual(st, 409)                      # nao paga duas vezes
+
+
 if __name__ == "__main__":
     unittest.main()
 

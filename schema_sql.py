@@ -457,4 +457,14 @@ CREATE TABLE IF NOT EXISTS item_selos (
 INSERT OR IGNORE INTO schema_migrations (versao, nome) VALUES (3, 'jutsus_selos_v1_4');
 INSERT OR IGNORE INTO schema_migrations (versao, nome) VALUES (1, 'schema_inicial_v1');
 INSERT OR IGNORE INTO schema_migrations (versao, nome) VALUES (2, 'governo_guerra_v1_3');
+
+-- v1.5: missão diária (aditivo, não apaga nada)
+CREATE TABLE IF NOT EXISTS daily_missions (
+    player_id   INTEGER NOT NULL REFERENCES players(id),
+    dia         TEXT NOT NULL,
+    vitorias    INTEGER NOT NULL DEFAULT 0 CHECK (vitorias >= 0),
+    coletada    INTEGER NOT NULL DEFAULT 0 CHECK (coletada IN (0, 1)),
+    PRIMARY KEY (player_id, dia)
+);
+INSERT OR IGNORE INTO schema_migrations (versao, nome) VALUES (4, 'missao_diaria_v1_5');
 """

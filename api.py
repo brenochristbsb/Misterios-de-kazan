@@ -307,6 +307,24 @@ def validar_decisao(p, corpo):
             "jutsu": str(corpo.get("jutsu") or "")}
 
 
+MISSAO_META = 5
+
+
+def dia_br():
+    return (agora() - timedelta(hours=3)).strftime("%Y-%m-%d")   # "dia" vira à meia-noite de Brasília
+
+
+def missao_recompensa(nivel):
+    return 100 + nivel * 15
+
+
+def missao_estado(db, p):
+    r = db.execute("SELECT vitorias, coletada FROM daily_missions WHERE player_id=? AND dia=?", (p["id"], dia_br())).fetchone()
+    v, c = (r["vitorias"], bool(r["coletada"])) if r else (0, False)
+    return {"meta": MISSAO_META, "vitorias": min(v, MISSAO_META), "coletada": c,
+            "pronta": v >= MISSAO_META and not c, "recompensa": missao_recompensa(p["nivel"])}
+
+
 def liquidar(db, p, bat, tipo, ctx):
     """Aplica o resultado da luta: HP, recompensas, log. Chamar dentro de tx()."""
     jogador_l, rival = bat.ls
@@ -319,6 +337,8 @@ def liquidar(db, p, bat, tipo, ctx):
         f = TIER_RECOMP[ctx["tier"]]
         xp, ryos = int((10 + p["nivel"] * 2) * f), int((8 + p["nivel"] * 1.5) * f * G.bonus_ryos(db, p["village_id"]))
         subiu = dar_xp(db, p["id"], xp)
+        db.execute("INSERT INTO daily_missions(player_id,dia,vitorias) VALUES (?,?,1) "
+                   "ON CONFLICT(player_id,dia) DO UPDATE SET vitorias=vitorias+1", (p["id"], dia_br()))
         mover(db, p["id"], "ryos", ryos, f"luta {ctx['tier']}", f"luta:{ctx['bid']}:ryos")
         fama = 15 if ctx["tier"] == "boss" else 0
         if fama:
@@ -342,6 +362,34 @@ def liquidar(db, p, bat, tipo, ctx):
 
 
 # ------------------------------------------------------------------- app
+def iniciar_backup(path, intervalo=3600, manter=24):
+    """Copia consistente do banco (API de backup do SQLite) a cada hora, mantendo as ultimas 24."""
+    import glob
+    import threading
+    pasta = os.environ.get("SHADOW_BACKUP_DIR", os.path.join(os.path.dirname(path) or ".", "backups"))
+
+    def fazer():
+        try:
+            os.makedirs(pasta, exist_ok=True)
+            destino = os.path.join(pasta, "shadow-" + datetime.now(timezone.utc).strftime("%Y%m%d-%H%M") + ".db")
+            src, dst = sqlite3.connect(path), sqlite3.connect(destino)
+            with dst:
+                src.backup(dst)
+            src.close()
+            dst.close()
+            for velho in sorted(glob.glob(os.path.join(pasta, "shadow-*.db")))[:-manter]:
+                os.remove(velho)
+        except Exception as e:  # backup nunca derruba o jogo
+            print("backup falhou:", e)
+
+    def laco():
+        while True:
+            fazer()
+            time.sleep(intervalo)
+
+    threading.Thread(target=laco, daemon=True, name="backup").start()
+
+
 def create_app(db_path=None, dev=None, bot_token=None):
     app = Flask(__name__, static_folder=None)
     app.config["DB"] = db_path or os.environ.get("SHADOW_DB", os.path.join(AQUI, "shadow.db"))
@@ -349,6 +397,8 @@ def create_app(db_path=None, dev=None, bot_token=None):
     app.config["TOKEN"] = bot_token or os.environ.get("BOT_TOKEN", "")
     app.config["SEGREDO"] = os.environ.get("SHADOW_SECRET", "troque-em-producao").encode()
     iniciar_banco(app.config["DB"])
+    if not app.config["DEV"] and os.environ.get("SHADOW_BACKUP", "1") == "1" and app.config["DB"] != ":memory:":
+        iniciar_backup(app.config["DB"])
     limites = {}
 
     def db():
@@ -382,6 +432,9 @@ def create_app(db_path=None, dev=None, bot_token=None):
         if len(janela) >= 40:
             raise Erro("muitas requisições", 429)
         limites[uid] = janela + [time.time()]
+        if len(limites) > 5000:
+            for k in [k for k, v in limites.items() if not v or time.time() - v[-1] > 10]:
+                limites.pop(k, None)
         return uid
 
     def atual():
@@ -469,8 +522,20 @@ def create_app(db_path=None, dev=None, bot_token=None):
             p = jogador(db(), p["id"])
         out = perfil_json(db(), p)
         out["em_luta"] = em_luta(p["id"])
+        out["missao"] = missao_estado(db(), p)
         out["equipados"] = [dict(nome=e["nome"], slot=e["slot"], id=e["id"]) for e in equipados(db(), p["id"])]
         return jsonify(out)
+
+    @app.post("/api/missao/coletar")
+    def missao_coletar():
+        p = atual()
+        with tx(db()):
+            m = missao_estado(db(), p)
+            if not m["pronta"]:
+                raise Erro("missão ainda não concluída ou já coletada", 409)
+            db().execute("UPDATE daily_missions SET coletada=1 WHERE player_id=? AND dia=?", (p["id"], dia_br()))
+            mover(db(), p["id"], "ryos", m["recompensa"], "missão diária", f"missao:{p['id']}:{dia_br()}")
+        return jsonify(ryos=m["recompensa"])
 
     @app.post("/api/atributos")
     def atributos():
