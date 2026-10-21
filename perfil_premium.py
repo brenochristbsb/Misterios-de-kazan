@@ -25,7 +25,7 @@ def obter_avatar_circular(url_avatar: str, tamanho=(134, 134)) -> Image.Image:
     return avatar_circular
 
 def renderizar_perfil_ninja(db: Session, telegram_id: int, url_avatar: str = None) -> str:
-    path_modelo = "modelo_ia.png"
+    path_modelo = "imagem/modelo_ia.png"
     if not os.path.exists(path_modelo):
         raise FileNotFoundError("Por favor, garanta o arquivo 'modelo_ia.png' no diretório.")
 
