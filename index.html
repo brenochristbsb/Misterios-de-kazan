@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Shadow Clan RPG</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+:root{--bg:#0e0f14;--card:#1a1c25;--bd:#2b2e3b;--tx:#ecebf0;--mut:#8b8da0;--ac:#e8602c;--ok:#4cc38a;--bad:#e5484d;--xp:#6e8bff}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.4 system-ui,sans-serif;padding:env(safe-area-inset-top,0) 0 calc(64px + env(safe-area-inset-bottom,0))}
+h2{margin:6px 0 10px;font-size:18px}
+.w{padding:12px;max-width:560px;margin:auto}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:12px;margin-bottom:10px}
+.row{display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.mut{color:var(--mut);font-size:13px}
+button{background:var(--ac);color:#fff;border:0;border-radius:10px;padding:10px 14px;font:inherit;font-weight:600;min-height:42px}
+button.s{background:#2b2e3b}button.on{outline:2px solid var(--ac)}button:disabled{opacity:.4}
+.g{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.bar{height:10px;background:#2b2e3b;border-radius:6px;overflow:hidden}.bar i{display:block;height:100%}
+input{width:100%;background:#12131a;color:var(--tx);border:1px solid var(--bd);border-radius:10px;padding:10px;font:inherit}
+nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:#12131a;border-top:1px solid var(--bd);padding-bottom:env(safe-area-inset-bottom,0)}
+nav button{flex:1;background:none;border-radius:0;font-size:12px;color:var(--mut);padding:10px 2px}nav button.on{color:var(--ac);outline:0}
+.log{max-height:230px;overflow:auto;font-size:14px}.log p{margin:4px 0}
+#toast{position:fixed;top:12px;left:50%;transform:translateX(-50%);background:#000;border:1px solid var(--bd);padding:8px 14px;border-radius:10px;display:none;z-index:9;max-width:90%}
+.r-Comum{color:#aaa}.r-Raro{color:#5aa9ff}.r-Épico{color:#b36bff}.r-Lendário{color:#ffb020}
+</style>
+</head>
+<body>
+<div id="toast"></div>
+<div class="w" id="app">Carregando…</div>
+<nav id="nav" style="display:none"></nav>
+<script>
+const tg = window.Telegram && Telegram.WebApp; if (tg) { tg.ready(); tg.expand(); }
+const DEV = new URLSearchParams(location.search).get("dev");
+const $ = s => document.querySelector(s), app = $("#app");
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+let P = null, tab = "home", C = null, sel = {postura:"Rápida", reacoes:[]}, criar = {};
+
+function toast(m){const t=$("#toast");t.textContent=m;t.style.display="block";clearTimeout(t._t);t._t=setTimeout(()=>t.style.display="none",2600)}
+async function api(url, corpo){
+  const h = {"Content-Type":"application/json"};
+  if (DEV) h["X-Dev-User"] = DEV; else h["X-Telegram-Init-Data"] = tg ? tg.initData : "";
+  const r = await fetch(url, {method: corpo ? "POST" : "GET", headers: h, body: corpo ? JSON.stringify(corpo) : undefined});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { const e = new Error(j.erro || "erro " + r.status); e.status = r.status; throw e; }
+  return j;
+}
+const go = async f => { try { await f(); } catch (e) { toast(e.message); } };
+const bar = (v, m, c) => `<div class="bar"><i style="width:${Math.max(0, Math.min(100, 100*v/(m||1)))}%;background:${c}"></i></div>`;
+
+async function boot(){
+  try { P = await api("/api/perfil"); C = P.em_luta ? await api("/api/combate") : null; tab = C ? "luta" : "home"; render(); }
+  catch (e) { if (e.status === 404) return criacao(); app.innerHTML = `<div class="card">${esc(e.message)}</div>`; }
+}
+
+/* ---------- criação de personagem ---------- */
+const CLASSES = {Taijutsu:"Corpo a corpo, Portões de poder", Ninjutsu:"Dano elemental, +50% de vantagem", Genjutsu:"Ilusões e controle", Marionetista:"Marionete absorve dano", Kunoichi:"Suporte cirúrgico e cura"};
+async function criacao(){
+  $("#nav").style.display = "none";
+  const q = await api("/api/questionario"); criar = {q, resp:[], aldeia:null, classe:"Ninjutsu", sexo:"M", nome:""};
+  const quest = q.perguntas.map((p, i) => `<div class="card"><b>${esc(p.pergunta)}</b>` + p.opcoes.map(o =>
+    `<button class="s" style="width:100%;margin-top:6px;text-align:left" data-q="${i}" data-t="${o.token}">${esc(o.texto)}</button>`).join("") + `</div>`).join("");
+  app.innerHTML = `<h2>🥷 Crie seu ninja</h2>
+  <div class="card"><input id="nome" maxlength="16" placeholder="Nome do personagem">
+  <div class="g" style="margin-top:8px"><button class="s on" data-sx="M">Masculino</button><button class="s" data-sx="F">Feminino</button></div></div>
+  <div class="card"><b>Classe</b>` + Object.keys(CLASSES).map(c => `<button class="s ${c==="Ninjutsu"?"on":""}" style="width:100%;margin-top:6px;text-align:left" data-c="${c}">${c}<br><span class="mut">${CLASSES[c]}</span></button>`).join("") + `</div>
+  <div class="card"><b>Aldeia</b>` + q.aldeias.map(a => `<button class="s" style="width:100%;margin-top:6px;text-align:left" data-a="${a.id}">${esc(a.nome)} <span class="mut">${esc(a.significado)} · ${a.moradores} moradores</span></button>`).join("") + `</div>
+  <div id="qs"><h2>Descubra seu elemento</h2>${quest}<p class="mut">Taijutsu não usa elemento, as perguntas são ignoradas.</p></div>
+  <button id="ok" style="width:100%">Começar a jornada</button>`;
+  const marcar = (sel, el) => { app.querySelectorAll(sel).forEach(b => b.classList.remove("on")); el.classList.add("on"); };
+  app.onclick = e => {
+    const b = e.target.closest("button"); if (!b) return;
+    if (b.dataset.sx) { criar.sexo = b.dataset.sx; marcar("[data-sx]", b); }
+    if (b.dataset.c) { criar.classe = b.dataset.c; marcar("[data-c]", b); }
+    if (b.dataset.a) { criar.aldeia = +b.dataset.a; marcar("[data-a]", b); }
+    if (b.dataset.q) { criar.resp[+b.dataset.q] = b.dataset.t; marcar(`[data-q="${b.dataset.q}"]`, b); }
+    if (b.id === "ok") go(async () => {
+      const resp = criar.resp.filter(Boolean);
+      if (criar.classe !== "Taijutsu" && resp.length < criar.q.perguntas.length) throw new Error("responda as perguntas");
+      if (!criar.aldeia) throw new Error("escolha uma aldeia");
+      await api("/api/personagem", {nome:$("#nome").value, sexo:criar.sexo, classe:criar.classe, respostas:resp, aldeia_id:criar.aldeia});
+      app.onclick = null; boot();
+    });
+  };
+}
+
+/* ---------- shell ---------- */
+const TABS = [["home","🏯","Aldeia"],["luta","⚔️","Luta"],["bag","🎒","Mochila"],["mkt","💰","Mercado"],["kage","👑","Trono"],["rank","🏆","Ranking"]];
+function render(){
+  $("#nav").style.display = "flex";
+  $("#nav").innerHTML = TABS.map(([k,i,n]) => `<button class="${tab===k?"on":""}" data-tab="${k}">${i}<br>${n}</button>`).join("");
+  app.onchange = null; ({home, luta, bag, mkt, kage, rank})[tab]();
+}
+$("#nav").onclick = e => { const b = e.target.closest("[data-tab]"); if (b) { tab = b.dataset.tab; render(); } };
+async function refresh(){ P = await api("/api/perfil"); }
+
+/* ---------- aldeia / perfil ---------- */
+function home(){
+  app.onclick = e => {
+    const b = e.target.closest("button"); if (!b) return;
+    if (b.dataset.mapa) go(async () => { const r = await api("/api/explorar", {mapa:+b.dataset.mapa}); C = r.combate; P.em_luta = true; sel = {postura:"Rápida", reacoes:[]}; tab = "luta"; toast(r.tier === "boss" ? "⚠️ Um chefe apareceu!" : "Inimigo encontrado!"); render(); });
+    if (b.dataset.at) go(async () => { const pts = {}; pts[b.dataset.at] = 1; await api("/api/atributos", {pontos:pts}); await refresh(); home(); });
+    if (b.id === "hosp") go(async () => { const r = await api("/api/hospital", {tipo:"gratis"}); await refresh(); toast(r.mensagem || "Atendimento iniciado"); home(); });
+    if (b.id === "treino") go(async () => { const r = await api("/api/treino", {classe:"Taijutsu", ambiente:"Floresta"}); C = r.combate; P.em_luta = true; tab = "luta"; render(); });
+  };
+  const a = P.atributos, mapas = [1,2,3,4,5,6,7,8,9,10].filter(m => P.nivel >= (m-1)*10);
+  app.innerHTML = `<div class="card"><div class="row"><div><b>${esc(P.nome)}</b> <span class="mut">${esc(P.classe)}${P.elemento ? " · " + esc(P.elemento) : ""}</span><br><span class="mut">${esc(P.aldeia)} · ${esc(P.patente)} · Fama ${P.fama}</span></div><div>Nv ${P.nivel}</div></div>
+    <p class="mut" style="margin:8px 0 2px">HP ${P.hp}/${P.hp_max}</p>${bar(P.hp, P.hp_max, "var(--ok)")}
+    <p class="mut" style="margin:8px 0 2px">Energia ${P.energia}/${P.energia_max}</p>${bar(P.energia, P.energia_max, "var(--ac)")}
+    <p class="mut" style="margin:8px 0 2px">XP (faltam ${P.xp_falta})</p>${bar(P.xp, P.xp + P.xp_falta, "var(--xp)")}
+    <p style="margin:10px 0 0">🪙 ${P.ryos} ryos · 🟡 ${P.ouro_ninja} ouro ninja</p></div>
+  <div class="card"><div class="row"><b>Atributos</b><span class="mut">${P.pontos_livres} pontos livres</span></div><div class="g" style="margin-top:8px">` +
+    Object.entries(a).map(([k, v]) => `<div class="row"><span>${k} <b>${v}</b></span>${P.pontos_livres > 0 ? `<button class="s" data-at="${k.toLowerCase()}">+1</button>` : ""}</div>`).join("") + `</div></div>
+  <div class="card"><b>Explorar</b> <span class="mut">(gasta energia)</span><div class="g" style="margin-top:8px">` + mapas.map(m => `<button data-mapa="${m}">Mapa ${m}</button>`).join("") + `</div></div>
+  <div class="g"><button class="s" id="hosp">🏥 Hospital</button><button class="s" id="treino">🎯 Treinar</button></div>`;
+}
+
+/* ---------- combate reativo ---------- */
+const POST = {"Pesada":"💥 Forte e lenta","Rápida":"⚡ Veloz, leve","Perfurante":"🗡️ Fura defesa","Técnica":"🌀 Gasta chakra"};
+const CONTRA = {"Pesada":"Esquiva","Rápida":"Bloqueio","Perfurante":"Contra-Golpe","Técnica":"Dissipar"};
+const CLS_REA = {Taijutsu:"Contra de Fúria", Ninjutsu:"Substituição Elemental", Genjutsu:"Espelho", Marionetista:"Escudo de Marionete", Kunoichi:"Esquiva Cirúrgica"};
+function luta(){
+  if (!C) { app.innerHTML = `<div class="card">Nenhuma luta ativa. Explore um mapa na Aldeia.</div>`; app.onclick = null; return; }
+  const j = C.jogador, r = C.rival, reas = ["Esquiva","Bloqueio","Contra-Golpe","Dissipar", CLS_REA[P.classe]];
+  const lado = (l, c) => `<div class="card" style="flex:1"><b>${esc(l.nome)}</b><br><span class="mut">${esc(l.classe)}${l.status.length ? " · " + l.status.map(esc).join(", ") : ""}</span>${bar(l.hp, l.hp_max, c)}<span class="mut">${l.hp}/${l.hp_max} · chakra ${l.chakra}</span></div>`;
+  const fim = C.terminou;
+  app.innerHTML = `<div class="mut">Rodada ${C.rodada} · ${esc(C.ambiente)}${C.efeitos.length ? " · " + C.efeitos.map(esc).join(", ") : ""}</div>
+  <div class="row" style="align-items:stretch;flex-wrap:nowrap;gap:8px">${lado(j, "var(--ok)")}${lado(r, "var(--bad)")}</div>
+  ${C.anuncio ? `<div class="card" style="border-color:var(--ac)">⚠️ ${esc(C.anuncio)}</div>` : ""}
+  <div class="card log" id="log">${(C.log || []).map(l => `<p>${esc(l)}</p>`).join("")}</div>` +
+  (fim ? `<div class="card"><b>${C.recompensa && C.recompensa.venceu ? "🏆 Vitória!" : "💀 Derrota"}</b><p class="mut">${[].concat(C.cronica || []).map(esc).join(" ")}</p><p style="margin:6px 0 0">${recomp(C.recompensa)}</p><button id="sair" style="margin-top:8px;width:100%">Voltar à aldeia</button></div>` :
+  `<div class="card"><b>1. Postura de ataque</b><div class="g" style="margin-top:6px">` + Object.keys(POST).map(p => `<button class="s ${sel.postura===p?"on":""}" data-p="${p}">${p}<br><span class="mut">${POST[p]}</span></button>`).join("") + `</div></div>
+   <div class="card"><b>2. Reações (até 2)</b><p class="mut" style="margin:2px 0 6px">Cada reação anula uma postura do rival. Ele costuma repetir o que fez: veja o histórico.</p>
+   <p class="mut">Últimos golpes dele: ${esc((r.historico || []).join(" → ") || "—")}</p><div class="g">` +
+   reas.map(x => `<button class="s ${sel.reacoes.includes(x)?"on":""}" data-r="${esc(x)}">${esc(x)}</button>`).join("") + `</div></div>
+   <div class="g"><button id="go">⚔️ Executar turno</button><button class="s" id="fugir">🏃 Fugir</button></div>`);
+  const l = $("#log"); if (l) l.scrollTop = l.scrollHeight;
+  app.onclick = e => {
+    const b = e.target.closest("button"); if (!b) return;
+    if (b.dataset.p) { sel.postura = b.dataset.p; luta(); }
+    if (b.dataset.r) { const i = sel.reacoes.indexOf(b.dataset.r); if (i >= 0) sel.reacoes.splice(i, 1); else if (sel.reacoes.length < 2) sel.reacoes.push(b.dataset.r); else toast("Máximo de 2 reações"); luta(); }
+    if (b.id === "go") go(async () => { b.disabled = true; C = await api("/api/combate/turno", {postura:sel.postura, reacoes:sel.reacoes}); sel.reacoes = []; luta(); if (C.terminou) refresh(); });
+    if (b.id === "fugir") go(async () => { await api("/api/combate/fugir", {}); C = null; await refresh(); tab = "home"; render(); });
+    if (b.id === "sair") { C = null; refresh().then(() => { tab = "home"; render(); }); }
+  };
+}
+
+function recomp(r){ if (!r) return ""; const n={xp:"XP",ryos:"ryos",fama:"fama",ouro_ninja:"ouro ninja",guerra_pontos:"pontos de guerra",ryos_guerra:"ryos de guerra"}; const tr={conquistado:"👑 Você conquistou o trono!",defendido:"🛡️ O Kage defendeu o trono.",anulado:"O trono mudou durante a luta."}[r.trono]||""; const p=Object.entries(r).filter(([k,v])=>typeof v==="number"&&v>0).map(([k,v])=>"+"+v+" "+(n[k]||esc(k))); const it=[].concat(r.drops||[]).map(x=>esc((x.chave||"").replace(/_/g," "))+(x.qtd>1?" ×"+x.qtd:"")+(x.aviso?" ("+esc(x.aviso)+")":"")).filter(x=>x.trim()); return [tr, p.join(" · "), it.length?"🎁 "+it.join(", "):""].filter(Boolean).join("<br>"); }
+/* ---------- mochila ---------- */
+async function bag(){
+  const m = await api("/api/mochila").catch(e => (toast(e.message), null)); if (!m) return;
+  const li = i => `<div class="card"><div class="row"><div><b class="r-${esc(i.raridade)}">${esc(i.nome)}</b> <span class="mut">${esc(i.slot || "")} · dano ${i.dano ?? 0} · q${i.qualidade ?? 1}${i.vinculado ? " · 🔒" : ""}${i.anunciado ? " · à venda" : ""}</span></div>
+    <div>${i.local === "equipado" ? `<button class="s" data-un="${i.id}">Tirar</button>` : (i.slot ? `<button data-eq="${i.id}">Equipar</button> ` : "") + (!i.vinculado && !i.anunciado ? `<button class="s" data-sell="${i.id}">Vender</button>` : "")}</div></div></div>`;
+  const eq = m.itens.filter(i => i.local === "equipado"), mo = m.itens.filter(i => i.local !== "equipado");
+  app.innerHTML = `<h2>Equipado</h2>${eq.map(li).join("") || '<p class="mut">Nada equipado.</p>'}<h2>Mochila ${mo.length}/${m.capacidade}</h2>${mo.map(li).join("") || '<p class="mut">Vazia.</p>'}` +
+    (m.materiais.length ? `<h2>Materiais</h2><div class="card">${m.materiais.map(x => `${esc(x.chave)} ×${x.quantidade}`).join(" · ")}</div>` : "");
+  app.onclick = e => {
+    const b = e.target.closest("button"); if (!b) return;
+    const d = b.dataset;
+    if (d.eq) go(async () => { await api("/api/equipar", {inventory_id:+d.eq}); bag(); });
+    if (d.un) go(async () => { await api("/api/desequipar", {inventory_id:+d.un}); bag(); });
+    if (d.sell) { const pr = parseInt(prompt("Preço em ryos?"), 10); if (pr > 0) go(async () => { await api("/api/mercado/anunciar", {inventory_id:+d.sell, preco:pr}); toast("Anunciado"); await refresh(); bag(); }); }
+  };
+}
+
+/* ---------- mercado ---------- */
+async function mkt(){
+  const m = await api("/api/mercado").catch(e => (toast(e.message), null)); if (!m) return;
+  app.innerHTML = `<h2>Mercado</h2><p class="mut">Taxa de listagem ${m.taxa_listagem} ryos · taxa de venda ${Math.round(m.taxa_venda * 100)}%</p>` + (m.anuncios.map(a => `<div class="card"><div class="row"><div><b class="r-${esc(a.raridade)}">${esc(a.nome)}</b><br><span class="mut">dano ${a.dano ?? 0} · q${a.qualidade ?? 1} · ${esc(a.vendedor)}</span></div>
+    <div>${a.seller_id === P.id ? `<button class="s" data-cx="${a.id}">Cancelar</button>` : `<button data-buy="${a.id}">🪙 ${a.preco}</button>`}</div></div></div>`).join("") || '<p class="mut">Nenhum anúncio.</p>');
+  app.onclick = e => {
+    const b = e.target.closest("button"); if (!b) return;
+    if (b.dataset.buy) go(async () => { await api("/api/mercado/comprar", {listing_id:+b.dataset.buy}); toast("Comprado!"); await refresh(); mkt(); });
+    if (b.dataset.cx) go(async () => { await api("/api/mercado/cancelar", {listing_id:+b.dataset.cx}); mkt(); });
+  };
+}
+
+
+/* ---------- trono, guerra, playbook ---------- */
+const brtFmt = s => s ? new Date(s.replace(" ", "T") + "Z").toLocaleString("pt-BR", {timeZone:"America/Sao_Paulo", dateStyle:"short", timeStyle:"short"}) : "—";
+let REGRAS = [];
+const REA_TODAS = ["", "Esquiva", "Bloqueio", "Contra-Golpe", "Dissipar"];
+const sel_ = (cls, i, ops, v) => `<select class="${cls}" data-i="${i}" style="background:#12131a;color:var(--tx);border:1px solid var(--bd);border-radius:8px;padding:6px">${ops.map(([k, t]) => `<option value="${esc(k)}" ${String(v) === String(k) ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>`;
+function regraHTML(r, i) {
+  const c = r.se.hp_abaixo !== undefined ? "hp" : "riv";
+  return `<div class="card"><div class="mut">SE</div>${sel_("rc", i, [["hp", "minha vida abaixo de"], ["riv", "rival usou por último"]], c)} ` +
+    (c === "hp" ? sel_("rv", i, [[0.3, "30%"], [0.5, "50%"], [0.7, "70%"]], r.se.hp_abaixo) : sel_("rv", i, C_POSTURAS.map(p => [p, p]), r.se.rival_ultima)) +
+    `<div class="mut" style="margin-top:6px">ENTÃO</div>${sel_("rp", i, [["", "postura padrão"], ...C_POSTURAS.map(p => [p, p])], r.entao.postura || "")} ${sel_("rr", i, REA_TODAS.map(x => [x, x || "reação padrão"]), (r.entao.reacoes || [])[0] || "")} <button class="s" data-del="${i}">✕</button></div>`;
+}
+const C_POSTURAS = ["Pesada", "Rápida", "Perfurante", "Técnica"];
+async function kage() {
+  let est, hall, jor, pb;
+  try { [est, hall, jor, pb] = await Promise.all([api("/api/aldeia"), api("/api/hall"), api("/api/jornal"), api("/api/playbook")]); } catch (e) { return toast(e.message); }
+  REGRAS = pb.regras;
+  const k = est.kage, e = est.eu, g = est.guerra;
+  const trono = est.trono_vago
+    ? `<p>O trono está <b>vago</b>. O Conselho dos Três administra, mas não pode declarar guerra.</p>`
+    : `<p><b>${esc(k.numero)}º Kage de ${esc(est.aldeia)}</b>: ${esc(k.nome)} <span class="mut">${esc(k.classe)} · fama ${k.fama}</span></p>
+       <p class="mut">${k.escudo_ativo ? "🛡️ Escudo do Trono até " + brtFmt(k.escudo_ate) : "Sem escudo: pode ser desafiado"}${k.poderes_suspensos ? " · ⚠️ poderes suspensos (" + k.dias_offline + " dias offline)" : ""}</p>`;
+  const conselho = est.conselho.map(s => `<div class="row"><span>${s.e_kage ? "👑" : "🥷"} ${esc(s.nome)} <span class="mut">${esc(s.classe)}</span></span><span class="mut">${s.fama}</span></div>`).join("") || '<p class="mut">Nenhum Jounin Elite ainda.</p>';
+  let acoes = "";
+  if (est.trono_vago && e.pode_coroar) acoes += `<button id="coroar" style="width:100%;margin-top:8px">👑 Assumir o trono</button>`;
+  else if (est.trono_vago && e.sou_sannin) acoes += `<p class="mut">${esc(e.motivo_coroar)}</p>`;
+  if (!est.trono_vago && !e.sou_kage) {
+    acoes += e.pode_desafiar ? `<button id="desafiar" style="width:100%;margin-top:8px">⚔️ Desafiar o Kage</button>` : `<p class="mut" style="margin-top:8px">Desafio: ${esc(e.motivo_desafio)}</p>`;
+    acoes += `<button class="s" id="desconf" style="width:100%;margin-top:6px">Voto de Desconfiança</button>`;
+  }
+  let guerra = `<p class="mut">Batalha: sábado, 20h–22h (Brasília). Semana ${esc(g.semana)}.</p>`;
+  guerra += g.declaracao ? `<p>Guerra da sua aldeia: <b>${g.declaracao === "aprovada" ? "aprovada ✅" : "pendente (" + g.votos_sim + "/2 votos)"}</b></p>` : `<p class="mut">Sua aldeia não declarou guerra.</p>`;
+  if (e.sou_kage && !g.declaracao) guerra += `<button id="gdecl" style="width:100%">📜 Declarar guerra</button>`;
+  if (e.sou_sannin && !e.sou_kage && g.declaracao === "pendente") guerra += `<button id="gvot" style="width:100%">✅ Apoiar a guerra</button>`;
+  if (g.em_janela && g.declaracao === "aprovada") guerra += `<button id="glutar" style="width:100%;margin-top:6px">⚔️ Lutar pela aldeia (${g.lutas_minhas}/${g.lutas_max})</button>`;
+  guerra += g.placar.length ? `<div style="margin-top:8px">${g.placar.map((x, i) => `<div class="row"><span>${i + 1}. ${esc(x.aldeia)}</span><b>${x.pontos}</b></div>`).join("")}</div>` : "";
+  if (g.dominio_ate) guerra += `<p class="mut">🏆 Domínio até ${brtFmt(g.dominio_ate)}: +10% ryos na exploração.</p>`;
+  app.innerHTML = `<h2>👑 Trono de ${esc(est.aldeia)}</h2><div class="card">${trono}<b>Conselho dos Três</b>${conselho}<p class="mut" style="margin:8px 0 0">Você: ${esc(e.patente)} · fama ${e.fama}${e.sou_sannin ? " · Sannin" : ""}. Para ser Kage: ${e.fama_para_kage}. Bônus de ryos da aldeia: ×${est.bonus_ryos}</p>${acoes}</div>
+  <h2>⚔️ Guerra das Vilas</h2><div class="card">${guerra}</div>
+  <h2>🛡️ Minha defesa (Playbook)</h2><div class="card"><p class="mut" style="margin-top:0">Quando outro jogador lutar contra você (Trono ou Guerra), até 3 regras guiam seu ninja.</p><div id="regras">${REGRAS.map(regraHTML).join("")}</div>
+  <div class="g"><button class="s" id="addr" ${REGRAS.length >= 3 ? "disabled" : ""}>+ Regra</button><button id="saver">Salvar</button></div></div>
+  <h2>📜 Jornal</h2><div class="card">${jor.jornal.map(x => `<p style="margin:4px 0">${esc(x.texto)} <span class="mut">${brtFmt(x.criado_em)}</span></p>`).join("") || '<p class="mut">Sem notícias.</p>'}</div>
+  <h2>🏛️ Salão dos Kages</h2>${hall.hall.map(x => `<div class="card"><b>${esc(x.numero)}º Kage de ${esc(x.aldeia)}</b>: ${esc(x.player_nome)}${x.discurso ? `<br><span class="mut">“${esc(x.discurso)}”</span>` : ""}</div>`).join("") || '<p class="mut">Nenhum Kage coroado ainda.</p>'}`;
+  const lerRegras = () => { REGRAS = [...app.querySelectorAll("#regras > .card")].map((c, i) => {
+    const q = s => c.querySelector(s).value, hp = q(".rc") === "hp", v = q(".rv"), post = q(".rp"), rea = q(".rr"), entao = {};
+    if (post) entao.postura = post; if (rea) entao.reacoes = [rea];
+    return {se: hp ? {hp_abaixo: parseFloat(v)} : {rival_ultima: v}, entao}; }); };
+  app.onchange = ev => { if (ev.target.classList.contains("rc")) { lerRegras(); const i = +ev.target.dataset.i; REGRAS[i].se = ev.target.value === "hp" ? {hp_abaixo: 0.5} : {rival_ultima: "Pesada"}; } else lerRegras(); kageRedesenhar(); };
+  app.onclick = ev => {
+    const b = ev.target.closest("button"); if (!b) return;
+    const iniciar = r => { C = r.combate; P.em_luta = true; sel = {postura: "Rápida", reacoes: []}; tab = "luta"; render(); };
+    if (b.id === "coroar") go(async () => { await api("/api/trono/coroar", {discurso: prompt("Discurso de coroação (até 140 caracteres)") || ""}); kage(); });
+    if (b.id === "desafiar") go(async () => { if (confirm("Desafiar o Kage? Atributos normalizados, 1 tentativa por 24h.")) iniciar(await api("/api/trono/desafiar", {})); });
+    if (b.id === "desconf") go(async () => { const r = await api("/api/trono/desconfianca", {}); toast(r.kage_caiu ? "O Kage caiu!" : `Voto registrado: ${r.votos}/${r.ativos} ativos`); kage(); });
+    if (b.id === "gdecl") go(async () => { await api("/api/guerra/declarar", {}); kage(); });
+    if (b.id === "gvot") go(async () => { await api("/api/guerra/votar", {apoiar: true}); kage(); });
+    if (b.id === "glutar") go(async () => iniciar(await api("/api/guerra/lutar", {})));
+    if (b.id === "addr") { lerRegras(); REGRAS.push({se: {hp_abaixo: 0.5}, entao: {}}); kageRedesenhar(); }
+    if (b.dataset.del !== undefined) { lerRegras(); REGRAS.splice(+b.dataset.del, 1); kageRedesenhar(); }
+    if (b.id === "saver") go(async () => { lerRegras(); await api("/api/playbook", {regras: REGRAS}); toast("Playbook salvo"); });
+  };
+}
+function kageRedesenhar() { const r = app.querySelector("#regras"); if (!r) return; r.innerHTML = REGRAS.map(regraHTML).join(""); const a = app.querySelector("#addr"); if (a) a.disabled = REGRAS.length >= 3; }
+
+/* ---------- ranking ---------- */
+async function rank(por = "nivel"){
+  const r = await api("/api/ranking?por=" + por).catch(e => (toast(e.message), null)); if (!r) return;
+  app.innerHTML = `<div class="g" style="margin-bottom:10px"><button class="${por==="nivel"?"":"s"}" data-por="nivel">Nível</button><button class="${por==="fama"?"":"s"}" data-por="fama">Fama</button></div>` +
+    r.ranking.map((x, i) => `<div class="card row"><span>${i + 1}. <b>${esc(x.nome)}</b> <span class="mut">${esc(x.classe)}</span></span><span>${por === "fama" ? "Fama " + x.fama : "Nv " + x.nivel}</span></div>`).join("");
+  app.onclick = e => { const b = e.target.closest("[data-por]"); if (b) rank(b.dataset.por); };
+}
+
+boot();
+</script>
+</body>
+</html>
