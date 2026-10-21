@@ -90,7 +90,12 @@ def create_app():
     @app.route("/")
     @app.route("/jogo")
     def jogo():
-        return send_from_directory(STATIC_DIR, "jogo.html")
+        # Procura em static/ e também na raiz, caso o arquivo tenha ido para lá
+        for pasta in (STATIC_DIR, BASE_DIR):
+            if os.path.isfile(os.path.join(pasta, "jogo.html")):
+                return send_from_directory(pasta, "jogo.html")
+        return ("Arquivo jogo.html não encontrado no servidor. "
+                "Envie static/jogo.html para o GitHub e faça um novo deploy."), 404
 
     @app.route("/saude")
     def saude():
