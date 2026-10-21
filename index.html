@@ -68,13 +68,15 @@ async function criacao(){
   <div class="g" style="margin-top:8px"><button class="s on" data-sx="M">Masculino</button><button class="s" data-sx="F">Feminino</button></div></div>
   <div class="card"><b>Classe</b>` + Object.keys(CLASSES).map(c => `<button class="s ${c==="Ninjutsu"?"on":""}" style="width:100%;margin-top:6px;text-align:left" data-c="${c}">${c}<br><span class="mut">${CLASSES[c]}</span></button>`).join("") + `</div>
   <div class="card"><b>Aldeia</b>` + q.aldeias.map(a => `<button class="s" style="width:100%;margin-top:6px;text-align:left" data-a="${a.id}">${esc(a.nome)} <span class="mut">${esc(a.significado)} · ${a.moradores} moradores</span></button>`).join("") + `</div>
-  <div id="qs"><h2>Descubra seu elemento</h2>${quest}<p class="mut">Taijutsu não usa elemento, as perguntas são ignoradas.</p></div>
+  <div id="qs"><h2>Descubra seu elemento</h2>${quest}</div>
   <button id="ok" style="width:100%">Começar a jornada</button>`;
+  const mostrarQs = () => { $("#qs").style.display = criar.classe === "Taijutsu" ? "none" : ""; };
+  mostrarQs();
   const marcar = (sel, el) => { app.querySelectorAll(sel).forEach(b => b.classList.remove("on")); el.classList.add("on"); };
   app.onclick = e => {
     const b = e.target.closest("button"); if (!b) return;
     if (b.dataset.sx) { criar.sexo = b.dataset.sx; marcar("[data-sx]", b); }
-    if (b.dataset.c) { criar.classe = b.dataset.c; marcar("[data-c]", b); }
+    if (b.dataset.c) { criar.classe = b.dataset.c; marcar("[data-c]", b); mostrarQs(); }
     if (b.dataset.a) { criar.aldeia = +b.dataset.a; marcar("[data-a]", b); }
     if (b.dataset.q) { criar.resp[+b.dataset.q] = b.dataset.t; marcar(`[data-q="${b.dataset.q}"]`, b); }
     if (b.id === "ok") go(async () => {
@@ -104,8 +106,8 @@ function home(){
     if (b.dataset.mapa) go(async () => { const r = await api("/api/explorar", {mapa:+b.dataset.mapa}); C = r.combate; P.em_luta = true; sel = {postura:"Rápida", reacoes:[]}; tab = "luta"; toast(r.tier === "boss" ? "⚠️ Um chefe apareceu!" : "Inimigo encontrado!"); render(); });
     if (b.dataset.at) go(async () => { const pts = {}; pts[b.dataset.at] = 1; await api("/api/atributos", {pontos:pts}); await refresh(); home(); });
     if (b.id === "jutbtn") { tab = "jut"; render(); }
-    if (b.id === "hosp") go(async () => { const r = await api("/api/hospital", {tipo:"gratis"}); await refresh(); toast(r.mensagem || "Atendimento iniciado"); home(); });
-    if (b.id === "treino") go(async () => { const r = await api("/api/treino", {classe:"Taijutsu", ambiente:"Floresta"}); C = r.combate; P.em_luta = true; tab = "luta"; render(); });
+    if (b.id === "hosp") hospitalTela();
+    if (b.id === "treino") treinoMenu();
   };
   const a = P.atributos, mapas = [1,2,3,4,5,6,7,8,9,10].filter(m => P.nivel >= (m-1)*10);
   app.innerHTML = `<div class="card"><div class="row"><div><b>${esc(P.nome)}</b> <span class="mut">${esc(P.classe)}${P.elemento ? " · " + esc(P.elemento) : ""}</span><br><span class="mut">${esc(P.aldeia)} · ${esc(P.patente)} · Fama ${P.fama}</span></div><div>Nv ${P.nivel}</div></div>
@@ -118,6 +120,58 @@ function home(){
   <div class="card"><b>Explorar</b> <span class="mut">(gasta energia)</span><div class="g" style="margin-top:8px">` + mapas.map(m => `<button data-mapa="${m}">Mapa ${m}</button>`).join("") + `</div></div>
   <div class="g"><button class="s" id="hosp">🏥 Hospital</button><button class="s" id="treino">🎯 Treinar</button></div>
   <button class="s" id="jutbtn" style="width:100%;margin-top:8px">📜 Jutsus, Selos e Builds</button>`;
+}
+
+/* ---------- hospital ---------- */
+let hospTimer = null;
+async function hospitalTela(){
+  clearInterval(hospTimer);
+  let H; try { H = await api("/api/hospital"); } catch (e) { return toast(e.message); }
+  const fmt = s => s >= 60 ? Math.floor(s / 60) + "min " + (s % 60) + "s" : s + "s";
+  const cheia = H.hp >= H.hp_max;
+  const opc = (id, tit, desc, custo) => `<div class="card"><div class="row"><div><b>${tit}</b><br><span class="mut">${desc}</span></div>
+    <div><button data-h="${id}" ${cheia || H.em_luta || (custo !== null && H.ryos < custo) ? "disabled" : ""}>${custo === null ? "Grátis" : "🪙 " + custo}</button></div></div></div>`;
+  app.innerHTML = `<h2>🏥 Hospital</h2>
+  <div class="card"><div class="row"><b>Sua vida</b><span>${H.hp}/${H.hp_max}</span></div>${bar(H.hp, H.hp_max, "var(--ok)")}
+    <p class="mut" style="margin:8px 0 0">${H.em_luta ? "Hospital fechado durante lutas." : cheia ? "Você já está com a vida cheia." : "🪙 Você tem " + H.ryos + " ryos."}</p></div>
+  <div class="card" id="hGratisInfo"><span class="mut">${H.espera_seg > 0 ? "Atendimento grátis disponível em <b id='hEspera'>" + fmt(H.espera_seg) + "</b>" : "Atendimento grátis disponível agora"}</span></div>
+  ${opc("gratis", "Atendimento grátis", `Recupera 50% da vida perdida. Depois, espera de ${H.espera_min} min.`, null).replace(H.espera_seg > 0 ? "<button" : "@@", "<button disabled")}
+  ${opc("basico", "Tratamento básico", "Recupera 50% da vida perdida, sem espera.", H.custos.basico)}
+  ${opc("completo", "Tratamento completo", "Recupera 100% da vida.", H.custos.completo)}
+  ${opc("premium", "Tratamento premium", "Recupera 100% da vida e dá bônus de ataque por 15 min.", H.custos.premium)}
+  <button class="s" id="hVoltar" style="width:100%;margin-top:8px">← Voltar à aldeia</button>`;
+  if (H.espera_seg > 0) {
+    let resta = H.espera_seg;
+    hospTimer = setInterval(() => {
+      const el = $("#hEspera"); if (!el) return clearInterval(hospTimer);
+      resta--; if (resta <= 0) { clearInterval(hospTimer); hospitalTela(); } else el.textContent = fmt(resta);
+    }, 1000);
+  }
+  app.onclick = e => {
+    const b = e.target.closest("button"); if (!b || b.disabled) return;
+    if (b.id === "hVoltar") { clearInterval(hospTimer); tab = "home"; render(); }
+    if (b.dataset.h) go(async () => { await api("/api/hospital", {tipo: b.dataset.h}); await refresh(); toast("Atendimento concluído"); hospitalTela(); });
+  };
+}
+
+/* ---------- treino ---------- */
+const AMB_DESC = {"Floresta":"Mais esquiva para todos","Deserto":"Terra mais forte, vida regenera menos","Rio":"Água mais forte, agilidade menor","Neve":"Chance de congelar","Vulcão":"Dano de queimadura a cada rodada","Chuva":"Água e Relâmpago mais fortes, Fogo mais fraco","Névoa":"Menos acerto, Genjutsu mais forte"};
+let treinoSel = {classe:"Taijutsu", ambiente:"Floresta"};
+function treinoMenu(){
+  const btn = (attr, k, sub, on) => `<button class="s ${on ? "on" : ""}" style="width:100%;margin-top:6px;text-align:left" data-${attr}="${esc(k)}">${esc(k)}${sub ? `<br><span class="mut">${esc(sub)}</span>` : ""}</button>`;
+  app.innerHTML = `<h2>🎯 Campo de treino</h2>
+  <div class="card"><p class="mut" style="margin:0">Lute contra um boneco para testar posturas e reações. O treino começa com a vida cheia, não gasta energia, não muda a sua vida real e também não dá XP nem ryos.</p></div>
+  <div class="card"><b>Boneco de qual classe?</b>` + Object.keys(CLASSES).map(c => btn("tc", c, CLASSES[c], treinoSel.classe === c)).join("") + `</div>
+  <div class="card"><b>Ambiente</b>` + Object.keys(AMB_DESC).map(a => btn("ta", a, AMB_DESC[a], treinoSel.ambiente === a)).join("") + `</div>
+  <button id="treinoGo" style="width:100%">⚔️ Começar treino</button>
+  <button class="s" id="treinoVoltar" style="width:100%;margin-top:8px">← Voltar à aldeia</button>`;
+  app.onclick = e => {
+    const b = e.target.closest("button"); if (!b) return;
+    if (b.dataset.tc) { treinoSel.classe = b.dataset.tc; treinoMenu(); }
+    if (b.dataset.ta) { treinoSel.ambiente = b.dataset.ta; treinoMenu(); }
+    if (b.id === "treinoVoltar") { tab = "home"; render(); }
+    if (b.id === "treinoGo") go(async () => { const r = await api("/api/treino", treinoSel); C = r.combate; P.em_luta = true; sel = {postura:"Rápida", reacoes:[]}; tab = "luta"; render(); });
+  };
 }
 
 /* ---------- combate reativo ---------- */
@@ -133,7 +187,7 @@ function luta(){
   <div class="row" style="align-items:stretch;flex-wrap:nowrap;gap:8px">${lado(j, "var(--ok)")}${lado(r, "var(--bad)")}</div>
   ${C.anuncio ? `<div class="card" style="border-color:var(--ac)">⚠️ ${esc(C.anuncio)}</div>` : ""}
   <div class="card log" id="log">${(C.log || []).map(l => `<p>${esc(l)}</p>`).join("")}</div>` +
-  (fim ? `<div class="card"><b>${C.recompensa && C.recompensa.venceu ? "🏆 Vitória!" : "💀 Derrota"}</b><p class="mut">${[].concat(C.cronica || []).map(esc).join(" ")}</p><p style="margin:6px 0 0">${recomp(C.recompensa)}</p><button id="sair" style="margin-top:8px;width:100%">Voltar à aldeia</button></div>` :
+  (fim && C.tipo === "treino" ? `<div class="card"><b>${C.jogador.hp > 0 && C.rival.hp <= 0 ? "🎯 Treino vencido!" : "🎯 Treino encerrado"}</b><p class="mut">Sem recompensas e sem perda de vida. Use o que aprendeu nas lutas de verdade.</p><div class="g" style="margin-top:8px"><button id="treinarDeNovo">🔁 Treinar de novo</button><button class="s" id="sair">Voltar à aldeia</button></div></div>` : fim ? `<div class="card"><b>${C.recompensa && C.recompensa.venceu ? "🏆 Vitória!" : "💀 Derrota"}</b><p class="mut">${[].concat(C.cronica || []).map(esc).join(" ")}</p><p style="margin:6px 0 0">${recomp(C.recompensa)}</p><button id="sair" style="margin-top:8px;width:100%">Voltar à aldeia</button></div>` :
   `<div class="card"><b>1. Postura de ataque</b><div class="g" style="margin-top:6px">` + Object.keys(POST).map(p => `<button class="s ${sel.postura===p?"on":""}" data-p="${p}">${p}<br><span class="mut">${POST[p]}</span></button>`).join("") + `</div></div>
    ${sel.postura === "Técnica" && j.jutsus && j.jutsus.length ? `<div class="card"><b>Jutsu da Técnica</b><p class="mut" style="margin:2px 0 6px">${P.classe === "Taijutsu" ? "Custa fúria" : "Custa chakra"} · ${j.jutsus.length} equipado(s)</p><button class="s ${!sel.jutsu ? "on" : ""}" style="width:100%;margin-bottom:6px" data-j="">Técnica básica</button>` + j.jutsus.map(x => `<button class="s ${sel.jutsu === x.chave ? "on" : ""}" style="width:100%;margin-bottom:6px;text-align:left" data-j="${esc(x.chave)}" ${x.cd > 0 ? "disabled" : ""}>${esc(x.nome)} <span class="mut">x${x.dano} · custo ${x.custo}${x.cd > 0 ? " · recarga " + x.cd : ""}</span></button>`).join("") + `</div>` : ""}
    <div class="card"><b>2. Reações (até 2)</b><p class="mut" style="margin:2px 0 6px">Cada reação anula uma postura do rival. Ele costuma repetir o que fez: veja o histórico.</p>
@@ -148,6 +202,7 @@ function luta(){
     if (b.dataset.r) { const i = sel.reacoes.indexOf(b.dataset.r); if (i >= 0) sel.reacoes.splice(i, 1); else if (sel.reacoes.length < 2) sel.reacoes.push(b.dataset.r); else toast("Máximo de 2 reações"); luta(); }
     if (b.id === "go") go(async () => { b.disabled = true; C = await api("/api/combate/turno", {postura:sel.postura, reacoes:sel.reacoes, jutsu:sel.postura === "Técnica" ? (sel.jutsu || "") : ""}); sel.reacoes = []; luta(); if (C.terminou) refresh(); });
     if (b.id === "fugir") go(async () => { await api("/api/combate/fugir", {}); C = null; await refresh(); tab = "home"; render(); });
+    if (b.id === "treinarDeNovo") { C = null; refresh().then(treinoMenu); }
     if (b.id === "sair") { C = null; refresh().then(() => { tab = "home"; render(); }); }
   };
 }
@@ -171,15 +226,29 @@ async function bag(){
 }
 
 /* ---------- mercado ---------- */
+let mktView = "loja";
+const SLOTS = {arma:"Arma", cabeca:"Cabeça", amuleto:"Amuleto", peitoral:"Peitoral", pernas:"Pernas", luvas:"Luvas", anel_dir:"Anel", anel_esq:"Anel"};
 async function mkt(){
-  const m = await api("/api/mercado").catch(e => (toast(e.message), null)); if (!m) return;
-  app.innerHTML = `<h2>Mercado</h2><p class="mut">Taxa de listagem ${m.taxa_listagem} ryos · taxa de venda ${Math.round(m.taxa_venda * 100)}%</p>` + (m.anuncios.map(a => `<div class="card"><div class="row"><div><b class="r-${esc(a.raridade)}">${esc(a.nome)}</b><br><span class="mut">dano ${a.dano ?? 0} · q${a.qualidade ?? 1} · ${esc(a.vendedor)}</span></div>
-    <div>${a.seller_id === P.id ? `<button class="s" data-cx="${a.id}">Cancelar</button>` : `<button data-buy="${a.id}">🪙 ${a.preco}</button>`}</div></div></div>`).join("") || '<p class="mut">Nenhum anúncio.</p>');
+  const topo = `<div class="g" style="margin-bottom:8px"><button class="${mktView === "loja" ? "" : "s"}" data-v="loja">🏪 Loja da aldeia</button><button class="${mktView === "jog" ? "" : "s"}" data-v="jog">🤝 Jogadores</button></div>`;
   app.onclick = e => {
-    const b = e.target.closest("button"); if (!b) return;
+    const b = e.target.closest("button"); if (!b || b.disabled) return;
+    if (b.dataset.v) { mktView = b.dataset.v; mkt(); }
+    if (b.dataset.loja) go(async () => { await api("/api/loja/comprar", {chave:b.dataset.loja}); await refresh(); toast("Comprado! Veja na Mochila."); mkt(); });
     if (b.dataset.buy) go(async () => { await api("/api/mercado/comprar", {listing_id:+b.dataset.buy}); toast("Comprado!"); await refresh(); mkt(); });
     if (b.dataset.cx) go(async () => { await api("/api/mercado/cancelar", {listing_id:+b.dataset.cx}); mkt(); });
   };
+  if (mktView === "loja") {
+    const m = await api("/api/loja").catch(e => (toast(e.message), null)); if (!m) return;
+    app.innerHTML = topo + `<p class="mut" style="margin:0 0 8px">🪙 Você tem ${m.ryos} ryos</p>` + m.itens.map(i => {
+      const bon = Object.entries(i.bonus).map(([k, v]) => `+${v} ${k}`).join(" ");
+      return `<div class="card"><div class="row"><div><b class="r-${esc(i.raridade)}">${esc(i.nome)}</b><br><span class="mut">${esc(SLOTS[i.slot] || i.slot)}${i.dano ? " · dano " + i.dano : ""}${bon ? " · " + esc(bon) : ""}</span></div>
+      <div><button data-loja="${esc(i.chave)}" ${m.ryos < i.preco_npc ? "disabled" : ""}>🪙 ${i.preco_npc}</button></div></div></div>`;
+    }).join("");
+    return;
+  }
+  const m = await api("/api/mercado").catch(e => (toast(e.message), null)); if (!m) return;
+  app.innerHTML = topo + `<p class="mut">Taxa de listagem ${m.taxa_listagem} ryos · taxa de venda ${Math.round(m.taxa_venda * 100)}%. Aqui os jogadores vendem itens entre si: para anunciar, abra a Mochila e toque em Vender.</p>` + (m.anuncios.map(a => `<div class="card"><div class="row"><div><b class="r-${esc(a.raridade)}">${esc(a.nome)}</b><br><span class="mut">dano ${a.dano ?? 0} · q${a.qualidade ?? 1} · ${esc(a.vendedor)}</span></div>
+    <div>${a.seller_id === P.id ? `<button class="s" data-cx="${a.id}">Cancelar</button>` : `<button data-buy="${a.id}">🪙 ${a.preco}</button>`}</div></div></div>`).join("") || '<p class="mut">Nenhum anúncio de jogadores ainda.</p>');
 }
 
 

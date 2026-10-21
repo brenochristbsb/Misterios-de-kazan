@@ -278,7 +278,7 @@ def estado_combate(bat, linhas):
                 "historico": l.historico[-3:], "selos": sorted(l.selos), "supremo": l.supremo,
                 "jutsus": [{"chave": k, "nome": j["nome"], "custo": j["custo"], "dano": j["dano"], "cd": l.cds.get(k, 0)} for k, j in l.jutsus.items()]}
     return {"rodada": bat.rodada, "ambiente": bat.ambiente, "terminou": bat.terminou(), "jogador": lut(a), "rival": lut(b),
-            "efeitos": list(bat.efeitos), "anuncio": D.ANUNCIO_BOSS.get(bat.plano_boss) if bat.plano_boss else None,
+            "tipo": getattr(bat, "tipo", None), "efeitos": list(bat.efeitos), "anuncio": D.ANUNCIO_BOSS.get(bat.plano_boss) if bat.plano_boss else None,
             "log": linhas}
 
 
@@ -287,6 +287,7 @@ def iniciar_combate(db, p, rival, tipo, ambiente, ctx, jogador_l=None, decisor_r
         raise Erro("você já está em uma luta", 409)
     bat = C.Batalha(jogador_l or montar_lutador(db, p), rival, ambiente, boss=(tipo == "boss"), decisores=[C.escolha_jogador, decisor_rival or C.decisor_monstro])
     bat.plano_boss = random.choice(C.POSTURAS) if tipo == "boss" else None
+    bat.tipo = tipo
     bat.abrir()
     bid = uuid.uuid4().hex
     db.execute("INSERT INTO active_battles(id,player_id,tipo,estado,contexto_json) VALUES (?,?,?,?,?)",
@@ -311,7 +312,7 @@ def liquidar(db, p, bat, tipo, ctx):
     jogador_l, rival = bat.ls
     venceu = bat.vencedor is jogador_l
     recompensa = {"venceu": venceu}
-    if tipo not in ("trono", "guerra"):   # duelos normalizados nao mexem na vida real
+    if tipo not in ("trono", "guerra", "treino"):   # duelos normalizados e treino nao mexem na vida real
         hp_final = max(1.0, jogador_l.hp) if venceu else max(1.0, jogador_l.hp_max * 0.1)
         db.execute("UPDATE players SET hp_atual=? WHERE id=?", (hp_final, p["id"]))
     if tipo in ("pve", "boss") and venceu:
@@ -604,10 +605,24 @@ def create_app(db_path=None, dev=None, bot_token=None):
             raise Erro("termine a luta atual", 409)
         boneco = C.criar(classe, f"Boneco de {classe}", random.choice(C.ELEMENTOS))
         with tx(db()):
-            est = iniciar_combate(db(), p, boneco, "treino", amb, {"tier": "treino", "bid": uuid.uuid4().hex})
+            lut = montar_lutador(db(), p)
+            lut.hp = lut.hp_max   # treino sempre começa com vida cheia e não altera a vida real
+            est = iniciar_combate(db(), p, boneco, "treino", amb, {"tier": "treino", "bid": uuid.uuid4().hex}, jogador_l=lut)
         return jsonify(combate=est)
 
     # --- hospital
+    @app.get("/api/hospital")
+    def hospital_estado():
+        p = atual()
+        lut = montar_lutador(db(), p)
+        desc = 0.7 if p["classe"] == "Kunoichi" else 1.0
+        resta = 0
+        if p["hospital_livre_em"]:
+            resta = max(0, int((datetime.strptime(p["hospital_livre_em"], FMT) - agora()).total_seconds()))
+        return jsonify(hp=int(lut.hp), hp_max=int(lut.hp_max), espera_seg=resta, em_luta=em_luta(p["id"]), ryos=p["ryos"],
+                       espera_min=int(10 * (0.5 if p["classe"] == "Kunoichi" else 1.0)),
+                       custos={k: int(v * p["nivel"] * desc) for k, v in HOSPITAL.items()})
+
     @app.post("/api/hospital")
     def hospital():
         p, c = atual(), request.get_json(force=True)
@@ -616,6 +631,8 @@ def create_app(db_path=None, dev=None, bot_token=None):
             raise Erro("hospital bloqueado durante lutas", 409)
         lut = montar_lutador(d, p)
         perdido = lut.hp_max - lut.hp
+        if perdido <= 0:
+            raise Erro("você já está com a vida cheia", 409)
         with tx(d):
             if tipo == "gratis":
                 espera = 10 * (0.5 if p["classe"] == "Kunoichi" else 1.0)
@@ -634,6 +651,31 @@ def create_app(db_path=None, dev=None, bot_token=None):
             else:
                 raise Erro("tratamento inválido")
         return jsonify(perfil_json(d, jogador(d, p["id"])))
+
+    # --- loja da aldeia (NPC)
+    @app.get("/api/loja")
+    def loja():
+        p = atual()
+        rows = db().execute("""SELECT chave, nome, slot, raridade, classe_restrita, dano, bonus_json, preco_npc FROM items
+                               WHERE preco_npc > 0 AND slot IS NOT NULL AND (classe_restrita IS NULL OR classe_restrita = ?)
+                               ORDER BY preco_npc, nome""", (p["classe"],)).fetchall()
+        itens = [{**{k: r[k] for k in ("chave", "nome", "slot", "raridade", "dano", "preco_npc")},
+                  "bonus": json.loads(r["bonus_json"] or "{}")} for r in rows]
+        return jsonify(itens=itens, ryos=p["ryos"])
+
+    @app.post("/api/loja/comprar")
+    def loja_comprar():
+        p, c = atual(), request.get_json(force=True)
+        it = db().execute("SELECT * FROM items WHERE chave=? AND preco_npc > 0 AND slot IS NOT NULL", (c.get("chave"),)).fetchone()
+        if not it or (it["classe_restrita"] and it["classe_restrita"] != p["classe"]):
+            raise Erro("item indisponível", 404)
+        with tx(db()):
+            mover(db(), p["id"], "ryos", -it["preco_npc"], f"loja {it['chave']}")
+            try:
+                db().execute("INSERT INTO inventory(player_id,item_id) VALUES (?,?)", (p["id"], it["id"]))
+            except sqlite3.DatabaseError:
+                raise Erro("mochila cheia", 409)
+        return jsonify(perfil_json(db(), jogador(db(), p["id"])))
 
     # --- mercado P2P
     @app.get("/api/mercado")
