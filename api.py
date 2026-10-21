@@ -1,111 +1,40 @@
-import sqlite3
 from flask import Flask, jsonify, request
-from config import config
-from sistema_convites import obter_codigo_convite, resgatar_convite, contar_convites
-from sistema_historias import listar_sagas, obter_inicio_saga, buscar_capitulo, verificar_requisito, salvar_progresso, obter_progresso
+import os
 
-def conectar():
-    return sqlite3.connect(config.DB_PATH)
+app = Flask(__name__)
 
-def init_db():
-    import os
-    if not os.path.exists(config.DB_PATH):
-        with conectar() as conn:
-            with open('schema.sql', 'r', encoding='utf-8') as f:
-                conn.executescript(f.read())
-        print("✅ Banco criado!")
+# Banco de dados simples em memória
+players = {}
 
-def create_app():
-    app = Flask(__name__)
-    init_db()
+@app.route('/')
+def home():
+    return jsonify({
+        "mensagem": "Bem-vindo aos Mistérios de Kazan!",
+        "status": "online"
+    })
+
+@app.route('/api/criar-jogador', methods=['POST'])
+def criar_jogador():
+    dados = request.get_json()
+    nome = dados.get('nome')
+    if not nome:
+        return jsonify({"erro": "Nome é obrigatorio"}), 400
     
-    @app.errorhandler(404)
-    def not_found(e):
-        return {"erro": "Não encontrado", "codigo": 404}, 404
-    
-    @app.errorhandler(500)
-    def server_error(e):
-        return {"erro": "Erro interno", "codigo": 500}, 500
-    
-    @app.route("/")
-    def boas_vindas():
-        return jsonify({
-            "jogo": "Mistérios de Kazan",
-            "versao": "0.1.0",
-            "status": "online"
-        })
-    
-    @app.route("/api/convites/meu", methods=["GET"])
-    def meu_convite():
-        uid = 1
-        with conectar() as db:
-            codigo = obter_codigo_convite(db, uid)
-            total = contar_convites(db, uid)
-            return jsonify({"codigo": codigo, "convidados": total})
-    
-    @app.route("/api/convites/usar", methods=["POST"])
-    def usar_convite():
-        uid = 1
-        dados = request.get_json() or {}
-        codigo = dados.get("codigo", "")
-        if not codigo:
-            return {"erro": "Informe o código"}, 400
-        with conectar() as db:
-            res = resgatar_convite(db, uid, codigo)
-            return jsonify(res)
-    
-    @app.route("/api/historias/sagas", methods=["GET"])
-    def sagas_lista():
-        return jsonify({"sagas": listar_sagas()})
-    
-    @app.route("/api/historias/iniciar", methods=["POST"])
-    def iniciar_saga():
-        uid = 1
-        dados = request.get_json() or {}
-        saga_id = dados.get("saga_id")
-        cap = obter_inicio_saga(saga_id)
-        if not cap:
-            return {"erro": "Saga não encontrada"}, 404
-        with conectar() as db:
-            salvar_progresso(db, uid, saga_id, cap.id)
-        return jsonify({
-            "saga_id": saga_id,
-            "capitulo": cap.id,
-            "titulo": cap.titulo,
-            "texto": cap.texto
-        })
-    
-    @app.route("/api/historias/capitulo", methods=["GET"])
-    def ler_capitulo():
-        uid = 1
-        saga_id = request.args.get("saga")
-        cap_id = request.args.get("capitulo")
-        if not saga_id:
-            return {"erro": "Informe a saga"}, 400
-        if not cap_id:
-            with conectar() as db:
-                prog = obter_progresso(db, uid, saga_id)
-                cap_id = prog["capitulo_atual"]
-                if not cap_id:
-                    return {"erro": "Saga não iniciada"}, 404
-        cap = buscar_capitulo(saga_id, cap_id)
-        if not cap:
-            return {"erro": "Capítulo não encontrado"}, 404
-        with conectar() as db:
-            jogador_db = db.execute("SELECT nivel FROM players WHERE id = ?", (uid,)).fetchone()
-        jogador = {"nivel": jogador_db[0] if jogador_db else 1}
-        if not verificar_requisito(cap, jogador):
-            return {
-                "titulo": cap.titulo,
-                "bloqueado": True,
-                "requisito": cap.requisito,
-                "mensagem": "Você ainda não atende aos requisitos."
-            }, 200
-        return jsonify({
-            "titulo": cap.titulo,
-            "texto": cap.texto,
-            " "proximo": cap.proximo,
-            "recompensas": cap.recompensas
-        })
-    
-    return app
+    jogador_id = len(players) + 1
+    players[jogador_id] = {
+        "id": jogador_id,
+        "nome": nome,
+        "nivel": 1,
+        "experiencia": 0
+    }
+    return jsonify(players[jogador_id]), 201
+
+@app.route('/api/jogador/<int:jogador_id>', methods=['GET'])
+def buscar_jogador(jogador_id):
+    if jogador_id not in players:
+        return jsonify({"erro": "Jogador nao encontrado"}), 404
+    return jsonify(players[jogador_id])
+
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
