@@ -46,7 +46,7 @@ ESCALA_DANO = 0.68
 
 # Bloco 3: dano verdadeiro é só do Bisturi de Chakra (golpe com dano_verdadeiro=True).
 # True devolve o comportamento antigo (todo ataque do Ninja Médico ignorando o Vigor).
-MEDICO_BASICO_VERDADEIRO = False
+MEDICO_BASICO_VERDADEIRO = True
 
 MULT_CLASSE = {
     "taijutsu": 1.0,
