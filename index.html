@@ -14,108 +14,34 @@
     fontFamily: { jp: ['"Shippori Mincho"', 'Georgia', 'serif'] } } } };
 </script>
 <style>
-  body {
-    background: radial-gradient(ellipse 85% 45% at 50% -6%,#3b1519 0,transparent 62%), radial-gradient(circle at 90% 7%,rgba(217,169,63,.17) 0,rgba(217,169,63,0) 17%), radial-gradient(ellipse at 50% 120%,#1a0d12 0,transparent 55%), #0c0b0d fixed;
-    color: #ece6da;
-    font-family: 'Arial', sans-serif;
-    -webkit-tap-highlight-color: transparent;
-    font-feature-settings: "tnum";
-  }
-  .card {
-    background: linear-gradient(165deg,#1e191f 0%,#141116 72%);
-    border: 1px solid #2f282f;
-    border-radius: 1rem;
-    box-shadow: 0 12px 30px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.045);
-    padding: 1rem;
-  }
-  .slot {
-    border: 1px dashed #3a323a;
-    border-radius: .75rem;
-    padding: .6rem;
-    min-width: 0;
-    background: #17141a;
-    color: #a0a5b5;
-  }
-  h2 {
-    font-family: "Shippori Mincho", Georgia, serif;
-    font-weight: 800;
-    font-size: 1.05rem;
-  }
-  h2::before {
-    content: "";
-    display: inline-block;
-    width: .2rem;
-    height: .95em;
-    margin-right: .55rem;
-    vertical-align: -.12em;
-    border-radius: 2px;
-    background: linear-gradient(#e8684f,#a82a1a);
-  }
-  nav {
-    background: linear-gradient(180deg,rgba(20,16,21,.94),rgba(9,8,10,.99)) !important;
-    box-shadow: 0 -8px 24px rgba(0,0,0,.45);
-  }
-  nav button {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: .15rem;
-    padding: .55rem 0;
-    font-size: .62rem;
-    color: #ece6da80;
-    border-top: 2px solid transparent;
-    position: relative;
-    transition: color .2s;
-  }
-  nav button.on {
-    color: #f0c860;
-  }
-  nav button.on::before {
-    content: "";
-    position: absolute;
-    top: 0;
-    left: 20%;
-    right: 20%;
-    height: 2px;
-    border-radius: 2px;
-    background: linear-gradient(90deg, transparent, #d9a93f, transparent);
-    box-shadow: 0 0 12px #d9a93f;
-  }
-  nav svg {
-    width: 1.4rem;
-    height: 1.4rem;
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 1.7;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-    transition: transform .2s, filter .2s;
-  }
-  nav button.on svg {
-    transform: translateY(-1px) scale(1.1);
-    filter: drop-shadow(0 0 6px rgba(217,169,63,.55));
-  }
-  .tab:not(.hidden) {
-    animation: tabin .28s ease both;
-  }
-  @keyframes tabin {
-    from { opacity: 0; transform: translateY(8px); }
-    to { opacity: 1; transform: none; }
-  }
-  ::-webkit-scrollbar { width: 6px; }
-  ::-webkit-scrollbar-thumb { background: #2f282f; border-radius: 6px; }
+  body{background:radial-gradient(ellipse 85% 45% at 50% -6%,#3b1519 0,transparent 62%),radial-gradient(circle at 90% 7%,rgba(217,169,63,.17) 0,rgba(217,169,63,0) 17%),radial-gradient(ellipse at 50% 120%,#1a0d12 0,transparent 55%),#0c0b0d fixed;color:#ece6da;-webkit-tap-highlight-color:transparent;font-feature-settings:"tnum"}
+  header{background:linear-gradient(180deg,rgba(14,12,15,.97),rgba(12,11,13,.86))!important;box-shadow:0 8px 24px rgba(0,0,0,.45)}
+  .card{background:linear-gradient(165deg,#1e191f 0%,#141116 72%);border:1px solid #2f282f;border-radius:1rem;box-shadow:0 12px 30px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.045);padding:1rem}
+  h2{font-family:"Shippori Mincho",Georgia,serif;font-weight:800;font-size:1.05rem}
+  h2::before{content:"";display:inline-block;width:.2rem;height:.95em;margin-right:.55rem;vertical-align:-.12em;border-radius:2px;background:linear-gradient(#e8684f,#a82a1a)}
+  .slot{border:1px dashed #3a323a;border-radius:.75rem;padding:.6rem;min-width:0}
+  nav{background:linear-gradient(180deg,rgba(20,16,21,.94),rgba(9,8,10,.99))!important;box-shadow:0 -8px 24px rgba(0,0,0,.45)}
+  nav button{display:flex;flex-direction:column;align-items:center;gap:.15rem;padding:.55rem 0;font-size:.62rem;color:#ece6da80;border-top:2px solid transparent;position:relative;transition:color .2s}
+  nav button.on{color:#f0c860}
+  nav button.on::before{content:"";position:absolute;top:0;left:20%;right:20%;height:2px;border-radius:2px;background:linear-gradient(90deg,transparent,#d9a93f,transparent);box-shadow:0 0 12px #d9a93f}
+  nav button svg{width:1.4rem;height:1.4rem;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;transition:transform .2s,filter .2s}
+  nav button.on svg{transform:translateY(-1px) scale(1.1);filter:drop-shadow(0 0 6px rgba(217,169,63,.55))}
+  .tab:not(.hidden){animation:tabin .28s ease both}
+  @keyframes tabin{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+  ::-webkit-scrollbar{width:6px}::-webkit-scrollbar-thumb{background:#2f282f;border-radius:6px}
 </style>
 </head>
 <body class="p-4 pb-24">
 
-  <!-- ── 1. CONTEÚDO GRÁFICO DINÂMICO (PAINEL MESTRE) ── -->
-  <div id="painel-grafico-rpg" class="w-full flex justify-center mb-4">
-    <!-- Imagem única renderizada pelo motor Python local (Pillow) -->
-    <img id="tela-dinamica-ninja" src="" alt="Painel Ninja RPG" 
-         class="w-full max-w-[550px] h-auto rounded-xl border border-line shadow-2xl transition-all duration-300">
+  <!-- ── 1. BLOCO DO PERSONAGEM (ONDE ENTRA A IMAGEM PREMIUM DA IA) ── -->
+  <div id="bloco-personagem-premium" class="w-full flex justify-center mb-4">
+    <!-- Aponta para o seu backend local. Substitua pela URL do Render se estiver em produção -->
+    <img id="imagem-card-rpg" src="http://127.0.0" alt="Perfil Ninja" 
+         class="w-full max-w-[550px] h-auto rounded-xl border border-line shadow-2xl"
+         onerror="this.style.display='none';"> <!-- Oculta se o backend estiver desligado para não quebrar a tela -->
   </div>
 
-  <!-- ── 2. SEÇÃO DE EQUIPAMENTOS (ABAIXO DA IMAGEM) ── -->
+  <!-- ── 2. ABA DE PERFIL E EQUIPAMENTOS (RESTAURADA ORIGINAL) ── -->
   <div id="aba-perfil" class="tab w-full max-w-[550px] mx-auto space-y-4">
     <div class="card">
       <h2 class="text-gold mb-3">Equipamentos Ninjas</h2>
@@ -133,22 +59,23 @@
     
     <div class="card p-4 text-center">
       <div class="text-xs text-paper/60 mb-1">Capacidade do Inventário</div>
-      <div class="text-base font-bold text-gold">📦 Mochila: <span id="mochila-qtd">0</span> / 30</div>
+      <div class="text-base font-bold text-gold">Mochila: <span id="mochila-qtd">0</span> / 30</div>
     </div>
   </div>
 
-  <!-- ── OUTRAS ABAS DO MINI APP (STANDBY PARA NAVEGAÇÃO) ── -->
-  <div id="aba-portao" class="tab hidden w-full max-w-[550px] mx-auto card text-center p-8">
-    <h2>Portão de Missões</h2>
-    <p class="text-sm text-paper/60 mt-2">Explorações e contratos ninjas carregarão aqui.</p>
+  <!-- ── 3. ABA DO PORTÃO DE MISSÕES (RESTAURADA ORIGINAL) ── -->
+  <div id="aba-portao" class="tab hidden w-full max-w-[550px] mx-auto card p-4">
+    <h2 class="text-gold mb-3">Portão de Missões</h2>
+    <div class="text-sm text-paper/80">Explorações e contratos ninjas carregarão aqui.</div>
   </div>
 
-  <div id="aba-itens" class="tab hidden w-full max-w-[550px] mx-auto card text-center p-8">
-    <h2>Mochila & Consumíveis</h2>
-    <p class="text-sm text-paper/60 mt-2">Gerenciamento de poções e materiais de forja.</p>
+  <!-- ── 4. ABA DE MOCHILA E CONSUMÍVEIS (RESTAURADA ORIGINAL) ── -->
+  <div id="aba-itens" class="tab hidden w-full max-w-[550px] mx-auto card p-4">
+    <h2 class="text-gold mb-3">Mochila & Consumíveis</h2>
+    <div class="text-sm text-paper/80">Gerenciamento de poções e materiais de forja.</div>
   </div>
 
-  <!-- ── 3. NAVEGAÇÃO FIXA DO RODAPÉ (MENU INLINE) ── -->
+  <!-- ── 5. NAVEGAÇÃO DO RODAPÉ (RESTAURADA ORIGINAL) ── -->
   <nav class="fixed bottom-0 left-0 right-0 grid grid-cols-5 border-t border-line z-50">
     <button id="btn-nav-perfil" class="on">
       <svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"/></svg>
@@ -172,75 +99,51 @@
     </button>
   </nav>
 
-  <!-- ── 4. CONTROLADOR DE INTERAÇÃO (JAVASCRIPT INTEGRADO) ── -->
+  <!-- ── 6. CONTROLADOR DE NAVEGAÇÃO JAVASCRIPT ── -->
   <script>
-    // Inicialização do Telegram Mini App
     const tg = window.Telegram.WebApp;
     tg.expand();
 
-    // Endereço absoluto da API rodando no seu backend local
-    const URL_SERVIDOR_API = "http://127.0.0.1:8000";
-
-    // Captura segura do ID e avatar do usuário do Telegram (Fallback id 1 para testes locais)
     const telegramId = tg.initDataUnsafe?.user?.id || 1;
     const userAvatarUrl = tg.initDataUnsafe?.user?.photo_url || "";
+    const URL_BASE = "http://127.0.0.1:8000"; // Altere para a URL do Render em produção
 
-    // Elementos DOM Chave
-    const telaDinamica = document.getElementById('tela-dinamica-ninja');
-    const botoesNav = document.querySelectorAll('nav button');
-    const todasAbas = document.querySelectorAll('.tab');
+    const imgCard = document.getElementById('imagem-card-rpg');
+    const botoes = document.querySelectorAll('nav button');
+    const abas = document.querySelectorAll('.tab');
 
-    // Tratamento de falha gráfica caso o backend esteja desligado ou sem a imagem base
-    telaDinamica.onerror = function() {
-      console.warn("Aviso: Falha ao carregar imagem dinâmica. Verifique se o backend está ativo e o arquivo 'modelo_ia.png' existe na pasta imagem/.");
-    };
+    function alternarAba(idBotao, idAba) {
+      // Altera a classe ativa dos botões do menu
+      botoes.forEach(b => b.classList.remove('on'));
+      document.getElementById(idBotao).classList.add('on');
 
-    // Função central para gerenciar abas e caminhos absolutos de imagem
-    function gerenciarNavegacao(idBotao, alvoAba) {
-      // 1. Resetar botões do menu inferior
-      botoesNav.forEach(btn => btn.classList.remove('on'));
-      const botaoAlvo = document.getElementById(idBotao);
-      if (botaoAlvo) botaoAlvo.classList.add('on');
+      // Altera a visibilidade das abas inferiores de dados
+      abas.forEach(a => a.classList.add('hidden'));
+      const abaAlvo = document.getElementById(idAba);
+      if (abaAlvo) abaAlvo.classList.remove('hidden');
 
-      // 2. Controlar visibilidade dos blocos HTML secundários
-      todasAbas.forEach(aba => aba.classList.add('hidden'));
-      const campoAlvo = document.getElementById(alvoAba);
-      if (campoAlvo) campoAlvo.classList.remove('hidden');
-
-      // 3. Forçar recarga da imagem na API limpando cache com Timestamp
+      // Atualiza a imagem do topo correspondente sem quebrar os elementos do DOM
       const ts = new Date().getTime();
       if (idBotao === 'btn-nav-jutsus') {
-        telaDinamica.src = `${URL_SERVIDOR_API}/api/player/${telegramId}/renderizar_jutsus?t=${ts}`;
+        imgCard.src = `${URL_BASE}/api/player/${telegramId}/renderizar_jutsus?t=${ts}`;
+        imgCard.style.display = 'block';
       } else {
-        telaDinamica.src = `${URL_SERVIDOR_API}/api/player/${telegramId}/cartao_perfil?url_avatar=${encodeURIComponent(userAvatarUrl)}&t=${ts}`;
+        imgCard.src = `${URL_BASE}/api/player/${telegramId}/cartao_perfil?url_avatar=${encodeURIComponent(userAvatarUrl)}&t=${ts}`;
+        imgCard.style.display = 'block';
       }
     }
 
-    // Ouvintes de Clique do Menu Inferior
-    document.getElementById('btn-nav-perfil').addEventListener('click', () => {
-      gerenciarNavegacao('btn-nav-perfil', 'aba-perfil');
-    });
+    // Ouvintes dos botões originais salvos
+    document.getElementById('btn-nav-perfil').addEventListener('click', () => alternarAba('btn-nav-perfil', 'aba-perfil'));
+    document.getElementById('btn-nav-portao').addEventListener('click', () => alternarAba('btn-nav-portao', 'aba-portao'));
+    document.getElementById('btn-nav-itens').addEventListener('click', () => alternarAba('btn-nav-itens', 'aba-itens'));
+    document.getElementById('btn-nav-jutsus').addEventListener('click', () => alternarAba('btn-nav-jutsus', 'none'));
+    document.getElementById('btn-nav-menu').addEventListener('click', () => alternarAba('btn-nav-menu', 'none'));
 
-    document.getElementById('btn-nav-jutsus').addEventListener('click', () => {
-      gerenciarNavegacao('btn-nav-jutsus', 'none'); 
-    });
-
-    document.getElementById('btn-nav-portao').addEventListener('click', () => {
-      gerenciarNavegacao('btn-nav-portao', 'aba-portao');
-    });
-
-    document.getElementById('btn-nav-itens').addEventListener('click', () => {
-      gerenciarNavegacao('btn-nav-itens', 'aba-itens');
-    });
-
-    document.getElementById('btn-nav-menu').addEventListener('click', () => {
-      gerenciarNavegacao('btn-nav-menu', 'none');
-    });
-
-    // Inicialização automática: Dispara o Perfil Ninja unificado assim que o DOM estiver pronto
+    // Carregamento inicial estável do card de perfil
     window.addEventListener('DOMContentLoaded', () => {
       const ts = new Date().getTime();
-      telaDinamica.src = `${URL_SERVIDOR_API}/api/player/${telegramId}/cartao_perfil?url_avatar=${encodeURIComponent(userAvatarUrl)}&t=${ts}`;
+      imgCard.src = `${URL_BASE}/api/player/${telegramId}/cartao_perfil?url_avatar=${encodeURIComponent(userAvatarUrl)}&t=${ts}`;
     });
   </script>
 </body>
