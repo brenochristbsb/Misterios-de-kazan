@@ -6,7 +6,7 @@ from jutsus_dados import JUTSUS, MARCOS, ELEMENTOS
 from api import rank_titulo, effective_stats
 
 def renderizar_aba_jutsus(db: Session, telegram_id: int) -> str:
-    path_modelo = "modelo_ia.png"
+    path_modelo = "imagem/modelo_ia.png"
     if not os.path.exists(path_modelo):
         raise FileNotFoundError("Por favor, garanta o arquivo de arte base no diretório.")
 
