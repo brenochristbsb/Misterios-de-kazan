@@ -7,10 +7,12 @@ from models import Player
 from api import rank_titulo, effective_stats
 
 def obter_avatar_circular(url_avatar: str, tamanho=(134, 134)) -> Image.Image:
+    """Baixa e corta a foto de perfil do Telegram em formato circular com canal alfa."""
     try:
         response = requests.get(url_avatar, timeout=5)
         img_quadrada = Image.open(BytesIO(response.content)).convert("RGBA")
     except Exception:
+        # Fallback se o usuário estiver sem foto de perfil
         img_quadrada = Image.new("RGBA", tamanho, color="#0c1017")
         draw = ImageDraw.Draw(img_quadrada)
         draw.ellipse([15, 15, tamanho-15, tamanho-15], fill="#1e2430")
@@ -25,23 +27,25 @@ def obter_avatar_circular(url_avatar: str, tamanho=(134, 134)) -> Image.Image:
     return avatar_circular
 
 def renderizar_perfil_ninja(db: Session, telegram_id: int, url_avatar: str = None) -> str:
+    """Renderiza os status do banco de dados sobre o modelo visual dark."""
     path_modelo = "imagem/modelo_ia.png"
     if not os.path.exists(path_modelo):
-        raise FileNotFoundError("Por favor, garanta o arquivo 'modelo_ia.png' no diretório.")
+        raise FileNotFoundError("Garante o arquivo 'modelo_ia.png' dentro da pasta imagem/.")
 
     perfil = Image.open(path_modelo).convert("RGBA")
     draw = ImageDraw.Draw(perfil)
 
     player = db.query(Player).filter(Player.telegram_id == telegram_id).first()
     if not player:
-        raise ValueError("Jogador não encontrado no banco de dados.")
+        raise ValueError("Jogador nao encontrado.")
 
     stats_calculados = effective_stats(player)
     titulo_patente = rank_titulo(player)
     nome_recurso = player.classe.recurso if player.classe else "chakra"
 
-    fontes_sistema = ["DejaVuSans.ttf", "LiberationSans-Regular.ttf", "arial.ttf"]
+    fontes_sistema = ["DejaVuSans.ttf", "LiberationSans-Regular.ttf", "Ubuntu-R.ttf", "arial.ttf"]
     font_nome = font_sub = font_stats = ImageFont.load_default()
+
     for f in fontes_sistema:
         try:
             font_nome = ImageFont.truetype(f, 24)
@@ -51,17 +55,20 @@ def renderizar_perfil_ninja(db: Session, telegram_id: int, url_avatar: str = Non
         except IOError:
             continue
 
+    # Inserção do avatar circular no anel de LED
     avatar_final = obter_avatar_circular(url_avatar, tamanho=(134, 134))
     perfil.paste(avatar_final, (42, 42), avatar_final)
 
-    draw.text((295, 35), player.ninja_name.upper(), fill="#FFFFFF", font=font_nome)
-    draw.text((295, 68), f"{titulo_patente} • Nível {player.level}", fill="#00E5FF", font=font_sub)
+    # Textos da interface (Alinhados à direita)
+    draw.text((295, 35), player.nome.upper(), fill="#FFFFFF", font=font_nome)
+    draw.text((295, 68), f"{titulo_patente} • Nivel {player.nivel}", fill="#00E5FF", font=font_sub)
 
+    # Fórmulas de escala de atributos do Bloco 2
     hp_maximo = 100 + (stats_calculados.get("vigor", 5) * 5)
     recurso_maximo = 100 + (stats_calculados.get("inteligencia", 5) * 5) if nome_recurso == "chakra" else 100
 
     config_barras = [
-        {"atual": player.vida_atual, "max": hp_maximo, "cor": "#FF3B30", "y": 194, "label": "HP"},
+        {"atual": player.hp_atual, "max": hp_maximo, "cor": "#FF3B30", "y": 194, "label": "HP"},
         {"atual": player.recurso_atual, "max": recurso_maximo, "cor": "#007AFF" if nome_recurso == "chakra" else "#FF9500", "y": 234, "label": nome_recurso.capitalize()},
         {"atual": player.energia, "max": 25, "cor": "#FFCC00", "y": 274, "label": "Energia"}
     ]
