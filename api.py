@@ -1,8 +1,14 @@
 import os
+from dataclasses import asdict
+
 import telebot
-from flask import Flask, request
+from flask import Flask, request, jsonify, send_from_directory, abort
 
 from bot import bot
+import sistema_historias as hist
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+STATIC_DIR = os.path.join(BASE_DIR, "static")
 
 
 def configurar_webhook():
@@ -20,12 +26,38 @@ def configurar_webhook():
 
 
 def create_app():
-    app = Flask(__name__)
+    app = Flask(__name__, static_folder=STATIC_DIR)
 
+    # --- Mini App (o jogo) ---------------------------------------------
     @app.route("/")
-    def home():
+    @app.route("/jogo")
+    def jogo():
+        return send_from_directory(STATIC_DIR, "jogo.html")
+
+    @app.route("/saude")
+    def saude():
         return "🤖 Mistérios de Kazan — Bot está no ar!"
 
+    # --- API do jogo ---------------------------------------------------
+    @app.route("/api/sagas")
+    def api_sagas():
+        return jsonify(hist.listar_sagas())
+
+    @app.route("/api/saga/<saga_id>/inicio")
+    def api_inicio(saga_id):
+        cap = hist.obter_inicio_saga(saga_id)
+        if not cap:
+            abort(404)
+        return jsonify(asdict(cap))
+
+    @app.route("/api/saga/<saga_id>/capitulo/<cap_id>")
+    def api_capitulo(saga_id, cap_id):
+        cap = hist.buscar_capitulo(saga_id, cap_id)
+        if not cap:
+            abort(404)
+        return jsonify(asdict(cap))
+
+    # --- Webhook do Telegram -------------------------------------------
     @app.route("/webhook", methods=["POST"])
     def webhook():
         if request.headers.get("content-type") == "application/json":
