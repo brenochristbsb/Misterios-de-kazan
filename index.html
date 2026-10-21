@@ -167,7 +167,7 @@
       <span>Itens</span>
     </button>
     <button id="btn-nav-menu">
-      <svg viewBox="0 0 24 24"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></nav>
+      <svg viewBox="0 0 24 24"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
       <span>Menu</span>
     </button>
   </nav>
@@ -191,7 +191,8 @@
     function gerenciarNavegacao(idBotao, alvoAba) {
       // 1. Resetar botões do menu inferior
       botoesNav.forEach(btn => btn.classList.remove('on'));
-      document.getElementById(idBotao).classList.add('on');
+      const botaoAlvo = document.getElementById(idBotao);
+      if (botaoAlvo) botaoAlvo.classList.add('on');
 
       // 2. Controlar visibilidade dos blocos HTML secundários
       todasAbas.forEach(aba => aba.classList.add('hidden'));
@@ -203,7 +204,7 @@
       if (idBotao === 'btn-nav-jutsus') {
         telaDinamica.src = `/api/player/${telegramId}/renderizar_jutsus?t=${ts}`;
       } else {
-        telaDinamica.src = `/api/player/${telegramId}/cartao_perfil?avatar=${encodeURIComponent(userAvatarUrl)}&t=${ts}`;
+        telaDinamica.src = `/api/player/${telegramId}/cartao_perfil?url_avatar=${encodeURIComponent(userAvatarUrl)}&t=${ts}`;
       }
     }
 
@@ -222,13 +223,18 @@
     });
 
     document.getElementById('btn-nav-itens').addEventListener('click', () => {
+      // Abre os consumíveis e mochila secundária abaixo da imagem mestre
       gerenciarNavegacao('btn-nav-itens', 'aba-itens');
+    });
+
+    document.getElementById('btn-nav-menu').addEventListener('click', () => {
+      gerenciarNavegacao('btn-nav-menu', 'none');
     });
 
     // Inicialização automática: Carrega o Cartão de Perfil Mestre do Ninja ao entrar
     window.addEventListener('DOMContentLoaded', () => {
       const ts = new Date().getTime();
-      telaDinamica.src = `/api/player/${telegramId}/cartao_perfil?avatar=${encodeURIComponent(userAvatarUrl)}&t=${ts}`;
+      telaDinamica.src = `/api/player/${telegramId}/cartao_perfil?url_avatar=${encodeURIComponent(userAvatarUrl)}&t=${ts}`;
     });
   </script>
 </body>
