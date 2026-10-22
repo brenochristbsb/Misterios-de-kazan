@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import json
 import os
+import random
 import time
 from dataclasses import asdict
 from functools import wraps
@@ -11,6 +12,7 @@ import telebot
 from flask import Flask, request, jsonify, send_from_directory, g
 
 import banco
+import cidade
 import dados
 import sistema_historias as hist
 from bot import bot, TOKEN
@@ -203,6 +205,7 @@ def create_app():
                 else:
                     banco.salvar_progresso(con, j["id"], saga_id, cap.id, True)
                 recompensa = {"exp": rec.get("exp", 0), "moedas": rec.get("moedas", 0)}
+                banco.contar(con, j["id"], "capitulo")
                 subiu = nivel_novo > nivel_antes
                 if nivel_novo >= 5:
                     c = banco.conceder_conquista(con, j["id"], "nivel_5")
@@ -217,6 +220,131 @@ def create_app():
                 "subiu_nivel": subiu,
                 "conquistas": conquistas,
             })
+
+    # --- Cidade ---
+    @app.route("/api/cidade")
+    def api_cidade():
+        return jsonify({
+            "locais": cidade.LOCAIS, "refeicoes": cidade.REFEICOES, "rumores": cidade.RUMORES,
+            "energia_max": cidade.ENERGIA_MAX, "min_por_energia": cidade.MIN_POR_ENERGIA,
+            "areas": cidade.AREAS, "taxa_eter": cidade.TAXA_ETER, "custo_explorar": cidade.CUSTO_EXPLORAR,
+        })
+
+    @app.route("/api/taverna/refeicao", methods=["POST"])
+    @exige_login
+    def api_refeicao():
+        corpo = request.get_json(silent=True) or {}
+        ref = next((r for r in cidade.REFEICOES if r["id"] == corpo.get("id")), None)
+        if not ref:
+            return erro("Refeição inválida.")
+        with banco.db() as con:
+            j = banco.obter_ou_criar_jogador(con, g.tg_user["id"], g.tg_user.get("first_name"))
+            if j["energia"] >= cidade.ENERGIA_MAX:
+                return erro("Sua energia já está cheia.")
+            if j["moedas"] < ref["custo"]:
+                return erro("Moedas insuficientes.")
+            nova = min(cidade.ENERGIA_MAX, j["energia"] + ref["energia"])
+            con.execute("UPDATE players SET energia = ?, moedas = moedas - ? WHERE id = ?",
+                        (nova, ref["custo"], j["id"]))
+            banco.contar(con, j["id"], "comer")
+            j2 = con.execute("SELECT * FROM players WHERE id = ?", (j["id"],)).fetchone()
+            return jsonify({"jogador": banco.jogador_dict(j2), "energia_ganha": nova - j["energia"]})
+
+    # --- Locais da cidade ---
+    def _jogador(con):
+        return banco.obter_ou_criar_jogador(con, g.tg_user["id"], g.tg_user.get("first_name"))
+
+    @app.route("/api/avisos")
+    @exige_login
+    def api_avisos():
+        with banco.db() as con:
+            j = _jogador(con)
+            av = []
+            if j["energia"] >= cidade.CUSTO_EXPLORAR:
+                av.append("portal")
+            if any(m["progresso"] >= m["meta"] and not m["coletada"] for m in banco.missoes_do_dia(con, j["id"])):
+                av.append("missoes")
+            return jsonify(av)
+
+    @app.route("/api/missoes")
+    @exige_login
+    def api_missoes():
+        with banco.db() as con:
+            return jsonify(banco.missoes_do_dia(con, _jogador(con)["id"]))
+
+    @app.route("/api/missoes/<mid>/coletar", methods=["POST"])
+    @exige_login
+    def api_coletar(mid):
+        with banco.db() as con:
+            j = _jogador(con)
+            m = next((m for m in banco.missoes_do_dia(con, j["id"]) if m["id"] == mid), None)
+            if not m:
+                return erro("Missão não encontrada.", 404)
+            if m["coletada"] or m["progresso"] < m["meta"]:
+                return erro("Esta missão não está disponível para coleta.", 403)
+            banco.contar(con, j["id"], f"coletada:{mid}")
+            subiu, conq = banco.conceder(con, j["id"], m["exp"], m["moedas"])
+            j2 = con.execute("SELECT * FROM players WHERE id = ?", (j["id"],)).fetchone()
+            return jsonify({"jogador": banco.jogador_dict(j2), "subiu_nivel": subiu, "conquistas": conq})
+
+    @app.route("/api/conquistas")
+    @exige_login
+    def api_conquistas():
+        with banco.db() as con:
+            j = _jogador(con)
+            rows = con.execute(
+                "SELECT c.*, (SELECT 1 FROM conquistas_jogador cj WHERE cj.conquista_id = c.id AND cj.player_id = ?) AS ok "
+                "FROM conquistas c ORDER BY c.id", (j["id"],)).fetchall()
+            return jsonify([{"nome": r["nome"], "descricao": r["descricao"], "icone": r["icone"],
+                             "recompensa_tipo": r["recompensa_tipo"], "recompensa_valor": r["recompensa_valor"],
+                             "conquistada": bool(r["ok"])} for r in rows])
+
+    @app.route("/api/banco/converter", methods=["POST"])
+    @exige_login
+    def api_converter():
+        qtd = (request.get_json(silent=True) or {}).get("qtd")
+        if qtd not in (1, 5):
+            return erro("Quantidade inválida.")
+        with banco.db() as con:
+            j = _jogador(con)
+            custo = cidade.TAXA_ETER * qtd
+            if j["moedas"] < custo:
+                return erro("Moedas insuficientes.")
+            con.execute("UPDATE players SET moedas = moedas - ?, moedas_eter = moedas_eter + ? WHERE id = ?", (custo, qtd, j["id"]))
+            j2 = con.execute("SELECT * FROM players WHERE id = ?", (j["id"],)).fetchone()
+            return jsonify({"jogador": banco.jogador_dict(j2)})
+
+    @app.route("/api/portal/explorar", methods=["POST"])
+    @exige_login
+    def api_explorar():
+        with banco.db() as con:
+            j = _jogador(con)
+            if j["energia"] < cidade.CUSTO_EXPLORAR:
+                return erro("Energia insuficiente.")
+            if j["energia"] >= cidade.ENERGIA_MAX:  # o relógio de recarga começa agora
+                con.execute("UPDATE players SET ultimo_energia = ? WHERE id = ?",
+                            (banco._agora().strftime("%Y-%m-%d %H:%M:%S"), j["id"]))
+            con.execute("UPDATE players SET energia = energia - ? WHERE id = ?", (cidade.CUSTO_EXPLORAR, j["id"]))
+            exp, moedas, eter = random.randint(5, 15), random.randint(5, 20), 1 if random.random() < 0.1 else 0
+            banco.contar(con, j["id"], "explorar")
+            subiu, conq = banco.conceder(con, j["id"], exp, moedas, eter)
+            if banco.valor(con, j["id"], "explorar") >= 5:
+                c = banco.conceder_conquista(con, j["id"], "explorador")
+                if c:
+                    conq.append(c)
+            j2 = con.execute("SELECT * FROM players WHERE id = ?", (j["id"],)).fetchone()
+            return jsonify({"jogador": banco.jogador_dict(j2), "texto": random.choice(cidade.EXPLORACOES),
+                            "exp": exp, "moedas": moedas, "eter": eter, "subiu_nivel": subiu, "conquistas": conq})
+
+    @app.route("/api/ranking")
+    @exige_login
+    def api_ranking():
+        with banco.db() as con:
+            j = _jogador(con)
+            top = con.execute("SELECT nome, nivel, exp, aldeia_id FROM players WHERE aldeia_id IS NOT NULL "
+                              "ORDER BY exp DESC, id LIMIT 10").fetchall()
+            minha = con.execute("SELECT COUNT(*) + 1 AS p FROM players WHERE exp > ?", (j["exp"],)).fetchone()["p"]
+            return jsonify({"top": [dict(r) for r in top], "minha": minha})
 
     # --- Webhook do Telegram ---
     @app.route("/webhook", methods=["POST"])

@@ -55,3 +55,10 @@ INSERT OR IGNORE INTO conquistas(chave, nome, descricao, icone, recompensa_tipo,
 ('explorador', 'Explorador Iniciante', 'Explore 5 vezes', '🗺️', 'moedas_eter', 20),
 ('convidado', 'Anfitrião', 'Convide um amigo para o jogo', '🤝', 'moedas_eter', 50),
 ('nivel_5', 'Caminho do Aprendiz', 'Alcance o nível 5', '⭐', 'moedas_eter', 30);
+
+CREATE TABLE IF NOT EXISTS contadores (
+    player_id INTEGER NOT NULL REFERENCES players(id),
+    chave TEXT NOT NULL,
+    valor INTEGER DEFAULT 0,
+    PRIMARY KEY (player_id, chave)
+);

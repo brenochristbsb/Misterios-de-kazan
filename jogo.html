@@ -50,6 +50,36 @@
   button:disabled { opacity: .6; }
   button.sec { background: var(--card2); color: var(--muted); font-weight: 500; }
 
+  .mapa { position: relative; width: 100%; aspect-ratio: 360/560; border-radius: 20px; overflow: hidden; border: 1px solid #2f2459;
+    background: linear-gradient(#2b1d5e, #150f2e 45%, #0f0a1f); }
+  .mapa svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  button.pin { position: absolute; transform: translate(-50%, -50%); width: 62px; margin: 0; padding: 0; background: none; border-radius: 0; font-size: 11px; font-weight: 600; color: var(--text); }
+  button.pin:active { transform: translate(-50%, -50%) scale(.94); }
+  .pin .ico { display: flex; width: 58px; height: 58px; margin: 0 auto; border-radius: 50%; align-items: center; justify-content: center; font-size: 28px;
+    background: radial-gradient(circle at 30% 30%, #5b3fc4, #2a1f5c); border: 2px solid var(--gold); box-shadow: 0 0 18px rgba(244,201,93,.35); }
+  .pin .nome { display: block; margin-top: 4px; line-height: 1.15; text-shadow: 0 1px 3px #000; }
+  .pin.bloq { opacity: .65; } .pin.bloq .ico { filter: grayscale(.7); border-color: #4a4070; box-shadow: none; }
+  .abas { display: flex; gap: 8px; margin-bottom: 10px; }
+  button.aba { margin: 0; padding: 10px; font-size: 14px; background: var(--card2); color: var(--muted); }
+  button.aba.on { background: linear-gradient(135deg, var(--accent), #6d3df0); color: #fff; }
+  .mapa.dia { background: linear-gradient(#5b8bd9, #8f6fd1 50%, #2b1d5e); }
+  .mapa.tarde { background: linear-gradient(#e8845a, #8a3f8f 50%, #2b1d5e); }
+  .eu { position: absolute; transform: translate(-50%, -50%); font-size: 22px; transition: left .4s ease, top .4s ease; pointer-events: none; z-index: 2; }
+  .aviso { position: absolute; top: -2px; right: 6px; width: 13px; height: 13px; border-radius: 50%; background: var(--bad); border: 2px solid #fff; animation: pulso 1.4s infinite; }
+  .sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 9; background: var(--card); border-top: 1px solid var(--gold); border-radius: 20px 20px 0 0;
+    padding: 16px 16px calc(16px + env(safe-area-inset-bottom, 0px)); transform: translateY(105%); transition: transform .3s; }
+  .sheet.abre { transform: none; }
+  .sheet h2 { margin: 0 0 6px; font-size: 18px; } .sheet p { margin: 0; color: var(--muted); }
+  .pin .ico { animation: flutua 3.2s ease-in-out infinite; }
+  .pin.bloq .ico { animation: respira 4s infinite; }
+  .estrela { animation: pisca 3s infinite; }
+  .mapa path { animation: anda 2s linear infinite; }
+  @keyframes flutua { 50% { transform: translateY(-4px); } }
+  @keyframes pisca { 50% { opacity: .2; } }
+  @keyframes respira { 50% { opacity: .3; } }
+  @keyframes pulso { 50% { transform: scale(1.45); opacity: .55; } }
+  @keyframes anda { to { stroke-dashoffset: -9; } }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
   .toast { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 20px); opacity: 0; max-width: 90%; text-align: center;
     background: var(--card2); border: 1px solid var(--gold); color: var(--gold); padding: 10px 18px; border-radius: 16px; font-size: 14px;
     transition: all .3s; pointer-events: none; z-index: 10; white-space: pre-line; }
@@ -70,19 +100,21 @@
     <div class="stat"><b id="exp">0</b><span>EXP</span></div>
     <div class="stat"><b id="moedas">0</b><span>Moedas</span></div>
     <div class="stat"><b id="eter">0</b><span>Éter</span></div>
+    <div class="stat"><b id="energia">0</b><span>Energia</span></div>
   </div>
   <div class="bar" id="barraBox" style="display:none"><i id="barra"></i></div>
 
   <main id="tela"></main>
 </div>
 <div class="toast" id="toast"></div>
+<div class="sheet" id="sheet"></div>
 
 <script>
 (function () {
   var tg = window.Telegram && window.Telegram.WebApp;
   if (tg) { try { tg.ready(); tg.expand(); tg.setHeaderColor("#0f0a1f"); tg.setBackgroundColor("#0f0a1f"); } catch (e) {} }
 
-  var jogador = null, progresso = {}, aldeias = [], tradicoes = [], sagas = [];
+  var jogador = null, progresso = {}, aldeias = [], tradicoes = [], sagas = [], cidade = { locais: [], refeicoes: [], rumores: [] };
   var aldeiaEscolhida = null;
 
   function $(id) { return document.getElementById(id); }
@@ -117,6 +149,7 @@
     $("exp").textContent = jogador.exp;
     $("moedas").textContent = jogador.moedas;
     $("eter").textContent = jogador.moedas_eter;
+    $("energia").textContent = jogador.energia;
     $("barra").style.width = (jogador.exp % 100) + "%";
   }
 
@@ -132,13 +165,13 @@
       return telaErro("Abra o jogo pelo botão “Jogar Kazan” dentro do Telegram.");
     }
     $("tela").innerHTML = '<div class="card"><p>Carregando…</p></div>';
-    Promise.all([api("/api/dados"), api("/api/sagas"), api("/api/jogador")]).then(function (r) {
+    Promise.all([api("/api/dados"), api("/api/sagas"), api("/api/jogador"), api("/api/cidade")]).then(function (r) {
       aldeias = r[0].aldeias; tradicoes = r[0].tradicoes; sagas = r[1];
-      jogador = r[2].jogador; progresso = r[2].progresso;
+      jogador = r[2].jogador; progresso = r[2].progresso; cidade = r[3];
       hud();
       if (!jogador.aldeia_id) telaAldeia();
       else if (!jogador.tradicao_id) telaTradicao();
-      else telaSagas();
+      else telaCidade();
     }).catch(function (e) { telaErro(e.message || "Não foi possível carregar o jogo.", iniciar); });
   }
 
@@ -165,19 +198,146 @@
       var aldeia = jogador.aldeia_id || aldeiaEscolhida;
       if (!aldeia) return telaAldeia();
       api("/api/perfil", { method: "POST", body: { aldeia_id: aldeia, tradicao_id: id } })
-        .then(function (r) { jogador = r.jogador; haptic("success"); telaSagas(); })
+        .then(function (r) { jogador = r.jogador; haptic("success"); telaCidade(); })
         .catch(function (e) { toast(e.message); });
     });
+  }
+
+  // ---------- Cidade ----------
+  let areaAtual = "centro", avisos = [];
+
+  function telaCidade(semBuscar) {
+    hud();
+    const locais = cidade.locais.filter(l => l.area === areaAtual);
+    const h = new Date().getHours(), ceu = h >= 6 && h < 17 ? "dia" : h >= 17 && h < 19 ? "tarde" : "noite";
+    let paths = "", pins = "", astros = ceu === "noite"
+      ? '<circle cx="46" cy="44" r="20" fill="#f4c95d" opacity=".9"/><circle cx="54" cy="38" r="18" fill="#2b1d5e"/>'
+      : '<circle cx="46" cy="' + (ceu === "dia" ? 44 : 90) + '" r="20" fill="#ffe08a"/>';
+    if (ceu === "noite") [[300, 40], [250, 90], [120, 30], [330, 120], [90, 100]].forEach((e, i) =>
+      astros += `<circle class="estrela" style="animation-delay:${i * .7}s" cx="${e[0]}" cy="${e[1]}" r="1.6" fill="#fff"/>`);
+    locais.forEach((l, i) => {
+      const x = l.x * 3.6, y = l.y * 5.6;
+      paths += `<path d="M180 280 Q${(180 + x) / 2 + (y > 280 ? 18 : -18)} ${(280 + y) / 2} ${x} ${y}"/>`;
+      pins += `<button class="pin${l.pronto ? "" : " bloq"}" data-id="${l.id}" style="left:${l.x}%;top:${l.y}%">` +
+        `<span class="ico" style="animation-delay:${i * .4}s">${l.icone}</span>${avisos.includes(l.id) ? '<i class="aviso"></i>' : ""}</button>`;
+    });
+    $("tela").innerHTML = '<div class="abas">' + cidade.areas.map(a =>
+      `<button class="aba${a.id === areaAtual ? " on" : ""}" data-area="${a.id}">${a.icone} ${a.nome}</button>`).join("") + '</div>' +
+      `<div class="mapa ${ceu} fade"><svg viewBox="0 0 360 560" preserveAspectRatio="none">${astros}` +
+      `<g fill="none" stroke="#f4c95d" stroke-opacity=".35" stroke-width="3" stroke-dasharray="2 7" stroke-linecap="round">${paths}</g>` +
+      '<circle cx="180" cy="280" r="26" fill="#241a45" stroke="#f4c95d" stroke-opacity=".5"/><text x="180" y="289" text-anchor="middle" font-size="26">⛲</text></svg>' +
+      pins + '<div class="eu" id="eu" style="left:50%;top:50%">🧙</div></div>';
+    document.querySelectorAll(".aba").forEach(b => b.onclick = () => { areaAtual = b.dataset.area; fecharSheet(); telaCidade(); });
+    document.querySelectorAll(".pin").forEach(b => b.onclick = e => { e.stopPropagation(); tocarLocal(locais.find(l => l.id === b.dataset.id)); });
+    $("tela").querySelector(".mapa").onclick = fecharSheet;
+    if (semBuscar !== true) api("/api/avisos").then(a => {
+      if (JSON.stringify(a) !== JSON.stringify(avisos)) { avisos = a; if (document.querySelector(".mapa")) telaCidade(true); }
+    }).catch(() => {});
+  }
+
+  function fecharSheet() { $("sheet").classList.remove("abre"); }
+
+  function tocarLocal(l) {
+    $("eu").style.left = l.x + "%"; $("eu").style.top = l.y + "%";   // o personagem anda até o local
+    setTimeout(() => {
+      $("sheet").innerHTML = `<h2>${l.icone} ${esc(l.nome)}</h2><p>${esc(l.descricao)}</p>` +
+        `<button id="entrar"${l.pronto ? "" : " disabled"}>${l.pronto ? "Entrar" : "🌫️ Encoberto pela névoa — em breve"}</button>`;
+      $("sheet").classList.add("abre");
+      $("entrar").onclick = () => { fecharSheet(); abrirLocal(l.id); };
+    }, 400);
+  }
+
+  function abrirLocal(id) {
+    ({ academia: telaSagas, taverna: telaTaverna, casa: telaCasa, missoes: telaMissoes, conquistas: telaConquistas,
+       banco: telaBanco, portal: telaPortal, praca: telaPraca })[id]();
+  }
+
+  function pagina(corpo) {
+    $("tela").innerHTML = corpo + '<button class="sec" id="cid">🗺️ Voltar à cidade</button>';
+    $("cid").onclick = () => telaCidade();
+  }
+  function aplicar(r) {
+    jogador = r.jogador; hud();
+    const m = [];
+    if (r.subiu_nivel) m.push("⭐ Nível " + jogador.nivel + "!");
+    (r.conquistas || []).forEach(c => m.push(c.icone + " " + c.nome));
+    if (m.length) { toast(m.join("\n"), 3200); haptic("success"); }
+  }
+  function acao(url, corpo, depois) { api(url, { method: "POST", body: corpo }).then(r => { aplicar(r); depois(r); }).catch(e => toast(e.message)); }
+
+  function telaMissoes() {
+    api("/api/missoes").then(ms => {
+      pagina('<div class="titulo-secao">📜 Missões de hoje</div>' + ms.map(m => {
+        const pronta = m.progresso >= m.meta;
+        return `<div class="card"><h2>${esc(m.nome)}</h2><p>${esc(m.descricao)} (${m.progresso}/${m.meta})</p><p class="reward">+${m.exp} EXP · +${m.moedas} 🪙</p>` +
+          `<button data-m="${m.id}"${pronta && !m.coletada ? "" : " disabled"}>${m.coletada ? "✔ Coletada" : pronta ? "Coletar" : "Em andamento"}</button></div>`;
+      }).join(""));
+      document.querySelectorAll("[data-m]").forEach(b => b.onclick = () => acao("/api/missoes/" + b.dataset.m + "/coletar", {}, telaMissoes));
+    }).catch(e => telaErro(e.message, telaMissoes));
+  }
+
+  function telaConquistas() {
+    api("/api/conquistas").then(cs => pagina('<div class="titulo-secao">🏅 Conquistas</div>' + cs.map(c =>
+      `<div class="card" style="opacity:${c.conquistada ? 1 : .55}"><h2>${c.icone} ${esc(c.nome)}</h2><p>${esc(c.descricao)}</p>` +
+      `<span class="tag${c.conquistada ? " done" : ""}">${c.conquistada ? "✔ Conquistada" : "🔒 +" + c.recompensa_valor + " " + c.recompensa_tipo}</span></div>`).join("")))
+      .catch(e => telaErro(e.message, telaConquistas));
+  }
+
+  function telaBanco() {
+    hud();
+    pagina(`<div class="card"><h2>🏦 Banco do Éter</h2><p>Troque moedas por Éter, a moeda rara. Taxa: ${cidade.taxa_eter} 🪙 = 1 Éter.</p></div>` +
+      [1, 5].map(q => `<button data-q="${q}"${jogador.moedas < q * cidade.taxa_eter ? " disabled" : ""}>Converter ${q} Éter (${q * cidade.taxa_eter} 🪙)</button>`).join(""));
+    document.querySelectorAll("[data-q]").forEach(b => b.onclick = () => acao("/api/banco/converter", { qtd: +b.dataset.q }, () => { toast("✨ +" + b.dataset.q + " Éter"); telaBanco(); }));
+  }
+
+  function telaPortal(txt) {
+    hud();
+    pagina(`<div class="card"><h2>🌀 Portal das Brumas</h2><p>Explorar custa ${cidade.custo_explorar} ⚡ (você tem ${jogador.energia}).</p>${txt ? `<p class="reward">${txt}</p>` : ""}</div>` +
+      `<button id="go"${jogador.energia < cidade.custo_explorar ? " disabled" : ""}>🌀 Explorar</button>`);
+    $("go").onclick = () => acao("/api/portal/explorar", {}, r =>
+      telaPortal(esc(r.texto) + "<br>+" + r.exp + " EXP · +" + r.moedas + " 🪙" + (r.eter ? " · +1 Éter ✨" : "")));
+  }
+
+  function telaPraca() {
+    api("/api/ranking").then(r => pagina('<div class="titulo-secao">🏘️ Ranking · você está em ' + r.minha + 'º</div>' + r.top.map((p, i) =>
+      `<div class="card"><h2>${i + 1}º ${esc(p.nome)}</h2><p>Nível ${p.nivel} · ${p.exp} EXP · ${esc(nomeDe(aldeias, p.aldeia_id))}</p></div>`).join("")))
+      .catch(e => telaErro(e.message, telaPraca));
+  }
+
+  function telaCasa() {
+    $("tela").innerHTML = '<div class="card perfil fade"><h2>🏠 ' + esc(jogador.nome) + '</h2><p>' + esc(nomeDe(aldeias, jogador.aldeia_id)) +
+      '</p><p>' + esc(nomeDe(tradicoes, jogador.tradicao_id)) + '</p><p style="margin-top:8px">Código de convite: <b>' +
+      esc(jogador.codigo_convite) + '</b></p><button class="sec" id="cid">🗺️ Voltar à cidade</button></div>';
+    $("cid").onclick = telaCidade;
+  }
+
+  function telaTaverna() {
+    hud();
+    var r = cidade.rumores, cheia = jogador.energia >= cidade.energia_max;
+    var html = '<div class="card fade"><h2>🍺 Taverna da Lua</h2><p>Energia: <b>' + jogador.energia + '/' + cidade.energia_max +
+      '</b> · recupera 1 a cada ' + cidade.min_por_energia + ' min.</p></div>';
+    cidade.refeicoes.forEach(function (f) {
+      var pobre = jogador.moedas < f.custo;
+      html += '<div class="card fade"><h2>' + esc(f.nome) + '</h2><p>+' + f.energia + ' ⚡ · ' + f.custo + ' 🪙</p><button data-id="' + f.id + '"' +
+        (cheia || pobre ? " disabled" : "") + '>' + (cheia ? "Energia cheia" : pobre ? "Moedas insuficientes" : "Comprar") + '</button></div>';
+    });
+    html += '<div class="card fade"><p>💬 ' + esc(r[Math.floor(Math.random() * r.length)]) + '</p></div><button class="sec" id="cid">🗺️ Voltar à cidade</button>';
+    $("tela").innerHTML = html;
+    Array.prototype.forEach.call(document.querySelectorAll("button[data-id]"), function (b) {
+      b.onclick = function () {
+        b.disabled = true;
+        api("/api/taverna/refeicao", { method: "POST", body: { id: b.getAttribute("data-id") } })
+          .then(function (x) { jogador = x.jogador; haptic("success"); toast("⚡ +" + x.energia_ganha + " energia"); telaTaverna(); })
+          .catch(function (e) { toast(e.message); telaTaverna(); });
+      };
+    });
+    $("cid").onclick = telaCidade;
   }
 
   // ---------- Sagas ----------
   function telaSagas() {
     hud();
-    var html = '<div class="card perfil fade"><h2>' + esc(jogador.nome) + '</h2>' +
-      '<p>' + esc(nomeDe(aldeias, jogador.aldeia_id)) + '</p>' +
-      '<p>' + esc(nomeDe(tradicoes, jogador.tradicao_id)) + '</p>' +
-      '<p style="margin-top:8px">Código de convite: <b>' + esc(jogador.codigo_convite) + '</b></p></div>' +
-      '<div class="titulo-secao">Sagas</div>';
+    var html = '<div class="titulo-secao">🏛️ Grande Academia</div>';
     sagas.forEach(function (s) {
       var p = progresso[s.id], total = s.capitulos.length, feitos = 0, rotulo = "Nova jornada", classe = "";
       if (p) {
@@ -188,7 +348,9 @@
       html += '<div class="card opcao fade" data-id="' + esc(s.id) + '"><h2>' + esc(s.titulo) + '</h2><p>' + esc(s.descricao) +
         '</p><span class="tag' + classe + '">' + rotulo + '</span></div>';
     });
+    html += '<button class="sec" id="cid">🗺️ Voltar à cidade</button>';
     $("tela").innerHTML = html;
+    $("cid").onclick = telaCidade;
     Array.prototype.forEach.call(document.querySelectorAll(".opcao"), function (el) {
       el.onclick = function () { abrirSaga(el.getAttribute("data-id")); };
     });
