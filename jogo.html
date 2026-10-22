@@ -80,6 +80,17 @@
   @keyframes pulso { 50% { transform: scale(1.45); opacity: .55; } }
   @keyframes anda { to { stroke-dashoffset: -9; } }
   @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+  .item { border-width: 2px; }
+  .itemtop { display: flex; gap: 12px; align-items: center; margin-bottom: 8px; }
+  .itemtop h2 { margin: 0; font-size: 16px; }
+  .itemico { flex: none; width: 54px; height: 54px; border-radius: 14px; border: 2px solid; display: flex; align-items: center; justify-content: center; font-size: 28px; overflow: hidden; }
+  .itemico img { width: 100%; height: 100%; object-fit: cover; }
+  .rar { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; }
+  .muted { color: var(--muted); font-size: 12px; }
+  .bonus { font-weight: 700; margin-top: 6px !important; }
+  .chips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 6px; margin-bottom: 6px; }
+  button.chip { width: auto; flex: none; margin: 0; padding: 8px 12px; font-size: 13px; background: var(--card2); color: var(--muted); font-weight: 500; border-radius: 99px; }
+  button.chip.on { background: linear-gradient(135deg, var(--accent), #6d3df0); color: #fff; }
   .toast { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 20px); opacity: 0; max-width: 90%; text-align: center;
     background: var(--card2); border: 1px solid var(--gold); color: var(--gold); padding: 10px 18px; border-radius: 16px; font-size: 14px;
     transition: all .3s; pointer-events: none; z-index: 10; white-space: pre-line; }
@@ -249,7 +260,7 @@
 
   function abrirLocal(id) {
     ({ academia: telaSagas, taverna: telaTaverna, casa: telaCasa, missoes: telaMissoes, conquistas: telaConquistas,
-       banco: telaBanco, portal: telaPortal, praca: telaPraca })[id]();
+       banco: telaBanco, portal: telaPortal, praca: telaPraca, mercado: telaMercado, ferraria: telaFerraria })[id]();
   }
 
   function pagina(corpo) {
@@ -304,11 +315,77 @@
       .catch(e => telaErro(e.message, telaPraca));
   }
 
+  // ---------- Itens: cartões, Mochila, Mercado e Ferraria ----------
+  const NOME_CAT = { arma: "⚔️ Arma", armadura: "🛡️ Armadura", amuleto: "📿 Amuleto", pet: "🐾 Pet", consumivel: "🧪 Consumível" };
+  const CATS = [["todos", "Todos"], ["arma", "⚔️ Armas"], ["armadura", "🛡️ Armaduras"], ["amuleto", "📿 Amuletos"], ["pet", "🐾 Pets"], ["consumivel", "🧪 Consumíveis"]];
+  const FAIXAS = [[0, 100, "Todos os níveis"], [1, 20, "Nv 1–20"], [21, 40, "Nv 21–40"], [41, 60, "Nv 41–60"], [61, 80, "Nv 61–80"], [81, 100, "Nv 81–100"]];
+  let fCat = "arma", fNiv = 0, restaurar = null;
+
+  function bonusTxt(b, m) {
+    const n = { exp: "EXP", moedas: "moedas", eter: "chance de Éter" };
+    return Object.keys(b || {}).map(k => "+" + Math.round(b[k] * (m || 1) * 10) / 10 + "% " + n[k]).join(" · ");
+  }
+  function efeitoTxt(e) {
+    return Object.keys(e || {}).map(k => "+" + e[k] + (k === "energia" ? " ⚡" : k === "exp" ? " EXP" : " 🪙")).join(" · ");
+  }
+  function cartaoItem(i, botoes, mult) {
+    const r = cidade.raridades.find(x => x.id === i.raridade) || { cor: "#9aa4b2", nome: "" };
+    const st = { ataque: "⚔️", defesa: "🛡️", vida: "❤️" };
+    const stats = Object.keys(i.stats || {}).map(k => st[k] + " " + i.stats[k]).join("   ");
+    return `<div class="card item" style="border-color:${r.cor};box-shadow:0 0 12px ${r.cor}33">` +
+      `<div class="itemtop"><span class="itemico" style="border-color:${r.cor};background:radial-gradient(circle at 30% 30%,${r.cor}55,#1a1333)">` +
+      `${i.imagem ? `<img src="${esc(i.imagem)}" alt="">` : i.icone}</span>` +
+      `<div><h2>${esc(i.nome)}${i.nivel ? " ✨+" + i.nivel : ""}</h2><span class="rar" style="color:${r.cor}">${r.nome}</span>` +
+      ` <span class="muted">· ${NOME_CAT[i.categoria]} · Nv ${i.nivel_min}</span></div></div>` +
+      (stats ? `<p>${stats}</p>` : "") +
+      (i.bonus ? `<p class="bonus" style="color:${r.cor}">${bonusTxt(i.bonus, mult)} ao explorar</p>` : "") +
+      (i.efeito ? `<p class="bonus" style="color:${r.cor}">${efeitoTxt(i.efeito)}</p>` : "") + (botoes || "") + "</div>";
+  }
+
   function telaCasa() {
-    $("tela").innerHTML = '<div class="card perfil fade"><h2>🏠 ' + esc(jogador.nome) + '</h2><p>' + esc(nomeDe(aldeias, jogador.aldeia_id)) +
-      '</p><p>' + esc(nomeDe(tradicoes, jogador.tradicao_id)) + '</p><p style="margin-top:8px">Código de convite: <b>' +
-      esc(jogador.codigo_convite) + '</b></p><button class="sec" id="cid">🗺️ Voltar à cidade</button></div>';
-    $("cid").onclick = telaCidade;
+    api("/api/inventario").then(its => {
+      its.sort((a, b) => CATS.findIndex(c => c[0] === a.categoria) - CATS.findIndex(c => c[0] === b.categoria));
+      pagina(`<div class="card perfil"><h2>🏠 ${esc(jogador.nome)}</h2><p>${esc(nomeDe(aldeias, jogador.aldeia_id))}</p><p>${esc(nomeDe(tradicoes, jogador.tradicao_id))}</p>` +
+        `<p style="margin-top:8px">Código de convite: <b>${esc(jogador.codigo_convite)}</b></p></div><div class="titulo-secao">🎒 Mochila</div>` +
+        (its.length ? its.map(i => {
+          const eq = i.tipo === "equip";
+          return cartaoItem(i, `<button data-u="${i.id}" data-t="${eq ? "equipar" : "usar"}">${eq ? (i.equipado ? "✔ Equipado (tocar remove)" : "Equipar") : "Usar" + (i.qtd > 1 ? " (×" + i.qtd + ")" : "")}</button>`, 1 + i.nivel);
+        }).join("") : '<div class="card"><p>Vazia. Visite o Mercado das Sombras, nos Arredores.</p></div>'));
+      document.querySelectorAll("[data-u]").forEach(b => b.onclick = () => acao("/api/inventario/" + b.dataset.t, { id: b.dataset.u }, telaCasa));
+    }).catch(e => telaErro(e.message, telaCasa));
+  }
+
+  function telaMercado() {
+    api("/api/mercado").then(its => {
+      const f = FAIXAS[fNiv];
+      const lista = its.filter(i => (fCat === "todos" || i.categoria === fCat) && i.nivel_min >= f[0] && i.nivel_min <= f[1]);
+      pagina('<div class="titulo-secao">🏪 Mercado das Sombras · ' + lista.length + ' itens</div>' +
+        '<div class="chips">' + CATS.map(c => `<button class="chip${c[0] === fCat ? " on" : ""}" data-cat="${c[0]}">${c[1]}</button>`).join("") + "</div>" +
+        '<div class="chips">' + FAIXAS.map((x, k) => `<button class="chip${k === fNiv ? " on" : ""}" data-niv="${k}">${x[2]}</button>`).join("") + "</div>" +
+        (lista.length ? lista.map(i => {
+          const tem = i.tipo === "equip" && i.qtd > 0, trava = jogador.nivel < i.nivel_min;
+          return cartaoItem(i, `<button data-c="${i.id}"${tem || trava || jogador.moedas < i.preco ? " disabled" : ""}>` +
+            `${tem ? "Já possui" : trava ? "🔒 Requer nível " + i.nivel_min : "Comprar · " + i.preco + " 🪙"}</button>` +
+            (i.qtd ? `<button class="sec" data-v="${i.id}">Vender${i.qtd > 1 ? " (×" + i.qtd + ")" : ""} · ${i.venda} 🪙</button>` : ""));
+        }).join("") : '<div class="card"><p>Nenhum item nesta combinação.</p></div>'));
+      document.querySelectorAll("[data-cat]").forEach(b => b.onclick = () => { fCat = b.dataset.cat; telaMercado(); });
+      document.querySelectorAll("[data-niv]").forEach(b => b.onclick = () => { fNiv = +b.dataset.niv; telaMercado(); });
+      const mexer = (sel, url) => document.querySelectorAll(sel).forEach(b => b.onclick = () => {
+        const y = window.scrollY; acao(url, { id: b.dataset.c || b.dataset.v }, () => { restaurar = y; telaMercado(); });
+      });
+      mexer("[data-c]", "/api/mercado/comprar"); mexer("[data-v]", "/api/mercado/vender");
+      if (restaurar !== null) { window.scrollTo(0, restaurar); restaurar = null; }
+    }).catch(e => telaErro(e.message, telaMercado));
+  }
+
+  function telaFerraria() {
+    api("/api/ferraria").then(its => {
+      pagina('<div class="titulo-secao">🔨 Ferraria · melhorias até +' + cidade.max_melhoria + '</div>' + (its.length ? its.map(i =>
+        cartaoItem(i, `<button data-f="${i.id}"${i.custo === null || jogador.moedas < i.custo ? " disabled" : ""}>` +
+          `${i.custo === null ? "Nível máximo" : "Melhorar · " + i.custo + " 🪙"}</button>`, 1 + i.nivel)).join("")
+        : '<div class="card"><p>Você ainda não tem equipamentos. Compre um no Mercado das Sombras.</p></div>'));
+      document.querySelectorAll("[data-f]").forEach(b => b.onclick = () => acao("/api/ferraria/melhorar", { id: b.dataset.f }, () => { toast("🔨 Melhorado!"); telaFerraria(); }));
+    }).catch(e => telaErro(e.message, telaFerraria));
   }
 
   function telaTaverna() {

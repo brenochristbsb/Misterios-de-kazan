@@ -4,7 +4,7 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 
-from cidade import ENERGIA_MAX, MIN_POR_ENERGIA, MISSOES
+from cidade import ENERGIA_MAX, MIN_POR_ENERGIA, MISSOES, ITENS
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.environ.get("DB_PATH", os.path.join(BASE_DIR, "kazan.db"))
@@ -181,3 +181,26 @@ def missoes_do_dia(con, jogador_id):
          "coletada": valor(con, jogador_id, f"{d}:coletada:{m['id']}") > 0}
         for m in MISSOES
     ]
+
+
+# ---------------- Inventário ----------------
+def add_item(con, jogador_id, item_id, n=1):
+    con.execute(
+        "INSERT INTO inventario(player_id, item_id, qtd) VALUES (?, ?, ?) "
+        "ON CONFLICT(player_id, item_id) DO UPDATE SET qtd = qtd + excluded.qtd",
+        (jogador_id, item_id, n),
+    )
+
+
+def linha_item(con, jogador_id, item_id):
+    return con.execute("SELECT * FROM inventario WHERE player_id = ? AND item_id = ? AND qtd > 0",
+                       (jogador_id, item_id)).fetchone()
+
+
+def bonus_equipado(con, jogador_id):
+    """Multiplicadores (exp, moedas) dos equipamentos equipados."""
+    mult = {"exp": 1.0, "moedas": 1.0, "eter": 0.0}
+    for r in con.execute("SELECT item_id, nivel FROM inventario WHERE player_id = ? AND equipado = 1 AND qtd > 0", (jogador_id,)):
+        for k, v in ITENS.get(r["item_id"], {}).get("bonus", {}).items():
+            mult[k] += v * (1 + r["nivel"]) / 100
+    return mult["exp"], mult["moedas"], mult["eter"]

@@ -21,9 +21,9 @@ LOCAIS = [
     _l("banco", "Banco do Éter", "🏦", "centro", 50, 84, "Troque moedas por Éter, a moeda rara."),
     _l("portal", "Portal das Brumas", "🌀", "arredores", 50, 16, "Explore terras desconhecidas gastando energia."),
     _l("praca", "Praça das Aldeias", "🏘️", "arredores", 22, 38, "Ranking dos maiores mestres de Kazan."),
-    _l("mercado", "Mercado das Sombras", "🏪", "arredores", 78, 38, "Compre e venda itens raros.", False),
+    _l("mercado", "Mercado das Sombras", "🏪", "arredores", 78, 38, "Compre e venda itens raros."),
     _l("arena", "Arena dos Mestres", "⚔️", "arredores", 25, 62, "Desafie outros mestres em batalha.", False),
-    _l("ferraria", "Ferraria", "🔨", "arredores", 75, 62, "Melhore seus equipamentos.", False),
+    _l("ferraria", "Ferraria", "🔨", "arredores", 75, 62, "Melhore seus equipamentos."),
     _l("convites", "Salão dos Convites", "🤝", "arredores", 50, 84, "Convide amigos e ganhe recompensas.", False),
 ]
 
@@ -52,3 +52,6 @@ RUMORES = [
     "Os desaparecidos de Kazan sempre somem em noites de lua nova.",
     "Mestres de todas as aldeias viajam para cá. Ninguém sabe por quê.",
 ]
+
+# ---------------- Itens (catálogo gerado em itens.py) ----------------
+from itens import ITENS, MAX_MELHORIA, RARIDADES, custo_melhoria  # noqa: E402,F401

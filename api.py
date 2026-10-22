@@ -227,7 +227,7 @@ def create_app():
         return jsonify({
             "locais": cidade.LOCAIS, "refeicoes": cidade.REFEICOES, "rumores": cidade.RUMORES,
             "energia_max": cidade.ENERGIA_MAX, "min_por_energia": cidade.MIN_POR_ENERGIA,
-            "areas": cidade.AREAS, "taxa_eter": cidade.TAXA_ETER, "custo_explorar": cidade.CUSTO_EXPLORAR,
+            "areas": cidade.AREAS, "taxa_eter": cidade.TAXA_ETER, "custo_explorar": cidade.CUSTO_EXPLORAR, "max_melhoria": cidade.MAX_MELHORIA, "raridades": cidade.RARIDADES,
         })
 
     @app.route("/api/taverna/refeicao", methods=["POST"])
@@ -326,6 +326,10 @@ def create_app():
                             (banco._agora().strftime("%Y-%m-%d %H:%M:%S"), j["id"]))
             con.execute("UPDATE players SET energia = energia - ? WHERE id = ?", (cidade.CUSTO_EXPLORAR, j["id"]))
             exp, moedas, eter = random.randint(5, 15), random.randint(5, 20), 1 if random.random() < 0.1 else 0
+            bonus_exp, bonus_moedas, bonus_eter = banco.bonus_equipado(con, j["id"])  # equipamentos
+            exp = round(exp * bonus_exp)
+            moedas = round(moedas * bonus_moedas * (1 + j["nivel"] / 5))  # recompensa cresce com o nível
+            eter = 1 if random.random() < 0.10 + bonus_eter else 0
             banco.contar(con, j["id"], "explorar")
             subiu, conq = banco.conceder(con, j["id"], exp, moedas, eter)
             if banco.valor(con, j["id"], "explorar") >= 5:
@@ -345,6 +349,141 @@ def create_app():
                               "ORDER BY exp DESC, id LIMIT 10").fetchall()
             minha = con.execute("SELECT COUNT(*) + 1 AS p FROM players WHERE exp > ?", (j["exp"],)).fetchone()["p"]
             return jsonify({"top": [dict(r) for r in top], "minha": minha})
+
+    # --- Itens: Mercado, Mochila e Ferraria ---
+    def _resp(con, jid, **extra):
+        j2 = con.execute("SELECT * FROM players WHERE id = ?", (jid,)).fetchone()
+        return jsonify({"jogador": banco.jogador_dict(j2), **extra})
+
+    def _meus_itens(con, jid):
+        rows = con.execute("SELECT * FROM inventario WHERE player_id = ? AND qtd > 0 ORDER BY item_id", (jid,)).fetchall()
+        return [{**cidade.ITENS[r["item_id"]], "id": r["item_id"], "qtd": r["qtd"], "nivel": r["nivel"],
+                 "equipado": bool(r["equipado"])} for r in rows if r["item_id"] in cidade.ITENS]
+
+    def _item_do_corpo():
+        iid = (request.get_json(silent=True) or {}).get("id")
+        return iid, cidade.ITENS.get(iid)
+
+    @app.route("/api/inventario")
+    @exige_login
+    def api_inventario():
+        with banco.db() as con:
+            return jsonify(_meus_itens(con, _jogador(con)["id"]))
+
+    @app.route("/api/mercado")
+    @exige_login
+    def api_mercado():
+        with banco.db() as con:
+            tenho = {i["id"]: i["qtd"] for i in _meus_itens(con, _jogador(con)["id"])}
+            return jsonify([{**it, "id": k, "venda": it["preco"] // 2, "qtd": tenho.get(k, 0)} for k, it in cidade.ITENS.items()])
+
+    @app.route("/api/mercado/comprar", methods=["POST"])
+    @exige_login
+    def api_comprar():
+        iid, it = _item_do_corpo()
+        if not it:
+            return erro("Item inválido.")
+        with banco.db() as con:
+            j = _jogador(con)
+            if j["nivel"] < it["nivel_min"]:
+                return erro(f"Requer nível {it['nivel_min']}.")
+            if it["tipo"] == "equip" and banco.linha_item(con, j["id"], iid):
+                return erro("Você já possui este equipamento.")
+            if j["moedas"] < it["preco"]:
+                return erro("Moedas insuficientes.")
+            con.execute("UPDATE players SET moedas = moedas - ? WHERE id = ?", (it["preco"], j["id"]))
+            banco.add_item(con, j["id"], iid)
+            return _resp(con, j["id"])
+
+    @app.route("/api/mercado/vender", methods=["POST"])
+    @exige_login
+    def api_vender():
+        iid, it = _item_do_corpo()
+        if not it:
+            return erro("Item inválido.")
+        with banco.db() as con:
+            j = _jogador(con)
+            r = banco.linha_item(con, j["id"], iid)
+            if not r:
+                return erro("Você não tem este item.")
+            if r["equipado"]:
+                return erro("Desequipe o item antes de vender.")
+            con.execute("UPDATE players SET moedas = moedas + ? WHERE id = ?", (it["preco"] // 2, j["id"]))
+            banco.add_item(con, j["id"], iid, -1)
+            con.execute("DELETE FROM inventario WHERE player_id = ? AND qtd <= 0", (j["id"],))  # equipamento perde as melhorias
+            return _resp(con, j["id"])
+
+    @app.route("/api/inventario/usar", methods=["POST"])
+    @exige_login
+    def api_usar():
+        iid, it = _item_do_corpo()
+        if not it or it["tipo"] != "consumivel":
+            return erro("Item inválido.")
+        with banco.db() as con:
+            j = _jogador(con)
+            if not banco.linha_item(con, j["id"], iid):
+                return erro("Você não tem este item.")
+            if j["nivel"] < it["nivel_min"]:
+                return erro(f"Requer nível {it['nivel_min']}.")
+            ef, subiu, conq = it["efeito"], False, []
+            if "energia" in ef:
+                if j["energia"] >= cidade.ENERGIA_MAX:
+                    return erro("Sua energia já está cheia.")
+                con.execute("UPDATE players SET energia = ? WHERE id = ?",
+                            (min(cidade.ENERGIA_MAX, j["energia"] + ef["energia"]), j["id"]))
+            if "exp" in ef:
+                subiu, conq = banco.conceder(con, j["id"], ef["exp"])
+            banco.add_item(con, j["id"], iid, -1)
+            return _resp(con, j["id"], subiu_nivel=subiu, conquistas=conq)
+
+    @app.route("/api/inventario/equipar", methods=["POST"])
+    @exige_login
+    def api_equipar():
+        iid, it = _item_do_corpo()
+        if not it or it["tipo"] != "equip":
+            return erro("Item inválido.")
+        with banco.db() as con:
+            j = _jogador(con)
+            r = banco.linha_item(con, j["id"], iid)
+            if not r:
+                return erro("Você não tem este item.")
+            if j["nivel"] < it["nivel_min"]:
+                return erro(f"Requer nível {it['nivel_min']}.")
+            if not r["equipado"]:  # só um equipamento por espaço
+                mesmos = [k for k, v in cidade.ITENS.items() if v.get("slot") == it["slot"]]
+                con.execute("UPDATE inventario SET equipado = 0 WHERE player_id = ? AND item_id IN (%s)" % ",".join("?" * len(mesmos)),
+                            (j["id"], *mesmos))
+            con.execute("UPDATE inventario SET equipado = ? WHERE player_id = ? AND item_id = ?",
+                        (0 if r["equipado"] else 1, j["id"], iid))
+            return _resp(con, j["id"])
+
+    @app.route("/api/ferraria")
+    @exige_login
+    def api_ferraria():
+        with banco.db() as con:
+            return jsonify([{**i, "bonus_atual": list(i["bonus"].values())[0] * (1 + i["nivel"]),
+                             "custo": None if i["nivel"] >= cidade.MAX_MELHORIA else cidade.custo_melhoria(i, i["nivel"])}
+                            for i in _meus_itens(con, _jogador(con)["id"]) if i["tipo"] == "equip"])
+
+    @app.route("/api/ferraria/melhorar", methods=["POST"])
+    @exige_login
+    def api_melhorar():
+        iid, it = _item_do_corpo()
+        if not it or it["tipo"] != "equip":
+            return erro("Item inválido.")
+        with banco.db() as con:
+            j = _jogador(con)
+            r = banco.linha_item(con, j["id"], iid)
+            if not r:
+                return erro("Você não tem este equipamento.")
+            if r["nivel"] >= cidade.MAX_MELHORIA:
+                return erro("Este equipamento já está no nível máximo.")
+            custo = cidade.custo_melhoria(it, r["nivel"])
+            if j["moedas"] < custo:
+                return erro("Moedas insuficientes.")
+            con.execute("UPDATE players SET moedas = moedas - ? WHERE id = ?", (custo, j["id"]))
+            con.execute("UPDATE inventario SET nivel = nivel + 1 WHERE player_id = ? AND item_id = ?", (j["id"], iid))
+            return _resp(con, j["id"])
 
     # --- Webhook do Telegram ---
     @app.route("/webhook", methods=["POST"])
