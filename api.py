@@ -1,21 +1,53 @@
 import hashlib
 import hmac
 import json
+import logging
 import os
 import random
+import secrets
 import time
+from collections import defaultdict, deque
 from dataclasses import asdict
 from functools import wraps
 from urllib.parse import parse_qsl
 
 import telebot
+from werkzeug.exceptions import HTTPException
 from flask import Flask, request, jsonify, send_from_directory, g
 
 import banco
 import cidade
 import dados
+import itens
 import sistema_historias as hist
 from bot import bot, TOKEN
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+log = logging.getLogger("kazan")
+CHAVE_RUN = hashlib.sha256(("masmorra:" + TOKEN).encode()).digest()
+SEGREDO_WEBHOOK = hashlib.sha256(("webhook:" + TOKEN).encode()).hexdigest()[:48]  # só o Telegram sabe
+
+# Limitador simples em memória (por processo): janela deslizante de 60 s
+_acessos = defaultdict(deque)
+
+
+def excedeu(chave, maximo, janela=60):
+    agora = time.time()
+    fila = _acessos[chave]
+    while fila and fila[0] < agora - janela:
+        fila.popleft()
+    if len(fila) >= maximo:
+        return True
+    fila.append(agora)
+    if len(_acessos) > 20000:
+        for k in [k for k, v in _acessos.items() if not v or v[-1] < agora - janela]:
+            del _acessos[k]
+    return False
+
+
+def ip_cliente():
+    return (request.headers.get("X-Forwarded-For", request.remote_addr or "").split(",")[-1]).strip()
+
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
@@ -32,7 +64,7 @@ def configurar_webhook():
         return
     try:
         bot.remove_webhook()
-        bot.set_webhook(url=base.rstrip("/") + "/webhook")
+        bot.set_webhook(url=base.rstrip("/") + "/webhook", secret_token=SEGREDO_WEBHOOK)
         print("Webhook configurado em", base)
     except Exception as e:
         print("Falha ao configurar webhook:", e)
@@ -68,7 +100,11 @@ def exige_login(f):
     def wrapper(*args, **kwargs):
         user = validar_init_data(request.headers.get("X-Telegram-Init-Data", ""), TOKEN)
         if not user or "id" not in user:
+            if excedeu("ip:" + ip_cliente(), 60):
+                return erro("Muitas tentativas.", 429)
             return erro("Abra o jogo pelo Telegram.", 401)
+        if excedeu(f"u:{user['id']}", 90) or (request.method == "POST" and excedeu(f"p:{user['id']}", 40)):
+            return erro("Muitas ações seguidas. Aguarde um instante.", 429)
         g.tg_user = user
         return f(*args, **kwargs)
     return wrapper
@@ -86,7 +122,29 @@ def buscar_saga(saga_id):
 # ---------------------------------------------------------------------------
 def create_app():
     app = Flask(__name__, static_folder=STATIC_DIR)
+    app.config["MAX_CONTENT_LENGTH"] = 16 * 1024   # requisições maiores que 16 KB são recusadas
     banco.init_db()
+
+    dsn = os.environ.get("SENTRY_DSN")             # opcional: alertas de erro em tempo real
+    if dsn:
+        try:
+            import sentry_sdk
+            sentry_sdk.init(dsn=dsn, traces_sample_rate=0.0)
+        except ImportError:
+            log.warning("SENTRY_DSN definido, mas sentry-sdk não está instalado.")
+
+    @app.errorhandler(Exception)
+    def erro_geral(e):
+        if isinstance(e, HTTPException):
+            return e
+        log.exception("Erro não tratado em %s %s", request.method, request.path)
+        return erro("Erro interno. Tente novamente.", 500)
+
+    @app.after_request
+    def cabecalhos(resp):
+        resp.headers["X-Content-Type-Options"] = "nosniff"
+        resp.headers["Referrer-Policy"] = "no-referrer"
+        return resp
 
     # --- Mini App ---
     @app.route("/")
@@ -101,6 +159,12 @@ def create_app():
 
     @app.route("/saude")
     def saude():
+        try:
+            with banco.db() as con:
+                con.execute("SELECT 1").fetchone()
+        except Exception:
+            log.exception("Health check: banco indisponível")
+            return "Banco de dados indisponível", 503
         return "🤖 Mistérios de Kazan — Bot está no ar!"
 
     # --- Dados públicos ---
@@ -227,7 +291,7 @@ def create_app():
         return jsonify({
             "locais": cidade.LOCAIS, "refeicoes": cidade.REFEICOES, "rumores": cidade.RUMORES,
             "energia_max": cidade.ENERGIA_MAX, "min_por_energia": cidade.MIN_POR_ENERGIA,
-            "areas": cidade.AREAS, "taxa_eter": cidade.TAXA_ETER, "custo_explorar": cidade.CUSTO_EXPLORAR, "max_melhoria": cidade.MAX_MELHORIA, "raridades": cidade.RARIDADES,
+            "areas": cidade.AREAS, "taxa_eter": cidade.TAXA_ETER, "custo_explorar": cidade.CUSTO_EXPLORAR, "max_melhoria": cidade.MAX_MELHORIA, "raridades": cidade.RARIDADES, "custo_masmorra": cidade.CUSTO_MASMORRA,
         })
 
     @app.route("/api/taverna/refeicao", methods=["POST"])
@@ -241,11 +305,12 @@ def create_app():
             j = banco.obter_ou_criar_jogador(con, g.tg_user["id"], g.tg_user.get("first_name"))
             if j["energia"] >= cidade.ENERGIA_MAX:
                 return erro("Sua energia já está cheia.")
-            if j["moedas"] < ref["custo"]:
+            custo = round(ref["custo"] * (1 + j["nivel"] / 5))   # preço sobe com o nível
+            if j["moedas"] < custo:
                 return erro("Moedas insuficientes.")
             nova = min(cidade.ENERGIA_MAX, j["energia"] + ref["energia"])
             con.execute("UPDATE players SET energia = ?, moedas = moedas - ? WHERE id = ?",
-                        (nova, ref["custo"], j["id"]))
+                        (nova, custo, j["id"]))
             banco.contar(con, j["id"], "comer")
             j2 = con.execute("SELECT * FROM players WHERE id = ?", (j["id"],)).fetchone()
             return jsonify({"jogador": banco.jogador_dict(j2), "energia_ganha": nova - j["energia"]})
@@ -270,14 +335,15 @@ def create_app():
     @exige_login
     def api_missoes():
         with banco.db() as con:
-            return jsonify(banco.missoes_do_dia(con, _jogador(con)["id"]))
+            j = _jogador(con)
+            return jsonify(banco.missoes_do_dia(con, j["id"], j["nivel"]))
 
     @app.route("/api/missoes/<mid>/coletar", methods=["POST"])
     @exige_login
     def api_coletar(mid):
         with banco.db() as con:
             j = _jogador(con)
-            m = next((m for m in banco.missoes_do_dia(con, j["id"]) if m["id"] == mid), None)
+            m = next((m for m in banco.missoes_do_dia(con, j["id"], j["nivel"]) if m["id"] == mid), None)
             if not m:
                 return erro("Missão não encontrada.", 404)
             if m["coletada"] or m["progresso"] < m["meta"]:
@@ -325,7 +391,7 @@ def create_app():
                 con.execute("UPDATE players SET ultimo_energia = ? WHERE id = ?",
                             (banco._agora().strftime("%Y-%m-%d %H:%M:%S"), j["id"]))
             con.execute("UPDATE players SET energia = energia - ? WHERE id = ?", (cidade.CUSTO_EXPLORAR, j["id"]))
-            exp, moedas, eter = random.randint(5, 15), random.randint(5, 20), 1 if random.random() < 0.1 else 0
+            exp, moedas, eter = banco.exp_exploracao(j["nivel"]), random.randint(5, 20), 0
             bonus_exp, bonus_moedas, bonus_eter = banco.bonus_equipado(con, j["id"])  # equipamentos
             exp = round(exp * bonus_exp)
             moedas = round(moedas * bonus_moedas * (1 + j["nivel"] / 5))  # recompensa cresce com o nível
@@ -485,9 +551,148 @@ def create_app():
             con.execute("UPDATE inventario SET nivel = nivel + 1 WHERE player_id = ? AND item_id = ?", (j["id"], iid))
             return _resp(con, j["id"])
 
+    # --- Arena ---
+    # f = força do bot em relação a você. A chance de vitória cai rápido com f (≈ 92% / 72% / 32%), por isso o intervalo é pequeno.
+    BOTS = [("Guardião de Pedra", 0.97, "🗿"), ("Duelista da Névoa", 1.0, "🥷"), ("Sombra Antiga", 1.03, "👤")]
+
+    def _escalar(meus, f):
+        return {k: round(v * f) for k, v in meus.items()}
+
+    @app.route("/api/arena")
+    @exige_login
+    def api_arena():
+        with banco.db() as con:
+            j = _jogador(con)
+            meus = banco.stats_combate(con, j["id"], j["nivel"])
+            reais = con.execute(
+                "SELECT id, nome, nivel FROM players WHERE id != ? AND aldeia_id IS NOT NULL AND nivel BETWEEN ? AND ? "
+                "ORDER BY RANDOM() LIMIT 2", (j["id"], j["nivel"] - 5, j["nivel"] + 5)).fetchall()
+            ops = [{"id": f"p{r['id']}", "nome": r["nome"], "nivel": r["nivel"], "icone": "🧙", "real": True,
+                    **banco.stats_combate(con, r["id"], r["nivel"])} for r in reais]
+            for k, (nome, f, ic) in enumerate(BOTS):
+                if len(ops) < 3:
+                    ops.append({"id": f"b{k}", "nome": nome, "nivel": j["nivel"], "icone": ic, "real": False, **_escalar(meus, f)})
+            rank = con.execute(
+                "SELECT p.nome, p.nivel, c.valor AS trofeus FROM contadores c JOIN players p ON p.id = c.player_id "
+                "WHERE c.chave = 'trofeus' AND c.valor > 0 ORDER BY c.valor DESC LIMIT 5").fetchall()
+            return jsonify({"voce": meus, "oponentes": ops, "custo": cidade.CUSTO_ARENA, "ranking": [dict(r) for r in rank],
+                            "trofeus": banco.valor(con, j["id"], "trofeus"), "vitorias": banco.valor(con, j["id"], "vitorias"),
+                            "derrotas": banco.valor(con, j["id"], "derrotas")})
+
+    @app.route("/api/arena/lutar", methods=["POST"])
+    @exige_login
+    def api_lutar():
+        oid = str((request.get_json(silent=True) or {}).get("id", ""))
+        with banco.db() as con:
+            j = _jogador(con)
+            if j["energia"] < cidade.CUSTO_ARENA:
+                return erro("Energia insuficiente.")
+            meus = banco.stats_combate(con, j["id"], j["nivel"])
+            if oid[:1] == "p" and oid[1:].isdigit():
+                r = con.execute("SELECT id, nome, nivel FROM players WHERE id = ? AND id != ? AND aldeia_id IS NOT NULL "
+                                "AND nivel BETWEEN ? AND ?", (int(oid[1:]), j["id"], j["nivel"] - 5, j["nivel"] + 5)).fetchone()
+                if not r:
+                    return erro("Oponente indisponível.")
+                op = {"nome": r["nome"], "nivel": r["nivel"], "icone": "🧙", "mult": 1.2, "real": True,
+                      **banco.stats_combate(con, r["id"], r["nivel"])}
+            elif oid in ("b0", "b1", "b2"):
+                nome, f, ic = BOTS[int(oid[1])]
+                op = {"nome": nome, "nivel": j["nivel"], "icone": ic, "mult": 1 + (f - 1) * 10, "real": False, **_escalar(meus, f)}
+            else:
+                return erro("Oponente inválido.")
+            if j["energia"] >= cidade.ENERGIA_MAX:  # o relógio de recarga começa agora
+                con.execute("UPDATE players SET ultimo_energia = ? WHERE id = ?", (banco._agora().strftime("%Y-%m-%d %H:%M:%S"), j["id"]))
+            con.execute("UPDATE players SET energia = energia - ? WHERE id = ?", (cidade.CUSTO_ARENA, j["id"]))
+
+            venceu, rodadas = banco.simular_combate(meus, op)
+            base = banco.exp_para_proximo(j["nivel"])
+            if venceu:
+                exp, moedas, delta = round(base * 0.18 * op["mult"]), round(12 * (1 + j["nivel"] / 5) * op["mult"]), (30 if op["real"] else 20)
+            else:
+                exp, moedas, delta = round(base * 0.04), 0, -10
+            delta = max(delta, -banco.valor(con, j["id"], "trofeus"))   # troféus nunca ficam negativos
+            banco.contar(con, j["id"], "trofeus", delta)
+            banco.contar(con, j["id"], "vitorias" if venceu else "derrotas")
+            if venceu:
+                banco.contar(con, j["id"], "arena_vitoria")
+            subiu, conq = banco.conceder(con, j["id"], exp, moedas)
+            if venceu:
+                c = banco.conceder_conquista(con, j["id"], "primeira_vitoria")
+                if c:
+                    conq.append(c)
+            return _resp(con, j["id"], vitoria=venceu, voce=meus, rodadas=rodadas, trofeus=banco.valor(con, j["id"], "trofeus"),
+                         oponente={k: op[k] for k in ("nome", "nivel", "icone", "ataque", "defesa", "vida")},
+                         recompensa={"exp": exp, "moedas": moedas, "trofeus": delta}, subiu_nivel=subiu, conquistas=conq)
+
+    # --- Masmorra das Brumas (ação em tempo real no celular; o servidor limita as recompensas) ---
+    def _assina(msg):
+        return hmac.new(CHAVE_RUN, msg.encode(), hashlib.sha256).hexdigest()[:24]
+
+    @app.route("/api/masmorra/iniciar", methods=["POST"])
+    @exige_login
+    def api_masmorra_iniciar():
+        try:
+            dif = int((request.get_json(silent=True) or {}).get("dif", 1))
+        except (TypeError, ValueError):
+            return erro("Dificuldade inválida.")
+        if dif not in cidade.DIF:
+            return erro("Dificuldade inválida.")
+        with banco.db() as con:
+            j = _jogador(con)
+            if j["energia"] < cidade.CUSTO_MASMORRA:
+                return erro("Energia insuficiente.")
+            if j["energia"] >= cidade.ENERGIA_MAX:
+                con.execute("UPDATE players SET ultimo_energia = ? WHERE id = ?", (banco._agora().strftime("%Y-%m-%d %H:%M:%S"), j["id"]))
+            con.execute("UPDATE players SET energia = energia - ? WHERE id = ?", (cidade.CUSTO_MASMORRA, j["id"]))
+            n = j["nivel"]
+            msg = f"{j['id']}.{dif}.{int(time.time())}.{secrets.token_hex(6)}"
+            return _resp(con, j["id"], token=msg + "." + _assina(msg), forca=cidade.DIF[dif][0],
+                         stats=banco.stats_combate(con, j["id"], n),
+                         base={"ataque": 10 + n * 3, "defesa": 5 + n * 2, "vida": 100 + n * 20})  # monstros escalam pelo NÍVEL, não pelo equipamento
+
+    @app.route("/api/masmorra/finalizar", methods=["POST"])
+    @exige_login
+    def api_masmorra_finalizar():
+        c = request.get_json(silent=True) or {}
+        p = str(c.get("token", "")).split(".")
+        if len(p) != 5 or not hmac.compare_digest(_assina(".".join(p[:4])), p[4]):
+            return erro("Token inválido.", 403)
+        try:
+            dif, inicio, ondas = int(p[1]), int(p[2]), int(c.get("ondas", 0))
+        except (TypeError, ValueError):
+            return erro("Dados inválidos.")
+        decorrido = int(time.time()) - inicio
+        if decorrido > 1800 or dif not in cidade.DIF:
+            return erro("Esta partida expirou.", 403)
+        with banco.db() as con:
+            j = _jogador(con)
+            if str(j["id"]) != p[0]:
+                return erro("Token inválido.", 403)
+            if banco.valor(con, j["id"], "run:" + p[3]):
+                return erro("Esta partida já foi encerrada.", 403)
+            banco.contar(con, j["id"], "run:" + p[3])   # cada partida só vale uma vez
+            w = max(0, min(ondas, cidade.MASMORRA_ONDAS, decorrido // 10))   # uma onda leva pelo menos ~10 s de verdade
+            venceu = bool(c.get("venceu")) and w == cidade.MASMORRA_ONDAS
+            premio = cidade.DIF[dif][1] * (1.5 if venceu else 1.0)
+            exp = round(banco.exp_para_proximo(j["nivel"]) * 0.025 * w * premio)
+            moedas = round(5 * (1 + j["nivel"] / 5) * w * premio)
+            eter = 1 if venceu and random.random() < 0.3 * dif else 0
+            item = None
+            if venceu and random.random() < 0.6:
+                iid = "pocao_energia_%d" % max(t for t in itens.NIVEIS if t <= j["nivel"])
+                banco.add_item(con, j["id"], iid)
+                item = cidade.ITENS[iid]["nome"]
+            if w:
+                banco.contar(con, j["id"], "explorar")
+            subiu, conq = banco.conceder(con, j["id"], exp, moedas, eter)
+            return _resp(con, j["id"], venceu=venceu, ondas=w, item=item, subiu_nivel=subiu, conquistas=conq,
+                         recompensa={"exp": exp, "moedas": moedas, "eter": eter})
+
     # --- Webhook do Telegram ---
     @app.route("/webhook", methods=["POST"])
     def webhook():
+        if request.headers.get("X-Telegram-Bot-Api-Secret-Token") != SEGREDO_WEBHOOK:
+            return "Proibido", 403
         if request.headers.get("content-type") == "application/json":
             update = telebot.types.Update.de_json(request.get_data().decode("utf-8"))
             bot.process_new_updates([update])

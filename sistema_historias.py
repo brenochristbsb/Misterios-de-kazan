@@ -27,7 +27,47 @@ CAPS_CAMINHO = [
     Capitulo(
         id="cap2", titulo="⭐ Sua Tradição",
         texto="Cinco mestres o aguardam em um salão circular. Existe apenas o SEU caminho.",
-        requisito={"nivel": 1}, recompensas={"exp": 80}, proximo=None
+        requisito={"nivel": 1}, recompensas={"exp": 80}, proximo="cap3"
+    ),
+    Capitulo(
+        id="cap3", titulo="📚 A Biblioteca Proibida",
+        texto="No último andar da Academia, atrás de uma estante que range sozinha, você encontra o diário de um mestre desaparecido. A última página diz: O Éter não é apenas poder. É memória. E alguém está colhendo as nossas.",
+        requisito={"nivel": 3}, recompensas={"exp": 150, "moedas": 40}, proximo="cap4"
+    ),
+    Capitulo(
+        id="cap4", titulo="🕰️ O Relojoeiro de Kazan",
+        texto="Numa viela escura, um relojoeiro vende relógios que não marcam as horas. Cada um está parado no instante exato em que alguém sumiu da cidade. Ele sorri ao ver o seu: Ainda não, pequeno mestre. Ainda não.",
+        requisito={"nivel": 5}, recompensas={"exp": 240, "moedas": 60}, proximo="cap5"
+    ),
+    Capitulo(
+        id="cap5", titulo="🌫️ Os Desaparecidos",
+        texto="Na Praça das Aldeias, os nomes dos desaparecidos cobrem as paredes. Todos eram mestres de uma das cinco tradições. Todos sumiram em noites de lua nova. A próxima lua nova é daqui a poucos dias.",
+        requisito={"nivel": 7}, recompensas={"exp": 320, "moedas": 80}, proximo="cap6"
+    ),
+    Capitulo(
+        id="cap6", titulo="🗝️ A Porta de Névoa",
+        texto="O Portal das Brumas guarda uma porta que ninguém abriu. Quando você se aproxima, a névoa sussurra o seu nome com a voz de alguém que você já perdeu. A porta se abre devagar.",
+        requisito={"nivel": 10}, recompensas={"exp": 440, "moedas": 110}, proximo="cap7"
+    ),
+    Capitulo(
+        id="cap7", titulo="⚖️ O Conselho dos Cinco",
+        texto="Os mestres das cinco tradições se reúnem em segredo. Quatro querem fechar a Academia até a ameaça passar. O quinto insiste em manter as portas abertas. Você percebe que ele é o único que não demonstra medo.",
+        requisito={"nivel": 13}, recompensas={"exp": 540, "moedas": 150}, proximo="cap8"
+    ),
+    Capitulo(
+        id="cap8", titulo="🌑 A Sombra do Mestre",
+        texto="Nas profundezas da torre, você encontra a sua própria sombra, mas ela se move sozinha. O Éter devolve o que toma, diz ela. A pergunta é: o que você aceitaria perder para trazer os desaparecidos de volta?",
+        requisito={"nivel": 16}, recompensas={"exp": 620, "moedas": 200}, proximo="cap9"
+    ),
+    Capitulo(
+        id="cap9", titulo="⏳ O Coração do Relógio",
+        texto="No centro da cidade existe um relógio gigante que ninguém jamais viu. Cada engrenagem guarda uma memória roubada. No topo, o relojoeiro espera por você com o relógio parado que carrega o seu nome.",
+        requisito={"nivel": 20}, recompensas={"exp": 760, "moedas": 260}, proximo="cap10"
+    ),
+    Capitulo(
+        id="cap10", titulo="🌅 O Nascer de Kazan",
+        texto="Você quebra o último ponteiro. As memórias voam como vaga-lumes e os desaparecidos retornam, um por um, confusos e vivos. O relojoeiro sorri pela última vez e some. O céu amanhece. Mas no horizonte, uma nova torre acaba de surgir... (Fim do Ato I)",
+        requisito={"nivel": 25}, recompensas={"exp": 940, "moedas": 400}, proximo=None
     )
 ]
 

@@ -1,6 +1,11 @@
 ENERGIA_MAX = 25
 MIN_POR_ENERGIA = 5      # 1 ponto de energia a cada 5 minutos
 CUSTO_EXPLORAR = 5
+CUSTO_ARENA = 4
+CUSTO_MASMORRA = 6
+MASMORRA_ONDAS = 10
+# dificuldade: (força dos monstros, multiplicador de recompensa)
+DIF = {1: (1.0, 1.0), 2: (1.6, 1.8), 3: (2.4, 3.0)}
 TAXA_ETER = 200          # moedas por 1 Éter
 
 AREAS = [
@@ -22,7 +27,7 @@ LOCAIS = [
     _l("portal", "Portal das Brumas", "🌀", "arredores", 50, 16, "Explore terras desconhecidas gastando energia."),
     _l("praca", "Praça das Aldeias", "🏘️", "arredores", 22, 38, "Ranking dos maiores mestres de Kazan."),
     _l("mercado", "Mercado das Sombras", "🏪", "arredores", 78, 38, "Compre e venda itens raros."),
-    _l("arena", "Arena dos Mestres", "⚔️", "arredores", 25, 62, "Desafie outros mestres em batalha.", False),
+    _l("arena", "Arena dos Mestres", "⚔️", "arredores", 25, 62, "Desafie outros mestres em batalha."),
     _l("ferraria", "Ferraria", "🔨", "arredores", 75, 62, "Melhore seus equipamentos."),
     _l("convites", "Salão dos Convites", "🤝", "arredores", 50, 84, "Convide amigos e ganhe recompensas.", False),
 ]
@@ -33,10 +38,12 @@ REFEICOES = [
 ]
 
 # "contador" liga a missão a uma ação do jogo (ver banco.contar)
+# exp = % da barra do nível atual (escala sozinho até o nível 100); moedas escalam com o nível
 MISSOES = [
-    {"id": "m_explorar", "nome": "Desbravador", "descricao": "Explore o Portal das Brumas", "contador": "explorar", "meta": 3, "exp": 20, "moedas": 20},
-    {"id": "m_comer", "nome": "Pausa na Taverna", "descricao": "Faça uma refeição na Taverna", "contador": "comer", "meta": 1, "exp": 5, "moedas": 10},
+    {"id": "m_explorar", "nome": "Desbravador", "descricao": "Explore o Portal das Brumas", "contador": "explorar", "meta": 3, "exp": 30, "moedas": 20},
+    {"id": "m_comer", "nome": "Pausa na Taverna", "descricao": "Faça uma refeição na Taverna", "contador": "comer", "meta": 1, "exp": 8, "moedas": 10},
     {"id": "m_capitulo", "nome": "Estudante Dedicado", "descricao": "Conclua um capítulo novo na Academia", "contador": "capitulo", "meta": 1, "exp": 30, "moedas": 10},
+    {"id": "m_arena", "nome": "Duelista", "descricao": "Vença uma batalha na Arena", "contador": "arena_vitoria", "meta": 1, "exp": 25, "moedas": 20},
 ]
 
 EXPLORACOES = [
